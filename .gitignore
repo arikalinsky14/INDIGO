@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+data/
+create_dataset/data_prompts/
+*.parquet
+*.pt
+job-outputs/
+outputs/
+.venv/
+.DS_Store
+.claude/

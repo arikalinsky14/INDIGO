@@ -1,0 +1,307 @@
+#!/usr/bin/env python3
+"""
+Training Script for INDIGO (FlexMaterialMLP).
+
+Single-stage training: RGB + per-example material pool → next-layer token.
+
+Training approach (autoregressive expansion):
+- For an N-layer structure with N < MAX_LAYERS we generate N+1 samples per
+  example (N layer-token predictions + 1 EOS prediction).
+- For an N=MAX_LAYERS structure we generate N samples (no EOS step;
+  generation stops at the length cap).
+
+Each expanded sample carries the same material pool (featurized once
+per example). The model receives:
+    rgb              : [B, 3]
+    pool_features    : [B, M_MAX, 2, NUM_LAMBDA]
+    pool_mask        : [B, M_MAX]  bool
+    pool_size        : [B]         int
+    structure_matrix : [B, M_MAX, MAX_LAYERS]
+and predicts:
+    target_token     : [B]         int in [0, VOCAB_SIZE)
+
+LR schedule: 2% linear warmup + cosine decay.
+Checkpoints: data/checkpoints/<config.tag()>/step_<N>/  and  .../latest/
+"""
+
+import argparse
+import json
+import math
+import sys
+from pathlib import Path
+from typing import Dict, List
+
+import torch
+import torch.nn as nn
+from torch.optim import AdamW
+from torch.utils.data import DataLoader
+
+_repo_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_repo_root))
+
+from src.dataset import FlexThinFilmDataset, TrainingExample, find_repo_root
+from src.material_features import featurize_pool, pad_pool_features
+from src.materials_vocab import (
+    EOS_TOKEN,
+    M_MAX,
+    MAX_LAYERS,
+    build_structure_matrix,
+    encode_layer,
+)
+from src.model import FlexMaterialMLP, ModelConfig, compute_loss
+
+
+def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
+    """Expand each example into autoregressive sub-samples and batch them.
+
+    The pool is featurized once per example and broadcast across all
+    expanded steps (same pool throughout the autoregressive trajectory).
+    """
+    all_rgb: List[torch.Tensor] = []
+    all_pool_feats: List[torch.Tensor] = []
+    all_pool_masks: List[torch.Tensor] = []
+    all_pool_sizes: List[int] = []
+    all_structures: List[torch.Tensor] = []
+    all_targets: List[int] = []
+
+    for ex in examples:
+        pool_feats_unpadded = featurize_pool(ex.pool, mode="raw_spectrum")
+        pool_feats, pool_mask = pad_pool_features(pool_feats_unpadded, m_max=M_MAX)
+        pool_size = len(ex.pool)
+        n_layers = len(ex.target_slots)
+        max_step = n_layers if n_layers < MAX_LAYERS else MAX_LAYERS - 1
+
+        for step in range(max_step + 1):
+            all_rgb.append(ex.rgb)
+            all_pool_feats.append(pool_feats)
+            all_pool_masks.append(pool_mask)
+            all_pool_sizes.append(pool_size)
+
+            if step == 0:
+                all_structures.append(torch.zeros(M_MAX, MAX_LAYERS))
+            else:
+                all_structures.append(build_structure_matrix(
+                    ex.target_slots[:step],
+                    ex.target_thicknesses[:step],
+                ))
+
+            if step < n_layers:
+                all_targets.append(encode_layer(
+                    ex.target_slots[step],
+                    ex.target_thicknesses[step],
+                ))
+            else:
+                all_targets.append(EOS_TOKEN)
+
+    return {
+        "rgb": torch.stack(all_rgb),
+        "pool_features": torch.stack(all_pool_feats),
+        "pool_mask": torch.stack(all_pool_masks),
+        "pool_size": torch.tensor(all_pool_sizes, dtype=torch.long),
+        "structure_matrix": torch.stack(all_structures),
+        "target_token": torch.tensor(all_targets, dtype=torch.long),
+    }
+
+
+def get_lr_schedule(
+    step: int, total_steps: int, base_lr: float, warmup_fraction: float = 0.02
+) -> float:
+    """Linear warmup followed by cosine decay to zero."""
+    warmup_steps = int(total_steps * warmup_fraction)
+    if step < warmup_steps:
+        return base_lr * (step + 1) / max(warmup_steps, 1)
+    decay_steps = total_steps - warmup_steps
+    decay_progress = (step - warmup_steps) / max(decay_steps, 1)
+    decay_progress = min(decay_progress, 1.0)
+    return 0.5 * base_lr * (1.0 + math.cos(math.pi * decay_progress))
+
+
+def set_lr(optimizer: torch.optim.Optimizer, lr: float) -> None:
+    for pg in optimizer.param_groups:
+        pg["lr"] = lr
+
+
+def save_checkpoint(model, config, optimizer, step, loss, save_dir: Path, lr=None):
+    save_dir.mkdir(parents=True, exist_ok=True)
+    torch.save(model.state_dict(), save_dir / "model.pt")
+    torch.save(optimizer.state_dict(), save_dir / "optimizer.pt")
+    with open(save_dir / "config.json", "w") as f:
+        json.dump(config.to_dict(), f, indent=2)
+    meta = {"step": step, "loss": loss, "tag": config.tag()}
+    if lr is not None:
+        meta["lr"] = lr
+    with open(save_dir / "meta.json", "w") as f:
+        json.dump(meta, f, indent=2)
+    print(f"[Checkpoint] Saved to {save_dir} at step {step}")
+
+
+def train_step(model, batch, device) -> Dict[str, torch.Tensor]:
+    """Move batch to device and run one forward + loss pass."""
+    batch_on_device = {
+        "rgb": batch["rgb"].to(device),
+        "pool_features": batch["pool_features"].to(device),
+        "pool_mask": batch["pool_mask"].to(device),
+        "pool_size": batch["pool_size"].to(device),
+        "structure_matrix": batch["structure_matrix"].to(device),
+        "target_token": batch["target_token"].to(device),
+    }
+    return compute_loss(model, batch_on_device)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Train INDIGO FlexMaterialMLP")
+    parser.add_argument("--data-dir", type=str, default=None,
+                        help="Path to data_prompts/ directory")
+    parser.add_argument("--split", type=str, default="train")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--limit-examples", type=int, default=None,
+                        help="Limit to first N examples (for testing/debugging)")
+
+    # Model hyperparameters
+    parser.add_argument("--feature-mode", type=str, default="raw_spectrum",
+                        choices=["raw_spectrum", "compact"])
+    parser.add_argument("--encoder-hidden", type=int, default=128)
+    parser.add_argument("--encoder-out", type=int, default=64)
+    parser.add_argument("--encoder-dropout", type=float, default=0.1)
+    parser.add_argument("--d-model", type=int, default=1024)
+    parser.add_argument("--n-layers", type=int, default=8)
+    parser.add_argument("--dropout", type=float, default=0.1)
+
+    # Training hyperparameters
+    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--lr", type=float, default=4.42e-5)
+    parser.add_argument("--weight-decay", type=float, default=0.01)
+    parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--grad-clip", type=float, default=1.0)
+    parser.add_argument("--warmup-fraction", type=float, default=0.02)
+
+    # Checkpointing
+    parser.add_argument("--save-dir", type=str, default=None)
+    parser.add_argument("--save-every", type=int, default=1000)
+    parser.add_argument("--verbose", action="store_true")
+
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[INFO] Device: {device}")
+
+    try:
+        repo_root = find_repo_root()
+    except FileNotFoundError:
+        repo_root = Path(__file__).resolve().parent.parent
+
+    data_dir = Path(args.data_dir) if args.data_dir else repo_root / "create_dataset" / "data_prompts"
+    print(f"[INFO] Loading data from {data_dir}")
+
+    dataset = FlexThinFilmDataset(
+        data_dir,
+        seed=args.seed,
+        split=args.split,
+        verbose=args.verbose,
+        limit_examples=args.limit_examples,
+    )
+
+    loader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        collate_fn=collate_fn,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+
+    config = ModelConfig(
+        feature_mode=args.feature_mode,
+        encoder_hidden=args.encoder_hidden,
+        encoder_out=args.encoder_out,
+        encoder_dropout=args.encoder_dropout,
+        d_model=args.d_model,
+        n_layers=args.n_layers,
+        dropout=args.dropout,
+        learning_rate=args.lr,
+        batch_size=args.batch_size,
+        epochs=args.epochs,
+        limit_examples=args.limit_examples,
+    )
+
+    model = FlexMaterialMLP(config).to(device)
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"[INFO] Model: FlexMaterialMLP (d_model={args.d_model}, n_layers={args.n_layers})")
+    print(f"[INFO] Model params: {n_params:,}")
+    print(f"[INFO] Config tag: {config.tag()}")
+
+    optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+
+    if args.save_dir:
+        save_dir = Path(args.save_dir)
+    else:
+        save_dir = repo_root / "data" / "checkpoints" / config.tag()
+    print(f"[INFO] Checkpoints will be saved to: {save_dir}")
+
+    n_examples = len(dataset)
+    steps_per_epoch = math.ceil(n_examples / args.batch_size)
+    total_steps = steps_per_epoch * args.epochs
+    warmup_steps = int(total_steps * args.warmup_fraction)
+    print(f"[INFO] Dataset size: {n_examples:,} examples")
+    print(f"[INFO] Steps per epoch: {steps_per_epoch:,}")
+    print(f"[INFO] Total steps: {total_steps:,}")
+    print(f"[INFO] Warmup steps: {warmup_steps:,} ({args.warmup_fraction:.1%} of total)")
+
+    global_step = 0
+    print("[INFO] Starting training...")
+
+    for epoch in range(args.epochs):
+        model.train()
+        epoch_loss = 0.0
+        epoch_acc = 0.0
+        n_batches = 0
+
+        for batch in loader:
+            current_lr = get_lr_schedule(global_step, total_steps, args.lr, args.warmup_fraction)
+            set_lr(optimizer, current_lr)
+
+            optimizer.zero_grad()
+            losses = train_step(model, batch, device)
+            losses["loss"].backward()
+
+            if args.grad_clip > 0:
+                nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+
+            optimizer.step()
+
+            epoch_loss += losses["loss"].item()
+            epoch_acc += losses["accuracy"].item()
+            n_batches += 1
+            global_step += 1
+
+            if global_step % 100 == 0:
+                phase = "warmup" if global_step <= warmup_steps else "decay"
+                print(f"  Step {global_step}: loss={losses['loss'].item():.4f}, "
+                      f"acc={losses['accuracy'].item():.3f}, "
+                      f"lr={current_lr:.2e} [{phase}]")
+
+            if global_step % args.save_every == 0:
+                save_checkpoint(
+                    model, config, optimizer, global_step,
+                    losses["loss"].item(), save_dir / f"step_{global_step}",
+                    lr=current_lr,
+                )
+
+        avg_loss = epoch_loss / max(n_batches, 1)
+        avg_acc = epoch_acc / max(n_batches, 1)
+        final_lr = get_lr_schedule(max(global_step - 1, 0), total_steps, args.lr, args.warmup_fraction)
+        print(f"[Epoch {epoch + 1}/{args.epochs}] loss={avg_loss:.4f}, "
+              f"acc={avg_acc:.3f}, final_lr={final_lr:.2e}")
+
+        save_checkpoint(model, config, optimizer, global_step, avg_loss,
+                        save_dir / "latest", lr=final_lr)
+
+    print("[INFO] Training complete!")
+    print(f"[INFO] Final checkpoint: {save_dir / 'latest'}")
+
+
+if __name__ == "__main__":
+    main()
