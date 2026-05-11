@@ -1,7 +1,0 @@
-torch
-matplotlib
-pandas
-jax
-jaxlayerlumos
-pyarrow
-openai
