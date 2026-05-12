@@ -82,6 +82,15 @@ def main() -> None:
     candidates = []
     if args.jll_materials_dir:
         candidates.append(Path(args.jll_materials_dir))
+
+    # Auto-locate the installed jaxlayerlumos package's materials dir
+    try:
+        import jaxlayerlumos
+        candidates.append(Path(jaxlayerlumos.__file__).parent / "materials")
+    except ImportError:
+        pass
+
+    # Original fallbacks for source checkouts
     candidates += [
         Path("/home/claude/JaxLayerLumos/jaxlayerlumos/materials"),
         Path("./jaxlayerlumos/materials"),
