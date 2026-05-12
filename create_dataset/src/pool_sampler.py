@@ -59,9 +59,9 @@ class PoolSamplerConfig:
     m_max: int = M_MAX
     pool_size_min: int = 4
     pool_size_max: int = M_MAX
-    p_synthetic: float = 0.8
-    synthetic_weights: Tuple[float, float, float] = (0.4, 0.2, 0.4)
-    # synthetic_weights = (perturb_real, interpolate_real, parametric_lorentz)
+    p_synthetic: float = 0.90
+    synthetic_weights: Tuple[float, float, float, float] = (0.25, 0.25, 0.15, 0.35)
+    # synthetic_weights = (perturb_small, perturb_large, interpolate_real, parametric_lorentz)
 
 
 # ============================================================================
@@ -71,8 +71,9 @@ class PoolSamplerConfig:
 
 def split_jll_real(
     real_pool: Dict[str, MaterialNK],
+    use_held_out_reals: bool = False,
 ) -> Tuple[List[MaterialNK], List[MaterialNK]]:
-    """Partition a JLL pool into (held_in, held_out) lists of real materials.
+    """Partition a JLL pool into (active, inactive) lists of real materials.
 
     Disambiguated entries (e.g. "Ag-Rakic-LD-1998") are filtered out so that
     each canonical name (e.g. "Ag") contributes exactly one material to the
@@ -84,13 +85,17 @@ def split_jll_real(
     real_pool : dict
         Output of `material_features.load_jll_directory` — keyed by both
         bare names and full filename stems.
+    use_held_out_reals : bool
+        If True, the held-out materials become the active (first) set and
+        the training materials become inactive. Used by Tier-B test set
+        generation.
 
     Returns
     -------
-    held_in : list of MaterialNK
-        Bare-name entries not in HELD_OUT_REAL_MATERIALS.
-    held_out : list of MaterialNK
-        Bare-name entries in HELD_OUT_REAL_MATERIALS.
+    active : list of MaterialNK
+        Held-in real materials (default) or held-out (when flag is True).
+    inactive : list of MaterialNK
+        The other set.
     """
     held_out_set = set(HELD_OUT_REAL_MATERIALS)
     held_in: List[MaterialNK] = []
@@ -105,6 +110,8 @@ def split_jll_real(
         else:
             held_in.append(material)
 
+    if use_held_out_reals:
+        return held_out, held_in
     return held_in, held_out
 
 
@@ -116,19 +123,23 @@ def split_jll_real(
 def _sample_synthetic(
     rng: np.random.Generator,
     held_in_real: List[MaterialNK],
-    weights: Tuple[float, float, float],
+    weights: Tuple[float, float, float, float],
 ) -> MaterialNK:
-    """Draw one synthetic material per the given strategy weights."""
-    methods = ["perturb_real", "interpolate_real", "parametric_lorentz"]
+    """Draw one synthetic material per the given 4-way strategy weights.
+
+    weights = (perturb_small, perturb_large, interpolate_real, parametric_lorentz)
+    """
+    methods = ["perturb_small", "perturb_large", "interpolate_real", "parametric_lorentz"]
     p = np.array(weights, dtype=np.float64)
     p = p / p.sum()
-    method = methods[int(rng.choice(3, p=p))]
+    method = methods[int(rng.choice(4, p=p))]
 
-    if method == "perturb_real":
+    if method in ("perturb_small", "perturb_large"):
         if not held_in_real:
-            raise ValueError("perturb_real requires a non-empty held_in_real pool")
+            raise ValueError(f"{method} requires a non-empty held_in_real pool")
         base = held_in_real[int(rng.integers(len(held_in_real)))]
-        return perturb_real(base, rng)
+        magnitude = "small" if method == "perturb_small" else "large"
+        return perturb_real(base, rng, magnitude=magnitude)
 
     if method == "interpolate_real":
         if len(held_in_real) < 2:
@@ -144,7 +155,7 @@ def sample_distractors(
     held_in_real: List[MaterialNK],
     rng: np.random.Generator,
     p_synthetic: float,
-    synthetic_weights: Tuple[float, float, float],
+    synthetic_weights: Tuple[float, float, float, float],
 ) -> List[MaterialNK]:
     """Sample n distractor materials, mixing synthetic and held-in real."""
     if n <= 0:

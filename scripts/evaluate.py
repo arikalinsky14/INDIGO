@@ -24,6 +24,7 @@ from torch.utils.data import DataLoader
 _repo_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_repo_root))
 
+from src.color_utils import srgb_to_lab
 from src.dataset import FlexThinFilmDataset, TrainingExample, find_repo_root
 from src.material_features import featurize_pool, pad_pool_features
 from src.materials_vocab import (
@@ -151,29 +152,6 @@ def denormalize_rgb_float(rgb_norm: torch.Tensor) -> List[float]:
     return [c.item() * 255.0 for c in rgb_norm]
 
 
-def sRGB_to_Lab(sRGB: Union[List[int], List[float]]) -> Tuple[float, float, float]:
-    rgb = np.array(sRGB, dtype=np.float64) / 255.0
-    linear_rgb = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
-    M = np.array([
-        [0.4124564, 0.3575761, 0.1804375],
-        [0.2126729, 0.7151522, 0.0721750],
-        [0.0193339, 0.1191920, 0.9503041],
-    ])
-    xyz = M @ linear_rgb
-    white = np.array([0.95047, 1.00000, 1.08883])
-    xyz_normalized = xyz / white
-
-    def f(t):
-        delta = 6 / 29
-        return np.where(t > delta**3, t ** (1 / 3), t / (3 * delta**2) + 4 / 29)
-
-    f_xyz = f(xyz_normalized)
-    L = 116 * f_xyz[1] - 16
-    a = 500 * (f_xyz[0] - f_xyz[1])
-    b = 200 * (f_xyz[1] - f_xyz[2])
-    return float(L), float(a), float(b)
-
-
 def ciede2000(lab1, lab2) -> float:
     L1, a1, b1 = lab1
     L2, a2, b2 = lab2
@@ -217,7 +195,7 @@ def ciede2000(lab1, lab2) -> float:
 
 
 def compute_color_difference(rgb1, rgb2) -> float:
-    return ciede2000(sRGB_to_Lab(rgb1), sRGB_to_Lab(rgb2))
+    return ciede2000(srgb_to_lab(rgb1), srgb_to_lab(rgb2))
 
 
 # ============================================================================

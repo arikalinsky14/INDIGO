@@ -47,8 +47,8 @@ from src.material_features import NUM_LAMBDA, MaterialNK
 from src.materials_vocab import normalize_rgb
 
 
-_LAYER_DIR_RX = re.compile(r"layers_(\d+)_angle_(\d+)_substrate_.*", re.IGNORECASE)
-_SEED_RX = re.compile(r"seed_(\d+)\.parquet$", re.IGNORECASE)
+_ANGLE_DIR_RX = re.compile(r"angle_(\d+)_substrate_.*", re.IGNORECASE)
+_SHARD_RX = re.compile(r"shard_(\d+)\.parquet$", re.IGNORECASE)
 
 
 # ============================================================================
@@ -58,13 +58,15 @@ _SEED_RX = re.compile(r"seed_(\d+)\.parquet$", re.IGNORECASE)
 
 @dataclass(frozen=True)
 class FileMeta:
-    """Metadata for a single parquet shard."""
+    """Metadata for a single parquet shard.
+
+    Layer count is per-row in the new schema, so it doesn't appear here.
+    """
 
     file_id: int
     path: str
-    num_layers: int
     incidence_angle: int
-    structure_seed: int
+    shard_id: int
     nrows: int
 
 
@@ -118,19 +120,18 @@ def scan_files(data_prompts_dir: Path) -> List[FileMeta]:
     if not data_prompts_dir.exists():
         return files
 
-    for layer_dir in sorted(data_prompts_dir.iterdir()):
-        if not layer_dir.is_dir():
+    for angle_dir in sorted(data_prompts_dir.iterdir()):
+        if not angle_dir.is_dir():
             continue
-        match = _LAYER_DIR_RX.match(layer_dir.name)
+        match = _ANGLE_DIR_RX.match(angle_dir.name)
         if not match:
             continue
 
-        num_layers = int(match.group(1))
-        incidence_angle = int(match.group(2))
+        incidence_angle = int(match.group(1))
 
-        for pq_file in sorted(layer_dir.glob("*.parquet")):
-            seed_match = _SEED_RX.search(pq_file.name)
-            if not seed_match:
+        for pq_file in sorted(angle_dir.glob("shard_*.parquet")):
+            shard_match = _SHARD_RX.search(pq_file.name)
+            if not shard_match:
                 continue
             try:
                 nrows = pq.ParquetFile(pq_file).metadata.num_rows
@@ -141,9 +142,8 @@ def scan_files(data_prompts_dir: Path) -> List[FileMeta]:
             files.append(FileMeta(
                 file_id=file_id,
                 path=str(pq_file),
-                num_layers=num_layers,
                 incidence_angle=incidence_angle,
-                structure_seed=int(seed_match.group(1)),
+                shard_id=int(shard_match.group(1)),
                 nrows=nrows,
             ))
             file_id += 1
