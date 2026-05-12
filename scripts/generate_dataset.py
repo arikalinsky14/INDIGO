@@ -39,7 +39,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--layer-max", type=int, default=10)
     p.add_argument("--greyscale-threshold", type=float, default=8.0)
     p.add_argument("--greyscale-keep-prob", type=float, default=0.2)
-    p.add_argument("--p-synthetic", type=float, default=0.9)
+    p.add_argument("--p-real", type=float, default=0.15,
+                   help="Per material: probability of pulling from held-in real "
+                        "instead of generating a fresh synthetic (default: 0.15)")
     p.add_argument("--pool-size-min", type=int, default=4)
     p.add_argument("--pool-size-max", type=int, default=32)
     p.add_argument("--use-held-out-reals", action="store_true",
@@ -96,7 +98,7 @@ def main() -> None:
             "--layer-max", str(args.layer_max),
             "--greyscale-threshold", str(args.greyscale_threshold),
             "--greyscale-keep-prob", str(args.greyscale_keep_prob),
-            "--p-synthetic", str(args.p_synthetic),
+            "--p-real", str(args.p_real),
             "--pool-size-min", str(args.pool_size_min),
             "--pool-size-max", str(args.pool_size_max),
             "--output-dir", str(output_dir),

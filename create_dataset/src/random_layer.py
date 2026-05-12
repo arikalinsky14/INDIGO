@@ -2,18 +2,17 @@
 Random Layer Sampler
 ====================
 
-Ported from `chroma-lite/create_dataset/src/random_layer.py`. Differences:
+Generates a thin-film structure by independently sampling each layer's
+material and thickness:
 
-- The fixed 25-material list is gone. Layer materials are drawn from a
-  caller-supplied "available" pool (held-in real + a fresh batch of
-  synthetic), regenerated per simulation run so that no run sees the
-  same synthetic distribution twice.
-- The optical-sim call goes through the new `src.optical_sim.OpticalSimulator`
-  which accepts MaterialNK objects directly.
-- Layer count per structure is sampled from a truncated Poisson distribution
-  (`LayerCountConfig`) rather than fixed.
-- The output is structured as in-memory tuples; serialisation to parquet
-  happens in `compile_datasets.py`.
+- Number of layers: truncated Poisson via `LayerCountConfig`.
+- Per layer: with probability `p_real`, pick uniformly from `held_in_real`;
+  otherwise generate a fresh synthetic material via the existing 4-way
+  strategy (`generate_synthetic_pool` with `n=1`).
+- Thicknesses: uniform over `THICKNESS_RANGE_NM` (5..200 nm in 5 nm steps).
+
+Optical-sim calls go through `src.optical_sim.OpticalSimulator`, which
+accepts MaterialNK objects directly.
 """
 
 from __future__ import annotations
@@ -56,29 +55,28 @@ class LayerCountConfig:
 
 
 class RandomLayerSimulation:
-    """Sample structures from an active-real + synthetic material pool.
+    """Sample structures by independently materializing each layer.
 
     Parameters
     ----------
     held_in_real : list of MaterialNK
-        The "active" set of real materials passed through to synthetic
-        generators. For training this is the held-in set; for Tier-B
-        test set generation it can be flipped to the held-out set
-        (`split_jll_real(use_held_out_reals=True)`).
+        The "active" set of real materials available to be drawn as a layer
+        and used to seed perturb/interpolate synthesis. For training this is
+        the held-in set; for Tier-B test set generation this is the held-out
+        set (`split_jll_real(use_held_out_reals=True)`).
     layer_count : LayerCountConfig, optional
-        Variable layer count via truncated Poisson. Mutually exclusive
-        with `num_layers`.
+        Variable layer count via truncated Poisson. Mutually exclusive with
+        `num_layers`.
     num_layers : int, optional
-        Fixed layer count (back-compat). Mutually exclusive with
-        `layer_count`.
+        Fixed layer count (back-compat). Mutually exclusive with `layer_count`.
     incidence_angle : float
         Incidence angle in degrees, passed through to the optical sim.
-    n_synthetic_per_run : int
-        How many synthetic materials to generate per call to
-        `random_materials_and_thicknesses` (drawn fresh each call).
+    p_real : float
+        Probability that each layer's material is drawn from `held_in_real`.
+        The complement is a fresh synthetic material.
     synthetic_weights : tuple of 4 floats
         Mix of (perturb_small, perturb_large, interpolate_real,
-        parametric_lorentz) for the synthetic pool.
+        parametric_lorentz) for the synthetic strategies.
     seed : int
         Base seed for the simulation RNG.
     """
@@ -89,7 +87,7 @@ class RandomLayerSimulation:
         layer_count: Optional[LayerCountConfig] = None,
         num_layers: Optional[int] = None,
         incidence_angle: float = 0,
-        n_synthetic_per_run: int = 16,
+        p_real: float = 0.15,
         synthetic_weights: Tuple[float, float, float, float] = (0.25, 0.25, 0.15, 0.35),
         seed: int = 42,
     ):
@@ -99,12 +97,14 @@ class RandomLayerSimulation:
             raise ValueError("Provide either layer_count (variable) or num_layers (fixed)")
         if layer_count is not None and num_layers is not None:
             raise ValueError("Provide layer_count OR num_layers, not both")
+        if not (0.0 <= p_real <= 1.0):
+            raise ValueError(f"p_real must be in [0, 1], got {p_real}")
 
         self.held_in_real = held_in_real
         self.layer_count = layer_count
         self._fixed_num_layers = int(num_layers) if num_layers is not None else None
         self.incidence_angle = float(incidence_angle)
-        self.n_synthetic_per_run = int(n_synthetic_per_run)
+        self.p_real = float(p_real)
         self.synthetic_weights = synthetic_weights
 
         self.seed = int(seed)
@@ -116,39 +116,23 @@ class RandomLayerSimulation:
             return self.layer_count.sample(self.rng)
         return self._fixed_num_layers
 
-    def _refresh_available_pool(self) -> List[MaterialNK]:
-        """Build a fresh (active-real + synthetic) pool for one structure."""
-        synthetic = generate_synthetic_pool(
+    def _sample_one_material(self) -> MaterialNK:
+        """One independent layer-material draw: real with prob p_real, else synthetic."""
+        if self.rng.random() < self.p_real:
+            return self.held_in_real[int(self.rng.integers(len(self.held_in_real)))]
+        return generate_synthetic_pool(
             self.held_in_real,
-            n_synthetic=self.n_synthetic_per_run,
+            n_synthetic=1,
             rng=self.rng,
             weights=self.synthetic_weights,
-        )
-        return list(self.held_in_real) + synthetic
+        )[0]
 
     def random_materials_and_thicknesses(
         self,
-        available_pool: Optional[List[MaterialNK]] = None,
     ) -> Tuple[List[MaterialNK], List[int]]:
-        """Sample materials and thicknesses for one structure.
-
-        Layer count is drawn from the configured distribution (or the
-        fixed value if `num_layers` was supplied). If `available_pool`
-        is None, a fresh pool is built from active real + a new
-        synthetic batch.
-        """
-        if available_pool is None:
-            available_pool = self._refresh_available_pool()
-
+        """Sample one structure: independent per-layer material + uniform thickness."""
         n_layers = self._sample_layer_count()
-        if len(available_pool) < n_layers:
-            raise ValueError(
-                f"available_pool has {len(available_pool)} materials but "
-                f"sampled n_layers={n_layers}"
-            )
-
-        idxs = self.rng.choice(len(available_pool), size=n_layers, replace=False)
-        layer_materials = [available_pool[int(i)] for i in idxs]
+        layer_materials = [self._sample_one_material() for _ in range(n_layers)]
         layer_thicknesses = [
             int(t) for t in self.rng.choice(THICKNESS_RANGE_NM, size=n_layers, replace=True)
         ]
@@ -203,28 +187,35 @@ if __name__ == "__main__":
     held_in, _ = split_jll_real(real_pool)
     print(f"[smoke] held_in: {len(held_in)} materials")
 
-    # Single structure with fixed layer count (back-compat).
     sim_fixed = RandomLayerSimulation(
-        held_in_real=held_in, num_layers=3, incidence_angle=0,
-        n_synthetic_per_run=8, seed=0,
+        held_in_real=held_in, num_layers=3, incidence_angle=0, p_real=0.15, seed=0,
     )
     materials, thicknesses, sRGB = sim_fixed.sample_structure()
     print(f"[smoke] fixed-count sample: layers={len(materials)}, "
           f"thicknesses={thicknesses}, sRGB={sRGB}")
     assert all(0 <= c <= 255 for c in sRGB), "sRGB out of range"
 
-    # Layer count distribution from truncated Poisson(4.5) over [2, 10].
     sim = RandomLayerSimulation(
         held_in_real=held_in,
         layer_count=LayerCountConfig(lam=4.5, min_layers=2, max_layers=10),
-        incidence_angle=0, n_synthetic_per_run=8, seed=1,
+        incidence_angle=0, p_real=0.15, seed=1,
     )
-    counts = Counter()
+    layer_counts = Counter()
+    source_counts = Counter()
     for _ in range(200):
         m, t = sim.random_materials_and_thicknesses()
-        counts[len(m)] += 1
+        layer_counts[len(m)] += 1
+        for mat in m:
+            source_counts[mat.source] += 1
     print(f"[smoke] Poisson(4.5)[2,10] histogram over 200 draws: "
-          f"{dict(sorted(counts.items()))}")
-    for k in counts:
+          f"{dict(sorted(layer_counts.items()))}")
+    for k in layer_counts:
         assert 2 <= k <= 10, f"layer count {k} out of range"
+
+    total = sum(source_counts.values())
+    print(f"[smoke] structure-layer source distribution over {total} layers:")
+    for src, count in source_counts.most_common():
+        print(f"  {src}: {count} ({100 * count / total:.1f}%)")
+    jll_frac = source_counts.get("jaxlayerlumos", 0) / max(total, 1)
+    print(f"[smoke] jaxlayerlumos share: {100 * jll_frac:.1f}% (expected ~15%)")
     print("[smoke] OK")
