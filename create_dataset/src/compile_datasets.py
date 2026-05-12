@@ -208,12 +208,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--greyscale-keep-prob", type=float, default=0.2,
                         help="Probability of keeping a greyscale row")
 
-    # Pool sampler.
+    # Pool sampler / per-layer material sampling.
     parser.add_argument("--pool-size-min", type=int, default=4)
     parser.add_argument("--pool-size-max", type=int, default=32)
-    parser.add_argument("--p-synthetic", type=float, default=0.9,
-                        help="Probability that each distractor pool slot is synthetic")
-    parser.add_argument("--n-synthetic-per-structure", type=int, default=16)
+    parser.add_argument("--p-real", type=float, default=0.15,
+                        help="Per material (structure layer OR distractor): "
+                             "probability of pulling from held-in real instead "
+                             "of generating a fresh synthetic")
 
     # Train/test set choice.
     parser.add_argument("--use-held-out-reals", action="store_true",
@@ -259,14 +260,14 @@ def main() -> None:
     pool_config = PoolSamplerConfig(
         pool_size_min=args.pool_size_min,
         pool_size_max=args.pool_size_max,
-        p_synthetic=args.p_synthetic,
+        p_real=args.p_real,
     )
 
     sim = RandomLayerSimulation(
         held_in_real=active_real,
         layer_count=layer_count,
         incidence_angle=args.incidence_angle,
-        n_synthetic_per_run=args.n_synthetic_per_structure,
+        p_real=args.p_real,
         synthetic_weights=pool_config.synthetic_weights,
         seed=structure_seed,
     )
@@ -312,7 +313,7 @@ def main() -> None:
         "layer_lambda": args.layer_lambda,
         "layer_range": [args.layer_min, args.layer_max],
         "pool_size_range": [args.pool_size_min, args.pool_size_max],
-        "p_synthetic": args.p_synthetic,
+        "p_real": args.p_real,
         "synthetic_weights": list(pool_config.synthetic_weights),
         "greyscale_threshold": args.greyscale_threshold,
         "greyscale_keep_prob": args.greyscale_keep_prob,

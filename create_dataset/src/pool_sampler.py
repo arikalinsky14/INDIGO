@@ -59,7 +59,7 @@ class PoolSamplerConfig:
     m_max: int = M_MAX
     pool_size_min: int = 4
     pool_size_max: int = M_MAX
-    p_synthetic: float = 0.90
+    p_real: float = 0.15
     synthetic_weights: Tuple[float, float, float, float] = (0.25, 0.25, 0.15, 0.35)
     # synthetic_weights = (perturb_small, perturb_large, interpolate_real, parametric_lorentz)
 
@@ -154,19 +154,24 @@ def sample_distractors(
     n: int,
     held_in_real: List[MaterialNK],
     rng: np.random.Generator,
-    p_synthetic: float,
+    p_real: float,
     synthetic_weights: Tuple[float, float, float, float],
 ) -> List[MaterialNK]:
-    """Sample n distractor materials, mixing synthetic and held-in real."""
+    """Sample n distractor materials.
+
+    Each distractor is independently a real material (drawn uniformly from
+    `held_in_real`) with probability `p_real`, otherwise a fresh synthetic
+    material. Same rule as the per-layer structure sampler.
+    """
     if n <= 0:
         return []
 
     out: List[MaterialNK] = []
     for _ in range(n):
-        if rng.random() < p_synthetic or not held_in_real:
-            out.append(_sample_synthetic(rng, held_in_real, synthetic_weights))
-        else:
+        if held_in_real and rng.random() < p_real:
             out.append(held_in_real[int(rng.integers(len(held_in_real)))])
+        else:
+            out.append(_sample_synthetic(rng, held_in_real, synthetic_weights))
     return out
 
 
@@ -216,7 +221,7 @@ def sample_pool(
         pool_size - n_required,
         held_in_real,
         rng,
-        config.p_synthetic,
+        config.p_real,
         config.synthetic_weights,
     )
 
