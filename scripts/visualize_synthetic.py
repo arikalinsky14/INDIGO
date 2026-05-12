@@ -8,7 +8,7 @@ before committing GPU time to training — catches obviously-pathological
 synthetic distributions (e.g. Lorentz oscillators producing nonsensical
 hybrids that would never appear at inference).
 
-Output: a 2x3 panel matplotlib figure saved to
+Output: a 2x4 panel matplotlib figure saved to
         outputs/synthetic_visual_check.png
 """
 
@@ -37,11 +37,16 @@ from src.synthetic_materials import (
 _REPRESENTATIVE_REAL = ["Ag", "SiO2", "TiO2", "Si3N4", "aSi", "cSi", "Al", "AZO", "GaP"]
 
 
-def _generate_perturb(n: int, real: List[MaterialNK], rng: np.random.Generator) -> List[MaterialNK]:
+def _generate_perturb(
+    n: int,
+    real: List[MaterialNK],
+    rng: np.random.Generator,
+    magnitude: str = "small",
+) -> List[MaterialNK]:
     out = []
     for _ in range(n):
         base = real[int(rng.integers(len(real)))]
-        out.append(perturb_real(base, rng))
+        out.append(perturb_real(base, rng, magnitude=magnitude))
     return out
 
 
@@ -98,18 +103,20 @@ def main() -> None:
     print(f"[INFO] {len(representatives)} representative real materials shown for context")
 
     rng = np.random.default_rng(args.seed)
-    perturbed = _generate_perturb(args.num_samples, real_held_in, rng)
+    perturbed_small = _generate_perturb(args.num_samples, real_held_in, rng, magnitude="small")
+    perturbed_large = _generate_perturb(args.num_samples, real_held_in, rng, magnitude="large")
     interpolated = _generate_interp(args.num_samples, real_held_in, rng)
     lorentz = _generate_lorentz(args.num_samples, rng)
 
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10), sharex=True)
+    fig, axes = plt.subplots(2, 4, figsize=(22, 10), sharex=True)
     fig.suptitle(
         f"Synthetic Materials vs Real ({args.num_samples} samples each)",
         fontsize=14, fontweight="bold",
     )
 
     panels = [
-        ("perturb_real", perturbed, "tab:orange"),
+        ("perturb_small", perturbed_small, "tab:orange"),
+        ("perturb_large", perturbed_large, "tab:red"),
         ("interpolate_real", interpolated, "tab:green"),
         ("parametric_lorentz", lorentz, "tab:purple"),
     ]

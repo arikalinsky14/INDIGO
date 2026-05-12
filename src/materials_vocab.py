@@ -57,8 +57,8 @@ THICKNESSES: List[int] = list(range(5, 201, 5))  # [5, 10, ..., 200]
 NUM_THICKNESSES: int = len(THICKNESSES)
 MAX_THICKNESS_NM: int = 200
 
-# Maximum number of layers in a structure — unchanged.
-MAX_LAYERS: int = 8
+# Maximum number of layers in a structure.
+MAX_LAYERS: int = 10
 
 # Derived sizes.
 NUM_LAYER_TOKENS: int = M_MAX * NUM_THICKNESSES

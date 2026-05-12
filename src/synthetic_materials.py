@@ -58,7 +58,7 @@ Usage in a training data pipeline
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 
 import numpy as np
 
@@ -112,47 +112,56 @@ def _smooth_random_curve(
     return curve
 
 
+# Amplitude presets — tune via scripts/visualize_synthetic.py if the spread
+# of either bucket looks too tame or too wild against the JLL envelope.
+_PERTURB_PRESETS = {
+    "small": dict(n_scale_amp=0.15, k_scale_amp=0.30,
+                  n_jitter_amp=0.05, k_jitter_amp=0.05),
+    "large": dict(n_scale_amp=0.40, k_scale_amp=0.75,
+                  n_jitter_amp=0.12, k_jitter_amp=0.12),
+}
+
+
 def perturb_real(
     base: MaterialNK,
     rng: np.random.Generator,
-    n_scale_amp: float = 0.15,
-    k_scale_amp: float = 0.30,
-    n_jitter_amp: float = 0.05,
-    k_jitter_amp: float = 0.05,
+    magnitude: Literal["small", "large"] = "small",
+    **overrides,
 ) -> MaterialNK:
     """Apply structured perturbation to a real material's n,k.
 
-    Two perturbations:
+    Two perturbations are composed:
     - Multiplicative smooth curve (low-frequency Fourier) — shifts the overall
       shape of the dispersion without introducing high-frequency artefacts.
     - Small white-noise jitter — breaks exact equivalence with the source.
 
-    Defaults are chosen so the output is recognisably 'in the same class' as
-    the source (e.g. perturbing Ag still yields a metal-like spectrum) but
-    never identical. Tune amplitudes upward to broaden the synthetic family.
+    `magnitude` selects an amplitude preset. `small` keeps the output
+    recognisably in the same class as the source; `large` is broader. Any
+    preset value can be overridden by keyword argument.
 
     Parameters
     ----------
     base : MaterialNK
         Source material to perturb.
     rng : np.random.Generator
-    n_scale_amp, k_scale_amp : float
-        Max fractional deviation of the smooth multiplier curve.
-    n_jitter_amp, k_jitter_amp : float
-        White-noise sigma added on top.
+    magnitude : 'small' or 'large'
+    **overrides : float
+        Override individual preset entries
+        (n_scale_amp, k_scale_amp, n_jitter_amp, k_jitter_amp).
     """
-    n_curve = 1.0 + _smooth_random_curve(rng, NUM_LAMBDA, amplitude=n_scale_amp)
-    k_curve = 1.0 + _smooth_random_curve(rng, NUM_LAMBDA, amplitude=k_scale_amp)
+    params = {**_PERTURB_PRESETS[magnitude], **overrides}
+    n_curve = 1.0 + _smooth_random_curve(rng, NUM_LAMBDA, amplitude=params["n_scale_amp"])
+    k_curve = 1.0 + _smooth_random_curve(rng, NUM_LAMBDA, amplitude=params["k_scale_amp"])
 
-    n = base.n * n_curve + rng.normal(0.0, n_jitter_amp, size=NUM_LAMBDA)
-    k = base.k * k_curve + rng.normal(0.0, k_jitter_amp, size=NUM_LAMBDA)
+    n = base.n * n_curve + rng.normal(0.0, params["n_jitter_amp"], size=NUM_LAMBDA)
+    k = base.k * k_curve + rng.normal(0.0, params["k_jitter_amp"], size=NUM_LAMBDA)
     n, k = _clip_physical(n, k)
 
     return MaterialNK(
-        name=f"perturb({base.name})",
+        name=f"perturb_{magnitude}({base.name})",
         n=n,
         k=k,
-        source="synthetic_perturb",
+        source=f"synthetic_perturb_{magnitude}",
     )
 
 
@@ -306,39 +315,42 @@ def generate_synthetic_pool(
     real_pool: List[MaterialNK],
     n_synthetic: int,
     rng: np.random.Generator,
-    weights: Tuple[float, float, float] = (0.4, 0.2, 0.4),
+    weights: Tuple[float, float, float, float] = (0.25, 0.25, 0.15, 0.35),
 ) -> List[MaterialNK]:
-    """Generate `n_synthetic` materials by mixing the three strategies.
+    """Generate `n_synthetic` materials by mixing four strategies.
 
     Parameters
     ----------
     real_pool : list of MaterialNK
-        Source pool for `perturb_real` and `interpolate_real`. Should be the
+        Source pool for `perturb_*` and `interpolate_real`. Should be the
         held-IN training subset of JLL materials (held-out reals must NOT
         appear here, otherwise validation leakage).
     n_synthetic : int
     rng : np.random.Generator
-    weights : tuple of 3 floats
-        Probabilities of (perturb_real, interpolate_real, parametric_lorentz).
-        Default favours perturb and parametric (which produce the broadest
-        diversity) over interpolate (which can be derivative).
+    weights : tuple of 4 floats
+        Probabilities of
+        (perturb_small, perturb_large, interpolate_real, parametric_lorentz).
     """
-    if not real_pool and (weights[0] > 0 or weights[1] > 0):
+    real_dependent_weight = weights[0] + weights[1] + weights[2]
+    if not real_pool and real_dependent_weight > 0:
         raise ValueError("real_pool empty but real-based strategies have positive weight")
 
-    methods = ["perturb_real", "interpolate_real", "parametric_lorentz"]
+    methods = ["perturb_small", "perturb_large", "interpolate_real", "parametric_lorentz"]
     p = np.array(weights, dtype=np.float64)
     p = p / p.sum()
 
     out: List[MaterialNK] = []
     for _ in range(n_synthetic):
-        method = methods[rng.choice(3, p=p)]
-        if method == "perturb_real":
-            base = real_pool[rng.integers(len(real_pool))]
-            out.append(perturb_real(base, rng))
+        method = methods[int(rng.choice(4, p=p))]
+        if method == "perturb_small":
+            base = real_pool[int(rng.integers(len(real_pool)))]
+            out.append(perturb_real(base, rng, magnitude="small"))
+        elif method == "perturb_large":
+            base = real_pool[int(rng.integers(len(real_pool)))]
+            out.append(perturb_real(base, rng, magnitude="large"))
         elif method == "interpolate_real":
             i, j = rng.choice(len(real_pool), size=2, replace=False)
-            out.append(interpolate_real(real_pool[i], real_pool[j], rng=rng))
+            out.append(interpolate_real(real_pool[int(i)], real_pool[int(j)], rng=rng))
         else:
             out.append(parametric_lorentz(rng))
     return out
@@ -363,10 +375,16 @@ if __name__ == "__main__":
 
     rng = np.random.default_rng(42)
 
-    print("\n[smoke] perturb_real on Ag:")
+    print("\n[smoke] perturb_real on Ag (small):")
     ag = next(m for m in real if m.name == "Ag")
     for _ in range(3):
-        s = perturb_real(ag, rng)
+        s = perturb_real(ag, rng, magnitude="small")
+        print(f"  {s.name}: n in [{s.n.min():.3f}, {s.n.max():.3f}], "
+              f"k in [{s.k.min():.3f}, {s.k.max():.3f}]")
+
+    print("\n[smoke] perturb_real on Ag (large):")
+    for _ in range(3):
+        s = perturb_real(ag, rng, magnitude="large")
         print(f"  {s.name}: n in [{s.n.min():.3f}, {s.n.max():.3f}], "
               f"k in [{s.k.min():.3f}, {s.k.max():.3f}]")
 
