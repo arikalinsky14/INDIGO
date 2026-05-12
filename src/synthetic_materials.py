@@ -112,13 +112,15 @@ def _smooth_random_curve(
     return curve
 
 
-# Amplitude presets — tune via scripts/visualize_synthetic.py if the spread
-# of either bucket looks too tame or too wild against the JLL envelope.
+# Amplitude presets — tuned against the JLL envelope via
+# scripts/visualize_synthetic.py. The jitter terms are deliberately small:
+# real materials have smooth dispersion, so any visible high-frequency noise
+# in synthetic samples is unphysical.
 _PERTURB_PRESETS = {
-    "small": dict(n_scale_amp=0.15, k_scale_amp=0.30,
-                  n_jitter_amp=0.05, k_jitter_amp=0.05),
-    "large": dict(n_scale_amp=0.40, k_scale_amp=0.75,
-                  n_jitter_amp=0.12, k_jitter_amp=0.12),
+    "small": dict(n_scale_amp=0.10, k_scale_amp=0.20,
+                  n_jitter_amp=0.02, k_jitter_amp=0.02),
+    "large": dict(n_scale_amp=0.25, k_scale_amp=0.40,
+                  n_jitter_amp=0.03, k_jitter_amp=0.03),
 }
 
 
