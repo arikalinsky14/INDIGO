@@ -25,6 +25,12 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+# Make `src.*` importable when invoked directly (e.g. by SLURM workers that
+# don't set PYTHONPATH).
+_repo_root = Path(__file__).resolve().parent.parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
 import numpy as np
 import pandas as pd
 
@@ -225,12 +231,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--jll-materials-dir", type=str, default=None)
     parser.add_argument("--max-attempts-factor", type=float, default=4.0,
                         help="Safety cap: total sampling attempts = target_rows × this")
+    parser.add_argument("--skip-existing", action="store_true",
+                        help="Exit immediately if the target shard parquet already exists")
     parser.add_argument("--verbose", action="store_true")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+
+    # Early exit if --skip-existing and shard already on disk. Useful for
+    # parallel data generation: each worker is then idempotent and resumable.
+    output_path_check = (
+        Path(args.output_dir)
+        / f"angle_{args.incidence_angle:02d}_substrate_CSi"
+        / f"shard_{args.shard_id:05d}.parquet"
+    )
+    if args.skip_existing and output_path_check.exists():
+        print(f"[skip] shard {args.shard_id}: {output_path_check} already exists")
+        return
 
     jll_dir = _find_jll_materials_dir(
         Path(args.jll_materials_dir) if args.jll_materials_dir else None
