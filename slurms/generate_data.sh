@@ -83,7 +83,7 @@ nproc
 # ============================================================================
 
 # Volume.
-TOTAL_ROWS="${TOTAL_ROWS:-2000000}"             # Total rows across all shards
+TOTAL_ROWS="${TOTAL_ROWS:-10000000}"             # Total rows across all shards
 ROWS_PER_SHARD="${ROWS_PER_SHARD:-5000}"        # Rows per shard
 START_SHARD_ID="${START_SHARD_ID:-0}"           # First shard id (use disjoint
                                                 # ranges for test sets)
@@ -106,7 +106,7 @@ USE_HELD_OUT_REALS="${USE_HELD_OUT_REALS:-0}"   # 1 for Tier-B test set
 OUTPUT_DIR="${OUTPUT_DIR:-data/train}"
 
 # Parallelism.
-PARALLEL_WORKERS="${PARALLEL_WORKERS:-${SLURM_CPUS_PER_TASK:-16}}"
+PARALLEL_WORKERS="${PARALLEL_WORKERS:-${SLURM_CPUS_PER_TASK:-32}}"
 
 # Compute shard range.
 N_SHARDS=$(( (TOTAL_ROWS + ROWS_PER_SHARD - 1) / ROWS_PER_SHARD ))
