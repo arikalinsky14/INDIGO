@@ -63,12 +63,27 @@ def _find_jll_materials_dir(override: Optional[Path]) -> Path:
         if not override.exists():
             raise FileNotFoundError(f"JLL materials dir not found at {override}")
         return override
-    for candidate in _DEFAULT_JLL_PATHS:
+
+    candidates: List[Path] = []
+
+    # Auto-locate the installed jaxlayerlumos package's materials dir. Works
+    # in any environment where `pip install jaxlayerlumos` succeeded, so
+    # nothing needs to be passed on the CLI in normal use.
+    try:
+        import jaxlayerlumos
+        candidates.append(Path(jaxlayerlumos.__file__).parent / "materials")
+    except ImportError:
+        pass
+
+    # Fallbacks for source checkouts / dev environments.
+    candidates.extend(_DEFAULT_JLL_PATHS)
+
+    for candidate in candidates:
         if candidate.exists():
             return candidate
     raise FileNotFoundError(
         "Could not locate a JaxLayerLumos materials directory. "
-        f"Tried: {_DEFAULT_JLL_PATHS}. Pass --jll-materials-dir to override."
+        f"Tried: {candidates}. Pass --jll-materials-dir to override."
     )
 
 
