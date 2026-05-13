@@ -7,7 +7,7 @@
 #SBATCH --partition=smp
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=32
 
 #SBATCH --time=24:00:00
 #SBATCH --qos=short
@@ -34,7 +34,7 @@ set -euo pipefail
 # previous run stopped.
 #
 # Throughput (rough): a 5000-row shard takes ~5 min on one CPU core. With
-# 16 workers, 400 shards (2M rows) takes ~2 hours wall time.
+# 32 workers, 2000 shards (10M rows) takes ~5 hours wall time.
 #
 # Examples
 # --------
