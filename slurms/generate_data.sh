@@ -3,9 +3,8 @@
 #SBATCH --output=job-outputs/indigo-gen-data.%j.out
 #SBATCH --error=job-outputs/indigo-gen-data.%j.err
 
-#SBATCH --cluster=gpu
-#SBATCH --partition=l40s
-#SBATCH --gres=gpu:1
+#SBATCH --cluster=smp
+#SBATCH --partition=smp
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
