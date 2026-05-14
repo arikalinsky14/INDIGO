@@ -5,8 +5,28 @@ Learning Rate Finder for INDIGO (FlexMaterialMLP).
 Imports collate / step utilities from `scripts/training.py` so the search
 loop is bit-identical to a real training run.
 
-Note: the LR power-law fit from CHROMA-Lite does NOT transfer — model
-size and input dimensionality are different. Run a coarse search first.
+For a single-pass production run on N rows, the optimal LR scales as a
+power law in N. The recommended workflow is:
+
+1. Run this script multiple times with different `--limit-examples`,
+   each at `--epochs 1`. Each run writes a JSON to
+   `outputs/lr_search/lr_search_ep1_lim<N>.json`.
+
+      for N in 500000 1000000 2000000; do
+          python scripts/lr_tuning.py \
+              --data-dir data/train --epochs 1 \
+              --limit-examples ${N} --limit-val-examples 10000 \
+              --n-lrs 6 --lr-min 1e-5 --lr-max 5e-3
+      done
+
+2. Fit log(lr_opt) = a + b * log(N) and extrapolate to your production N:
+
+      python scripts/fit_lr_scaling.py \
+          --results-dir outputs/lr_search --target-examples 10000000 --plot
+
+The multi-N approach is more principled than running multiple epochs on a
+small subset: AdamW dynamics with repeated examples differ from those
+with fresh examples, so the latter contaminates the fit.
 """
 
 import argparse
@@ -238,6 +258,14 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, required=True)
     parser.add_argument("--seed", type=int, default=42)
 
+    # Subsetting: limit how many rows of the train / validation pool the LR
+    # sweep uses. Set --limit-examples for the multi-N scaling-law workflow
+    # (see module docstring).
+    parser.add_argument("--limit-examples", type=int, default=None,
+                        help="Limit training rows used by the LR sweep")
+    parser.add_argument("--limit-val-examples", type=int, default=None,
+                        help="Limit validation rows used by the LR sweep")
+
     parser.add_argument("--lr-min", type=float, default=1e-5)
     parser.add_argument("--lr-max", type=float, default=1e-2)
     parser.add_argument("--n-lrs", type=int, default=8)
@@ -266,10 +294,19 @@ def main() -> None:
     print(f"[INFO] Device: {device}")
 
     data_dir = Path(args.data_dir)
-    print(f"[INFO] Loading FULL training data...")
-    train_dataset = FlexThinFilmDataset(data_dir, seed=args.seed, split="train", verbose=True)
-    print(f"[INFO] Loading FULL validation data...")
-    val_dataset = FlexThinFilmDataset(data_dir, seed=args.seed, split="validation", verbose=True)
+    if args.limit_examples is None:
+        print(f"[INFO] Loading FULL training data...")
+    else:
+        print(f"[INFO] Loading training data (limited to {args.limit_examples} rows)...")
+    train_dataset = FlexThinFilmDataset(
+        data_dir, seed=args.seed, split="train", verbose=True,
+        limit_examples=args.limit_examples,
+    )
+    print(f"[INFO] Loading validation data...")
+    val_dataset = FlexThinFilmDataset(
+        data_dir, seed=args.seed, split="validation", verbose=True,
+        limit_examples=args.limit_val_examples,
+    )
 
     config = ModelConfig(
         feature_mode=args.feature_mode,
@@ -316,7 +353,11 @@ def main() -> None:
             output_dir = Path("./outputs/lr_search")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    results_file = output_dir / f"lr_search_ep{args.epochs}.json"
+    # Tag output filenames with the train-subset size so multi-N runs
+    # (the scaling-law workflow) don't clobber each other.
+    n_train = len(train_dataset)
+    tag = f"ep{args.epochs}_lim{n_train}"
+    results_file = output_dir / f"lr_search_{tag}.json"
     with open(results_file, "w") as f:
         json.dump({
             "epochs": args.epochs,
@@ -329,14 +370,16 @@ def main() -> None:
             "weight_decay": args.weight_decay,
             "grad_clip": args.grad_clip,
             "warmup_fraction": args.warmup_fraction,
-            "train_examples": len(train_dataset),
+            "train_examples": n_train,
             "val_examples": len(val_dataset),
+            "limit_examples": args.limit_examples,
+            "limit_val_examples": args.limit_val_examples,
             "results": [asdict(r) for r in results],
         }, f, indent=2)
     print(f"\n[INFO] Results saved to {results_file}")
 
     if args.plot:
-        plot_path = output_dir / f"lr_search_ep{args.epochs}.png"
+        plot_path = output_dir / f"lr_search_{tag}.png"
         plot_lr_search(results, plot_path, args.epochs)
 
     print(f"\n# Machine-readable output for log-log fitting:")
