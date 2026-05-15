@@ -46,7 +46,7 @@ from torch.utils.data import DataLoader
 _repo_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_repo_root))
 
-from scripts.training import collate_fn, get_lr_schedule, set_lr, train_step
+from scripts.training import collate_fn, run_one_epoch
 from src.dataset import FlexThinFilmDataset, find_repo_root
 from src.model import FlexMaterialMLP, ModelConfig, compute_loss
 
@@ -93,7 +93,8 @@ def train_with_lr(
     weight_decay: float = 0.0,
     grad_clip: float = 1.0,
     warmup_fraction: float = 0.02,
-    verbose: bool = False,
+    log_every: int = 100,
+    verbose: bool = True,
 ) -> LRSearchResult:
     model = FlexMaterialMLP(config).to(device)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -110,7 +111,6 @@ def train_with_lr(
     n_examples = len(train_dataset)
     steps_per_epoch = math.ceil(n_examples / batch_size)
     total_steps = steps_per_epoch * epochs
-    warmup_steps = int(total_steps * warmup_fraction)
 
     train_losses: List[float] = []
     val_losses: List[float] = []
@@ -120,23 +120,21 @@ def train_with_lr(
     global_step = 0
 
     for epoch in range(epochs):
-        model.train()
-        epoch_loss = 0.0
-        n_batches = 0
-        for batch in train_loader:
-            current_lr = get_lr_schedule(global_step, total_steps, lr, warmup_fraction)
-            set_lr(optimizer, current_lr)
-            optimizer.zero_grad()
-            losses = train_step(model, batch, device)
-            losses["loss"].backward()
-            if grad_clip > 0:
-                nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-            optimizer.step()
-            epoch_loss += losses["loss"].item()
-            n_batches += 1
-            global_step += 1
-
-        avg_train_loss = epoch_loss / max(n_batches, 1)
+        epoch_out = run_one_epoch(
+            model=model,
+            optimizer=optimizer,
+            loader=train_loader,
+            device=device,
+            total_steps=total_steps,
+            base_lr=lr,
+            warmup_fraction=warmup_fraction,
+            grad_clip=grad_clip,
+            log_every=log_every,
+            verbose=verbose,
+            global_step_start=global_step,
+        )
+        global_step = epoch_out["global_step"]
+        avg_train_loss = epoch_out["avg_loss"]
         train_losses.append(avg_train_loss)
 
         val_loss, val_acc = evaluate_validation(model, val_loader, device)
@@ -147,10 +145,15 @@ def train_with_lr(
             best_val_epoch = epoch + 1
 
         if verbose:
+            warmup_steps = int(total_steps * warmup_fraction)
             phase = "warmup" if global_step <= warmup_steps else "decay"
-            print(f"    Epoch {epoch + 1}/{epochs}: train_loss={avg_train_loss:.4f}, "
-                  f"val_loss={val_loss:.4f}, val_acc={val_acc:.3f}, "
-                  f"lr={current_lr:.2e} [{phase}]")
+            print(
+                f"    Epoch {epoch + 1}/{epochs}: "
+                f"train_loss={avg_train_loss:.4f}, "
+                f"val_loss={val_loss:.4f}, val_acc={val_acc:.3f}, "
+                f"lr={epoch_out['final_lr']:.2e} [{phase}]",
+                flush=True,
+            )
 
     return LRSearchResult(
         lr=lr,
@@ -180,6 +183,7 @@ def lr_tuning(
     weight_decay: float = 0.0,
     grad_clip: float = 1.0,
     warmup_fraction: float = 0.02,
+    log_every: int = 100,
     verbose: bool = True,
 ) -> Tuple[float, List[LRSearchResult]]:
     lrs = np.logspace(np.log10(lr_min), np.log10(lr_max), n_lrs)
@@ -202,7 +206,8 @@ def lr_tuning(
             config=config, device=device,
             batch_size=batch_size, num_workers=num_workers,
             weight_decay=weight_decay, grad_clip=grad_clip,
-            warmup_fraction=warmup_fraction, verbose=verbose,
+            warmup_fraction=warmup_fraction,
+            log_every=log_every, verbose=verbose,
         )
         results.append(result)
         print(f"    Final: train_loss={result.final_train_loss:.4f}, "
@@ -287,7 +292,15 @@ def main() -> None:
 
     parser.add_argument("--output-dir", type=str, default=None)
     parser.add_argument("--plot", action="store_true")
-    parser.add_argument("--verbose", action="store_true")
+
+    # Logging
+    parser.add_argument("--log-every", type=int, default=100,
+                        help="Print per-step loss every N optimizer steps "
+                             "within each LR trial (default: 100)")
+    parser.add_argument("--verbose", action=argparse.BooleanOptionalAction,
+                        default=True,
+                        help="Print per-step loss + per-epoch val (default: on). "
+                             "Pass --no-verbose to silence.")
 
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -326,7 +339,8 @@ def main() -> None:
         lr_min=args.lr_min, lr_max=args.lr_max, n_lrs=args.n_lrs,
         batch_size=args.batch_size, num_workers=args.num_workers,
         weight_decay=args.weight_decay, grad_clip=args.grad_clip,
-        warmup_fraction=args.warmup_fraction, verbose=args.verbose,
+        warmup_fraction=args.warmup_fraction,
+        log_every=args.log_every, verbose=args.verbose,
     )
 
     print("\n" + "=" * 70)

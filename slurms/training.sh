@@ -106,20 +106,17 @@ NUM_WORKERS="${NUM_WORKERS:-4}"               # DataLoader workers
 SAVE_DIR="${SAVE_DIR:-}"                   # Override checkpoint dir (default: auto-generated)
 SAVE_EVERY="${SAVE_EVERY:-1000}"           # Save checkpoint every N steps
 
+# -------------------- Logging --------------------
+LOG_EVERY="${LOG_EVERY:-100}"              # Print per-step loss every N steps
+                                           # (python defaults to --verbose; pass
+                                           # --no-verbose to silence)
+
 # ============================================================================
 # COMMAND LINE OVERRIDE HANDLING
 # ============================================================================
 
-# Extract --verbose flag and collect other user arguments
-VERBOSE=0
-USER_ARGS=()
-for arg in "$@"; do
-  if [[ "$arg" == "--verbose" ]]; then
-    VERBOSE=1
-  else
-    USER_ARGS+=("$arg")
-  fi
-done
+# All sbatch positional args flow through to training.py.
+USER_ARGS=("$@")
 
 # ============================================================================
 # BUILD COMMAND
@@ -152,6 +149,9 @@ ARGS=(
 
   # Checkpointing
   --save-every "${SAVE_EVERY}"
+
+  # Logging
+  --log-every "${LOG_EVERY}"
 )
 
 # Add optional data-dir if specified
@@ -169,12 +169,8 @@ if [[ -n "${SAVE_DIR}" ]]; then
   ARGS+=(--save-dir "${SAVE_DIR}")
 fi
 
-# Add verbose flag if set
-if [[ $VERBOSE -eq 1 ]]; then
-  ARGS+=(--verbose)
-fi
-
-# User arguments override defaults
+# User arguments append after ARGS, so they win for any duplicated flag
+# (including --no-verbose to silence the default per-step logging).
 CMD=(python scripts/training.py "${ARGS[@]}" "${USER_ARGS[@]}")
 
 # ============================================================================
@@ -273,8 +269,9 @@ exit ${EXIT_CODE}
 # 6. HIGHER DROPOUT (regularization):
 #    sbatch slurms/training.sh --dropout 0.2 --epochs 15
 #
-# 7. VERBOSE OUTPUT:
-#    sbatch slurms/training.sh --verbose --epochs 10
+# 7. LOG CADENCE (verbose is on by default, every 100 steps):
+#    LOG_EVERY=25 sbatch slurms/training.sh --epochs 10
+#    Or silence: sbatch slurms/training.sh --no-verbose --epochs 10
 #
 # 8. ENVIRONMENT VARIABLE OVERRIDE:
 #    LR=1e-3 EPOCHS=20 D_MODEL=512 \

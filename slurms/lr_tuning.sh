@@ -105,14 +105,17 @@ NUM_WORKERS="${NUM_WORKERS:-2}"
 # Output.
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search}"
 
-# Flags.
-VERBOSE=0
+# Logging — python defaults to verbose; pass --no-verbose to silence.
+LOG_EVERY="${LOG_EVERY:-100}"
+
+# Flags. --no-plot disables the diagnostic plot. Any other args
+# (e.g. --no-verbose) flow through to lr_tuning.py.
 PLOT=1
+USER_ARGS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --verbose)  VERBOSE=1; shift ;;
         --no-plot)  PLOT=0; shift ;;
-        *)          echo "[WARN] Unknown argument: $1"; shift ;;
+        *)          USER_ARGS+=("$1"); shift ;;
     esac
 done
 
@@ -137,6 +140,7 @@ ARGS=(
     --batch-size "${BATCH_SIZE}"
     --num-workers "${NUM_WORKERS}"
     --output-dir "${OUTPUT_DIR}"
+    --log-every "${LOG_EVERY}"
 )
 
 if [[ -n "${LIMIT_EXAMPLES}" ]]; then
@@ -145,14 +149,11 @@ fi
 if [[ -n "${LIMIT_VAL_EXAMPLES}" ]]; then
     ARGS+=(--limit-val-examples "${LIMIT_VAL_EXAMPLES}")
 fi
-if [[ $VERBOSE -eq 1 ]]; then
-    ARGS+=(--verbose)
-fi
 if [[ $PLOT -eq 1 ]]; then
     ARGS+=(--plot)
 fi
 
-CMD=(python scripts/lr_tuning.py "${ARGS[@]}")
+CMD=(python scripts/lr_tuning.py "${ARGS[@]}" "${USER_ARGS[@]}")
 
 # ============================================================================
 # DISPLAY CONFIGURATION
