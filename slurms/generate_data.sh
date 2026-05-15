@@ -51,6 +51,12 @@ set -euo pipefail
 #    TOTAL_ROWS=10000 ROWS_PER_SHARD=1000 OUTPUT_DIR=data/dryrun \
 #        sbatch slurms/generate_data.sh
 #
+# 4. Fully-real dataset (zero synthetic — all JLL real materials).
+#    Cap pool size at the real-material count to avoid duplicate slots
+#    (~27 held-in; 8 held-out for the --use-held-out-reals case):
+#    ALL_REAL=1 POOL_SIZE_MAX=27 OUTPUT_DIR=data/train_allreal \
+#        sbatch slurms/generate_data.sh
+#
 # ============================================================================
 
 module purge
@@ -95,6 +101,8 @@ LAYER_MAX="${LAYER_MAX:-10}"
 GREYSCALE_THRESHOLD="${GREYSCALE_THRESHOLD:-8.0}"
 GREYSCALE_KEEP_PROB="${GREYSCALE_KEEP_PROB:-0.2}"
 P_REAL="${P_REAL:-0.15}"
+ALL_REAL="${ALL_REAL:-0}"                        # 1 = fully-real dataset
+                                                # (zero synthetic; forces p_real=1)
 POOL_SIZE_MIN="${POOL_SIZE_MIN:-4}"
 POOL_SIZE_MAX="${POOL_SIZE_MAX:-32}"
 
@@ -117,6 +125,11 @@ if [[ "${USE_HELD_OUT_REALS}" == "1" ]]; then
     HELD_OUT_FLAG="--use-held-out-reals"
 fi
 
+ALL_REAL_FLAG=""
+if [[ "${ALL_REAL}" == "1" ]]; then
+    ALL_REAL_FLAG="--all-real"
+fi
+
 echo
 echo "Configuration:"
 echo "  Total rows:        ${TOTAL_ROWS}"
@@ -129,6 +142,7 @@ echo "  Layer lambda:      ${LAYER_LAMBDA} (range [${LAYER_MIN}, ${LAYER_MAX}])"
 echo "  Greyscale:         C* >= ${GREYSCALE_THRESHOLD} accepted, "
 echo "                     C* < ${GREYSCALE_THRESHOLD} kept with prob ${GREYSCALE_KEEP_PROB}"
 echo "  p_real:            ${P_REAL}"
+echo "  All-real:          ${ALL_REAL} (1 = zero synthetic, p_real forced to 1)"
 echo "  Pool size range:   [${POOL_SIZE_MIN}, ${POOL_SIZE_MAX}]"
 echo "  Use held-out:      ${USE_HELD_OUT_REALS}"
 echo "  JAX platforms:     ${JAX_PLATFORMS}"
@@ -152,6 +166,7 @@ cat > "${RUN_MANIFEST}" <<EOF
   "greyscale_threshold": ${GREYSCALE_THRESHOLD},
   "greyscale_keep_prob": ${GREYSCALE_KEEP_PROB},
   "p_real": ${P_REAL},
+  "all_real": ${ALL_REAL},
   "pool_size_range": [${POOL_SIZE_MIN}, ${POOL_SIZE_MAX}],
   "use_held_out_reals": ${USE_HELD_OUT_REALS},
   "parallel_workers": ${PARALLEL_WORKERS}
@@ -186,7 +201,7 @@ seq "${START_SHARD_ID}" "${END_SHARD_ID}" | xargs -P "${PARALLEL_WORKERS}" -I '{
         --pool-size-max "${POOL_SIZE_MAX}" \
         --output-dir "${OUTPUT_DIR}" \
         --skip-existing \
-        ${HELD_OUT_FLAG}
+        ${HELD_OUT_FLAG} ${ALL_REAL_FLAG}
 
 EXIT_CODE=$?
 

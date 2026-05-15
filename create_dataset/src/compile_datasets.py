@@ -236,6 +236,10 @@ def parse_args() -> argparse.Namespace:
                         help="Per material (structure layer OR distractor): "
                              "probability of pulling from held-in real instead "
                              "of generating a fresh synthetic")
+    parser.add_argument("--all-real", action="store_true",
+                        help="Fully-real dataset: every structure layer and "
+                             "every distractor is a JLL real material, zero "
+                             "synthetic. Forces p_real=1.0 (overrides --p-real).")
 
     # Train/test set choice.
     parser.add_argument("--use-held-out-reals", action="store_true",
@@ -288,20 +292,37 @@ def main() -> None:
         f"accept_seed={accept_seed}"
     )
 
+    # --all-real forces every material (structure layer + distractor) to be
+    # a JLL real. np.random.random() is in [0, 1) so `random() < 1.0` is
+    # always true → zero synthetic.
+    effective_p_real = 1.0 if args.all_real else args.p_real
+    if args.all_real:
+        print(f"[INFO] --all-real: forcing p_real=1.0 "
+              f"(was --p-real {args.p_real}); dataset will contain zero "
+              f"synthetic materials")
+        if args.pool_size_max > len(active_real):
+            print(
+                f"[WARN] pool_size_max={args.pool_size_max} exceeds the "
+                f"{len(active_real)} available real materials. Distractors "
+                f"are drawn with replacement, so pools will contain repeated "
+                f"materials. For distinct-only real pools, pass "
+                f"--pool-size-max {len(active_real)} (or lower)."
+            )
+
     layer_count = LayerCountConfig(
         lam=args.layer_lambda, min_layers=args.layer_min, max_layers=args.layer_max,
     )
     pool_config = PoolSamplerConfig(
         pool_size_min=args.pool_size_min,
         pool_size_max=args.pool_size_max,
-        p_real=args.p_real,
+        p_real=effective_p_real,
     )
 
     sim = RandomLayerSimulation(
         held_in_real=active_real,
         layer_count=layer_count,
         incidence_angle=args.incidence_angle,
-        p_real=args.p_real,
+        p_real=effective_p_real,
         synthetic_weights=pool_config.synthetic_weights,
         seed=structure_seed,
     )
@@ -347,7 +368,8 @@ def main() -> None:
         "layer_lambda": args.layer_lambda,
         "layer_range": [args.layer_min, args.layer_max],
         "pool_size_range": [args.pool_size_min, args.pool_size_max],
-        "p_real": args.p_real,
+        "p_real": effective_p_real,
+        "all_real": bool(args.all_real),
         "synthetic_weights": list(pool_config.synthetic_weights),
         "greyscale_threshold": args.greyscale_threshold,
         "greyscale_keep_prob": args.greyscale_keep_prob,
