@@ -98,7 +98,9 @@ DROPOUT="${DROPOUT:-0.1}"
 # Training. Batch size MUST match your planned production batch size —
 # optimal LR depends on it.
 BATCH_SIZE="${BATCH_SIZE:-256}"
-NUM_WORKERS="${NUM_WORKERS:-${SLURM_CPUS_PER_TASK:-4}}"
+# DataLoader workers — keep small. Each worker prefetches ~2 batches of
+# pool data; too many can OOM the host RAM allocation.
+NUM_WORKERS="${NUM_WORKERS:-2}"
 
 # Output.
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search}"

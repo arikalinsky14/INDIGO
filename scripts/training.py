@@ -2,7 +2,7 @@
 """
 Training Script for INDIGO (FlexMaterialMLP).
 
-Single-stage training: RGB + per-example material pool → next-layer token.
+Single-stage training: Lab + per-example material pool → next-layer token.
 
 Training approach (autoregressive expansion):
 - For an N-layer structure with N < MAX_LAYERS we generate N+1 samples per
@@ -12,7 +12,7 @@ Training approach (autoregressive expansion):
 
 Each expanded sample carries the same material pool (featurized once
 per example). The model receives:
-    rgb              : [B, 3]
+    lab              : [B, 3]
     pool_features    : [B, M_MAX, 2, NUM_LAMBDA]
     pool_mask        : [B, M_MAX]  bool
     pool_size        : [B]         int
@@ -57,7 +57,7 @@ def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
     The pool is featurized once per example and broadcast across all
     expanded steps (same pool throughout the autoregressive trajectory).
     """
-    all_rgb: List[torch.Tensor] = []
+    all_lab: List[torch.Tensor] = []
     all_pool_feats: List[torch.Tensor] = []
     all_pool_masks: List[torch.Tensor] = []
     all_pool_sizes: List[int] = []
@@ -72,7 +72,7 @@ def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
         max_step = n_layers if n_layers < MAX_LAYERS else MAX_LAYERS - 1
 
         for step in range(max_step + 1):
-            all_rgb.append(ex.rgb)
+            all_lab.append(ex.lab)
             all_pool_feats.append(pool_feats)
             all_pool_masks.append(pool_mask)
             all_pool_sizes.append(pool_size)
@@ -94,7 +94,7 @@ def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
                 all_targets.append(EOS_TOKEN)
 
     return {
-        "rgb": torch.stack(all_rgb),
+        "lab": torch.stack(all_lab),
         "pool_features": torch.stack(all_pool_feats),
         "pool_mask": torch.stack(all_pool_masks),
         "pool_size": torch.tensor(all_pool_sizes, dtype=torch.long),
@@ -138,7 +138,7 @@ def save_checkpoint(model, config, optimizer, step, loss, save_dir: Path, lr=Non
 def train_step(model, batch, device) -> Dict[str, torch.Tensor]:
     """Move batch to device and run one forward + loss pass."""
     batch_on_device = {
-        "rgb": batch["rgb"].to(device),
+        "lab": batch["lab"].to(device),
         "pool_features": batch["pool_features"].to(device),
         "pool_mask": batch["pool_mask"].to(device),
         "pool_size": batch["pool_size"].to(device),

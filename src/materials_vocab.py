@@ -219,16 +219,32 @@ def decode_structure_matrix(
 
 
 # ============================================================================
-# RGB normalization (unchanged from original)
+# Lab normalization (the canonical color target for the model)
 # ============================================================================
+#
+# Lab is wider gamut than sRGB and perceptually uniform (so CIEDE2000
+# distances are meaningful). We scale into roughly [-1, 1] / [0, 1] for
+# the MLP: L*/100 (in [0, 1]), a*/128 and b*/128 (in roughly [-1, 1] for
+# colors near the sRGB gamut, possibly outside for wide-gamut targets).
 
 
-def normalize_rgb(rgb: List[int]) -> torch.Tensor:
-    return torch.tensor([c / 255.0 for c in rgb], dtype=torch.float32)
+_L_SCALE: float = 100.0
+_AB_SCALE: float = 128.0
 
 
-def denormalize_rgb(rgb_norm: torch.Tensor) -> List[int]:
-    return [int(round(c.item() * 255)) for c in rgb_norm]
+def normalize_lab(lab: List[float]) -> torch.Tensor:
+    L, a, b = lab
+    return torch.tensor(
+        [L / _L_SCALE, a / _AB_SCALE, b / _AB_SCALE], dtype=torch.float32
+    )
+
+
+def denormalize_lab(lab_norm: torch.Tensor) -> List[float]:
+    return [
+        float(lab_norm[0].item() * _L_SCALE),
+        float(lab_norm[1].item() * _AB_SCALE),
+        float(lab_norm[2].item() * _AB_SCALE),
+    ]
 
 
 # ============================================================================

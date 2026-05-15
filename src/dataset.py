@@ -16,7 +16,7 @@ On-disk parquet schema (per row)
 --------------------------------
 | column              | type                 | meaning                                            |
 |---------------------|----------------------|----------------------------------------------------|
-| rgb_R               | str (JSON)           | '[R, G, B]' integers in 0-255, the target colour   |
+| lab                 | str (JSON)           | '[L*, a*, b*]' floats in CIE Lab, the target colour|
 | pool_size           | int                  | Valid materials in the pool, ∈ [n_layers, M_MAX]   |
 | pool_n              | list<list<float>>    | shape [pool_size, NUM_LAMBDA=128]                  |
 | pool_k              | list<list<float>>    | shape [pool_size, NUM_LAMBDA=128]                  |
@@ -44,7 +44,7 @@ import torch
 from torch.utils.data import IterableDataset, get_worker_info
 
 from src.material_features import NUM_LAMBDA, MaterialNK
-from src.materials_vocab import normalize_rgb
+from src.materials_vocab import normalize_lab
 
 
 _ANGLE_DIR_RX = re.compile(r"angle_(\d+)_substrate_.*", re.IGNORECASE)
@@ -72,12 +72,14 @@ class FileMeta:
 
 @dataclass
 class TrainingExample:
-    """One (RGB, pool, structure) example yielded by FlexThinFilmDataset.
+    """One (Lab target, pool, structure) example yielded by FlexThinFilmDataset.
 
     Attributes
     ----------
-    rgb : torch.Tensor, [3]
-        Normalised in [0, 1].
+    lab : torch.Tensor, [3]
+        CIE Lab target normalised by `normalize_lab` from `materials_vocab`.
+        Replaces the legacy RGB target — Lab is wider gamut and perceptually
+        uniform (so CIEDE2000 distances are meaningful).
     pool : list of MaterialNK
         Length equals pool_size; unpadded. The collate function pads to
         M_MAX before batching.
@@ -87,7 +89,7 @@ class TrainingExample:
         Thickness in nm for each layer (must align with target_slots).
     """
 
-    rgb: torch.Tensor
+    lab: torch.Tensor
     pool: List[MaterialNK]
     target_slots: List[int]
     target_thicknesses: List[int]
@@ -163,7 +165,7 @@ def make_permutation(N: int, seed: int) -> torch.Tensor:
 
 
 _REQUIRED_COLUMNS = (
-    "rgb_R", "pool_size", "pool_n", "pool_k", "pool_names", "pool_sources",
+    "lab", "pool_size", "pool_n", "pool_k", "pool_names", "pool_sources",
     "layer_slots", "layer_thicknesses", "num_layers",
 )
 
@@ -177,7 +179,7 @@ def _maybe_json(value):
 
 def _row_to_example(row: Dict[str, object]) -> TrainingExample:
     """Reconstruct a TrainingExample from a parquet row dict."""
-    rgb_list = _maybe_json(row["rgb_R"])
+    lab_list = _maybe_json(row["lab"])
     pool_size = int(row["pool_size"])
     pool_n = _maybe_json(row["pool_n"])
     pool_k = _maybe_json(row["pool_k"])
@@ -203,7 +205,7 @@ def _row_to_example(row: Dict[str, object]) -> TrainingExample:
         ))
 
     return TrainingExample(
-        rgb=normalize_rgb(list(rgb_list)),
+        lab=normalize_lab(list(lab_list)),
         pool=pool,
         target_slots=[int(s) for s in layer_slots],
         target_thicknesses=[int(t) for t in layer_thicknesses],
@@ -344,7 +346,7 @@ if __name__ == "__main__":
     pool_materials = [real["Ag"], real["SiO2"], real["TiO2"], real["Al2O3"]]
 
     fake_row = {
-        "rgb_R": json.dumps([120, 80, 200]),
+        "lab": json.dumps([55.0, 22.5, -38.7]),  # arbitrary purple-ish target
         "pool_size": len(pool_materials),
         "pool_n": [m.n.tolist() for m in pool_materials],
         "pool_k": [m.k.tolist() for m in pool_materials],
@@ -356,7 +358,7 @@ if __name__ == "__main__":
     }
     example = _row_to_example(fake_row)
     print(
-        f"[smoke] Reconstructed example: rgb={example.rgb.tolist()}, "
+        f"[smoke] Reconstructed example: lab={example.lab.tolist()}, "
         f"pool_size={len(example.pool)}, "
         f"slots={example.target_slots}, thicknesses={example.target_thicknesses}"
     )
@@ -370,7 +372,7 @@ if __name__ == "__main__":
     target_token = encode_layer(example.target_slots[2], example.target_thicknesses[2])
 
     batch = {
-        "rgb": example.rgb.unsqueeze(0),
+        "lab": example.lab.unsqueeze(0),
         "pool_features": pool_feats.unsqueeze(0),
         "pool_mask": pool_mask.unsqueeze(0),
         "structure_matrix": structure.unsqueeze(0),

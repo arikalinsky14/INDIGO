@@ -138,14 +138,14 @@ class RandomLayerSimulation:
         ]
         return layer_materials, layer_thicknesses
 
-    def compute_color(
+    def compute_lab(
         self,
         layer_materials: List[MaterialNK],
         layer_thicknesses: List[int],
-    ) -> List[int]:
-        """Run the optical simulator and return sRGB ints in [0, 255]."""
+    ) -> List[float]:
+        """Run the optical simulator and return CIE Lab [L*, a*, b*]."""
         slot_indices = list(range(len(layer_materials)))
-        return self.simulator.compute_color(
+        return self.simulator.compute_lab(
             pool=layer_materials,
             slot_indices=slot_indices,
             thicknesses_nm=layer_thicknesses,
@@ -153,18 +153,19 @@ class RandomLayerSimulation:
 
     def sample_structure(
         self,
-    ) -> Tuple[List[MaterialNK], List[int], List[int]]:
-        """Sample one structure and compute its sRGB.
+    ) -> Tuple[List[MaterialNK], List[int], List[float]]:
+        """Sample one structure and compute its CIE Lab target.
 
         Returns
         -------
         layer_materials : list of MaterialNK
         layer_thicknesses : list of int
-        sRGB : list of int
+        lab : list of float, shape (3,)
+            [L*, a*, b*] in CIE Lab.
         """
         layer_materials, layer_thicknesses = self.random_materials_and_thicknesses()
-        sRGB = self.compute_color(layer_materials, layer_thicknesses)
-        return layer_materials, layer_thicknesses, sRGB
+        lab = self.compute_lab(layer_materials, layer_thicknesses)
+        return layer_materials, layer_thicknesses, lab
 
 
 # ============================================================================
@@ -190,10 +191,11 @@ if __name__ == "__main__":
     sim_fixed = RandomLayerSimulation(
         held_in_real=held_in, num_layers=3, incidence_angle=0, p_real=0.15, seed=0,
     )
-    materials, thicknesses, sRGB = sim_fixed.sample_structure()
+    materials, thicknesses, lab = sim_fixed.sample_structure()
     print(f"[smoke] fixed-count sample: layers={len(materials)}, "
-          f"thicknesses={thicknesses}, sRGB={sRGB}")
-    assert all(0 <= c <= 255 for c in sRGB), "sRGB out of range"
+          f"thicknesses={thicknesses}, "
+          f"Lab=[{lab[0]:.2f}, {lab[1]:.2f}, {lab[2]:.2f}]")
+    assert 0 <= lab[0] <= 100, f"L* out of range: {lab[0]}"
 
     sim = RandomLayerSimulation(
         held_in_real=held_in,
