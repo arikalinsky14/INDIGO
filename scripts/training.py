@@ -148,6 +148,86 @@ def train_step(model, batch, device) -> Dict[str, torch.Tensor]:
     return compute_loss(model, batch_on_device)
 
 
+def run_one_epoch(
+    model,
+    optimizer,
+    loader,
+    device,
+    *,
+    total_steps: int,
+    base_lr: float,
+    warmup_fraction: float,
+    grad_clip: float,
+    log_every: int,
+    verbose: bool,
+    global_step_start: int = 0,
+    save_dir: "Path | None" = None,
+    save_every: "int | None" = None,
+    config: "ModelConfig | None" = None,
+) -> Dict[str, float]:
+    """Run one epoch of training. Shared by `scripts/training.py` (single
+    full run) and `scripts/lr_tuning.py` (one trial per candidate LR).
+
+    Per-step loss logging fires every `log_every` steps when `verbose=True`.
+    Pass `save_dir`/`save_every`/`config` to enable mid-epoch checkpointing
+    (the lr_tuning case leaves these `None`).
+    """
+    model.train()
+    epoch_loss = 0.0
+    epoch_acc = 0.0
+    n_batches = 0
+    global_step = global_step_start
+    warmup_steps = int(total_steps * warmup_fraction)
+
+    current_lr = base_lr
+    last_loss = float("nan")
+    for batch in loader:
+        current_lr = get_lr_schedule(global_step, total_steps, base_lr, warmup_fraction)
+        set_lr(optimizer, current_lr)
+
+        optimizer.zero_grad()
+        losses = train_step(model, batch, device)
+        losses["loss"].backward()
+
+        if grad_clip > 0:
+            nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+
+        optimizer.step()
+
+        last_loss = losses["loss"].item()
+        epoch_loss += last_loss
+        epoch_acc += losses["accuracy"].item()
+        n_batches += 1
+        global_step += 1
+
+        if verbose and global_step % log_every == 0:
+            phase = "warmup" if global_step <= warmup_steps else "decay"
+            print(
+                f"  Step {global_step}/{total_steps}: "
+                f"loss={last_loss:.4f}, "
+                f"acc={losses['accuracy'].item():.3f}, "
+                f"lr={current_lr:.2e} [{phase}]",
+                flush=True,
+            )
+
+        if save_dir is not None and save_every and config is not None \
+                and global_step % save_every == 0:
+            save_checkpoint(
+                model, config, optimizer, global_step,
+                last_loss, save_dir / f"step_{global_step}",
+                lr=current_lr,
+            )
+
+    return {
+        "global_step": global_step,
+        "avg_loss": epoch_loss / max(n_batches, 1),
+        "avg_acc": epoch_acc / max(n_batches, 1),
+        "last_loss": last_loss,
+        "final_lr": current_lr,
+        "n_batches": n_batches,
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train INDIGO FlexMaterialMLP")
     parser.add_argument("--data-dir", type=str, default=None,
@@ -179,7 +259,15 @@ def parse_args() -> argparse.Namespace:
     # Checkpointing
     parser.add_argument("--save-dir", type=str, default=None)
     parser.add_argument("--save-every", type=int, default=1000)
-    parser.add_argument("--verbose", action="store_true")
+
+    # Logging
+    parser.add_argument("--log-every", type=int, default=100,
+                        help="Print per-step loss every N optimizer steps "
+                             "when --verbose is set (default: 100)")
+    parser.add_argument("--verbose", action=argparse.BooleanOptionalAction,
+                        default=True,
+                        help="Print per-step loss + LR (default: on). "
+                             "Pass --no-verbose to silence.")
 
     return parser.parse_args()
 
@@ -252,47 +340,30 @@ def main() -> None:
 
     global_step = 0
     print("[INFO] Starting training...")
+    print(f"[INFO] Logging every {args.log_every} step(s) "
+          f"(verbose={args.verbose})")
 
     for epoch in range(args.epochs):
-        model.train()
-        epoch_loss = 0.0
-        epoch_acc = 0.0
-        n_batches = 0
-
-        for batch in loader:
-            current_lr = get_lr_schedule(global_step, total_steps, args.lr, args.warmup_fraction)
-            set_lr(optimizer, current_lr)
-
-            optimizer.zero_grad()
-            losses = train_step(model, batch, device)
-            losses["loss"].backward()
-
-            if args.grad_clip > 0:
-                nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-
-            optimizer.step()
-
-            epoch_loss += losses["loss"].item()
-            epoch_acc += losses["accuracy"].item()
-            n_batches += 1
-            global_step += 1
-
-            if global_step % 100 == 0:
-                phase = "warmup" if global_step <= warmup_steps else "decay"
-                print(f"  Step {global_step}: loss={losses['loss'].item():.4f}, "
-                      f"acc={losses['accuracy'].item():.3f}, "
-                      f"lr={current_lr:.2e} [{phase}]")
-
-            if global_step % args.save_every == 0:
-                save_checkpoint(
-                    model, config, optimizer, global_step,
-                    losses["loss"].item(), save_dir / f"step_{global_step}",
-                    lr=current_lr,
-                )
-
-        avg_loss = epoch_loss / max(n_batches, 1)
-        avg_acc = epoch_acc / max(n_batches, 1)
-        final_lr = get_lr_schedule(max(global_step - 1, 0), total_steps, args.lr, args.warmup_fraction)
+        epoch_out = run_one_epoch(
+            model=model,
+            optimizer=optimizer,
+            loader=loader,
+            device=device,
+            total_steps=total_steps,
+            base_lr=args.lr,
+            warmup_fraction=args.warmup_fraction,
+            grad_clip=args.grad_clip,
+            log_every=args.log_every,
+            verbose=args.verbose,
+            global_step_start=global_step,
+            save_dir=save_dir,
+            save_every=args.save_every,
+            config=config,
+        )
+        global_step = epoch_out["global_step"]
+        avg_loss = epoch_out["avg_loss"]
+        avg_acc = epoch_out["avg_acc"]
+        final_lr = epoch_out["final_lr"]
         print(f"[Epoch {epoch + 1}/{args.epochs}] loss={avg_loss:.4f}, "
               f"acc={avg_acc:.3f}, final_lr={final_lr:.2e}")
 
