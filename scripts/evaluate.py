@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader
 _repo_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_repo_root))
 
-from src.color_utils import srgb_to_lab
+from src.color_utils import lab_to_srgb_int
 from src.dataset import FlexThinFilmDataset, TrainingExample, find_repo_root
 from src.material_features import featurize_pool, pad_pool_features
 from src.materials_vocab import (
@@ -32,7 +32,7 @@ from src.materials_vocab import (
     M_MAX,
     MAX_LAYERS,
     build_structure_matrix,
-    denormalize_rgb,
+    denormalize_lab,
     encode_layer,
 )
 from src.model import FlexMaterialMLP, ModelConfig, compute_loss, generate_structure
@@ -66,7 +66,7 @@ except ImportError:
 
 def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
     """Same expansion as training.py:collate_fn."""
-    all_rgb, all_pool_feats, all_pool_masks, all_pool_sizes = [], [], [], []
+    all_lab, all_pool_feats, all_pool_masks, all_pool_sizes = [], [], [], []
     all_structures, all_targets = [], []
 
     for ex in examples:
@@ -77,7 +77,7 @@ def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
         max_step = n_layers if n_layers < MAX_LAYERS else MAX_LAYERS - 1
 
         for step in range(max_step + 1):
-            all_rgb.append(ex.rgb)
+            all_lab.append(ex.lab)
             all_pool_feats.append(pool_feats)
             all_pool_masks.append(pool_mask)
             all_pool_sizes.append(pool_size)
@@ -97,7 +97,7 @@ def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
                 all_targets.append(EOS_TOKEN)
 
     return {
-        "rgb": torch.stack(all_rgb),
+        "lab": torch.stack(all_lab),
         "pool_features": torch.stack(all_pool_feats),
         "pool_mask": torch.stack(all_pool_masks),
         "pool_size": torch.tensor(all_pool_sizes, dtype=torch.long),
@@ -126,7 +126,7 @@ def evaluate_teacher_forcing(model, dataset, device, batch_size=32, num_workers=
         for batch_idx, batch in enumerate(loader):
             batch_on_device = {k: v.to(device) for k, v in batch.items()}
             losses = compute_loss(model, batch_on_device)
-            count = batch_on_device["rgb"].size(0)
+            count = batch_on_device["lab"].size(0)
             total_loss += losses["loss"].item() * count
             total_correct += int(losses["accuracy"].item() * count)
             total_samples += count
@@ -145,11 +145,6 @@ def evaluate_teacher_forcing(model, dataset, device, batch_size=32, num_workers=
 # ============================================================================
 # Color utilities (CIEDE2000)
 # ============================================================================
-
-
-def denormalize_rgb_float(rgb_norm: torch.Tensor) -> List[float]:
-    """Normalised RGB → 0-255 floats (no rounding)."""
-    return [c.item() * 255.0 for c in rgb_norm]
 
 
 def ciede2000(lab1, lab2) -> float:
@@ -194,8 +189,10 @@ def ciede2000(lab1, lab2) -> float:
     )
 
 
-def compute_color_difference(rgb1, rgb2) -> float:
-    return ciede2000(srgb_to_lab(rgb1), srgb_to_lab(rgb2))
+def lab_diff_ciede2000(lab1, lab2) -> float:
+    """ΔE_00 between two Lab colors. Targets and predictions are already
+    Lab in the new pipeline, so no sRGB conversion is needed."""
+    return ciede2000(lab1, lab2)
 
 
 # ============================================================================
@@ -210,11 +207,11 @@ class EvalResult:
     gt_slots: List[int]
     gt_materials: List[str]
     gt_thicknesses: List[int]
-    gt_sRGB: List[int]
+    gt_lab: List[float]
     pred_slots: List[int]
     pred_materials: List[str]
     pred_thicknesses: List[int]
-    pred_sRGB: Optional[List[float]]
+    pred_lab: Optional[List[float]]
     stop_reason: str
     n_layers_gt: int
     n_layers_pred: int
@@ -223,26 +220,38 @@ class EvalResult:
 
 
 def create_color_swatch(results: List[EvalResult], output_path: str, n: int = 10) -> None:
+    """Save side-by-side swatches of GT vs predicted colors.
+
+    Both sides are Lab in the training pipeline; we convert through
+    `lab_to_srgb_int` only for display. Out-of-sRGB-gamut Lab values
+    get clipped to the nearest in-gamut sRGB.
+    """
     if not MATPLOTLIB_AVAILABLE:
         print("[WARN] matplotlib not available - skipping color swatch")
         return
-    valid_results = [r for r in results if r.pred_sRGB is not None][:n]
+    valid_results = [r for r in results if r.pred_lab is not None][:n]
     if not valid_results:
         print("[WARN] No valid results for color swatch")
         return
-    fig, axes = plt.subplots(len(valid_results), 3, figsize=(8, 2 * len(valid_results)))
+    fig, axes = plt.subplots(len(valid_results), 3, figsize=(9, 2 * len(valid_results)))
     if len(valid_results) == 1:
         axes = [axes]
     for i, result in enumerate(valid_results):
-        gt_color = [c / 255 for c in result.gt_sRGB]
+        gt_srgb = lab_to_srgb_int(result.gt_lab)
+        pred_srgb = lab_to_srgb_int(result.pred_lab)
+
+        gt_color = [c / 255 for c in gt_srgb]
         axes[i][0].add_patch(mpatches.Rectangle((0, 0), 1, 1, facecolor=gt_color))
         axes[i][0].set_xlim(0, 1); axes[i][0].set_ylim(0, 1); axes[i][0].axis("off")
-        axes[i][0].set_title(f"GT: {result.gt_sRGB}")
-        pred_color = [min(1.0, max(0.0, c / 255)) for c in result.pred_sRGB]
+        gt_lab_str = f"L*={result.gt_lab[0]:.0f} a*={result.gt_lab[1]:.0f} b*={result.gt_lab[2]:.0f}"
+        axes[i][0].set_title(f"GT (sRGB display)\n{gt_lab_str}", fontsize=9)
+
+        pred_color = [c / 255 for c in pred_srgb]
         axes[i][1].add_patch(mpatches.Rectangle((0, 0), 1, 1, facecolor=pred_color))
         axes[i][1].set_xlim(0, 1); axes[i][1].set_ylim(0, 1); axes[i][1].axis("off")
-        pred_display = [int(round(c)) for c in result.pred_sRGB]
-        axes[i][1].set_title(f"Pred: {pred_display}")
+        pred_lab_str = f"L*={result.pred_lab[0]:.0f} a*={result.pred_lab[1]:.0f} b*={result.pred_lab[2]:.0f}"
+        axes[i][1].set_title(f"Pred (sRGB display)\n{pred_lab_str}", fontsize=9)
+
         axes[i][2].axis("off")
         info_text = f"ΔE₀₀: {result.ciede2000:.2f}\nLayers: {result.n_layers_gt} → {result.n_layers_pred}"
         axes[i][2].text(0.5, 0.5, info_text, ha="center", va="center", fontsize=10)
@@ -416,7 +425,7 @@ def main() -> None:
     for idx, example in enumerate(dataset):
         pred_slots, pred_thicknesses, stop_reason = generate_structure(
             model,
-            example.rgb,
+            example.lab,
             example.pool,
             device,
             sample=args.sample_predictions,
@@ -426,23 +435,22 @@ def main() -> None:
         pred_materials = [example.pool[s].name for s in pred_slots]
         gt_materials = [example.pool[s].name for s in example.target_slots]
 
-        gt_sRGB_float = denormalize_rgb_float(example.rgb)
-        gt_sRGB_int = denormalize_rgb(example.rgb)
+        gt_lab = denormalize_lab(example.lab)
 
         is_valid = len(pred_slots) > 0
-        pred_sRGB = None
+        pred_lab = None
         ciede_value = None
         if run_optical_sim and is_valid:
             try:
-                pred_sRGB = simulator.compute_color(
+                pred_lab = simulator.compute_lab(
                     pool=example.pool,
                     slot_indices=pred_slots,
                     thicknesses_nm=pred_thicknesses,
                 )
-                ciede_value = compute_color_difference(gt_sRGB_float, pred_sRGB)
+                ciede_value = lab_diff_ciede2000(gt_lab, pred_lab)
             except Exception as e:
                 print(f"[WARN] Optical simulation failed for example {idx}: {e}")
-                pred_sRGB = None
+                pred_lab = None
                 ciede_value = None
                 is_valid = False
 
@@ -452,11 +460,11 @@ def main() -> None:
             gt_slots=list(example.target_slots),
             gt_materials=gt_materials,
             gt_thicknesses=list(example.target_thicknesses),
-            gt_sRGB=gt_sRGB_int,
+            gt_lab=gt_lab,
             pred_slots=list(pred_slots),
             pred_materials=pred_materials,
             pred_thicknesses=list(pred_thicknesses),
-            pred_sRGB=pred_sRGB,
+            pred_lab=pred_lab,
             stop_reason=stop_reason,
             n_layers_gt=len(example.target_slots),
             n_layers_pred=len(pred_slots),

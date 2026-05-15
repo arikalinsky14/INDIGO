@@ -175,13 +175,31 @@ class OpticalSimulator:
         R_avg = (R_TE[0] + R_TM[0]) / 2.0
         return np.array(R_avg)
 
+    def compute_lab(
+        self,
+        pool: List[MaterialNK],
+        slot_indices: List[int],
+        thicknesses_nm: List[int],
+    ) -> List[float]:
+        """CIE Lab [L*, a*, b*] for the given (pool, structure).
+
+        Lab is the canonical color target for the model — wider gamut than
+        sRGB and perceptually uniform. Out-of-sRGB-gamut reflectances yield
+        Lab values that exceed what sRGB can represent.
+        """
+        from src.color_utils import spectrum_to_lab
+        R = self.compute_reflectance(pool, slot_indices, thicknesses_nm)
+        return list(spectrum_to_lab(CANONICAL_LAMBDA_NM, R))
+
     def compute_color(
         self,
         pool: List[MaterialNK],
         slot_indices: List[int],
         thicknesses_nm: List[int],
     ) -> List[int]:
-        """sRGB [0, 255] for the given (pool, structure)."""
+        """sRGB [0, 255] for the given (pool, structure). For display only —
+        training targets use compute_lab.
+        """
         R = self.compute_reflectance(pool, slot_indices, thicknesses_nm)
         return spectrum_to_sRGB(R)
 
@@ -206,12 +224,18 @@ if __name__ == "__main__":
 
     # Single-layer Ag test (mirror): expect a reflective near-white.
     rgb_mirror = sim.compute_color(pool=pool, slot_indices=[1], thicknesses_nm=[100])
+    lab_mirror = sim.compute_lab(pool=pool, slot_indices=[1], thicknesses_nm=[100])
     print(f"100nm Ag mirror sRGB: {rgb_mirror}")
+    print(f"100nm Ag mirror Lab:  L*={lab_mirror[0]:.2f} a*={lab_mirror[1]:.2f} b*={lab_mirror[2]:.2f}")
 
     # Three-layer SiO2/Ag/TiO2 test.
     rgb_stack = sim.compute_color(
         pool=pool, slot_indices=[0, 1, 2], thicknesses_nm=[100, 30, 75]
     )
+    lab_stack = sim.compute_lab(
+        pool=pool, slot_indices=[0, 1, 2], thicknesses_nm=[100, 30, 75]
+    )
     print(f"SiO2(100)/Ag(30)/TiO2(75) sRGB: {rgb_stack}")
+    print(f"SiO2(100)/Ag(30)/TiO2(75) Lab:  L*={lab_stack[0]:.2f} a*={lab_stack[1]:.2f} b*={lab_stack[2]:.2f}")
 
     print("[smoke] OK")

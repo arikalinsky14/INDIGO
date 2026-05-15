@@ -34,7 +34,7 @@ if str(_repo_root) not in sys.path:
 import numpy as np
 import pandas as pd
 
-from src.color_utils import srgb_chroma
+from src.color_utils import lab_chroma
 from src.material_features import MaterialNK, load_jll_directory
 
 from create_dataset.src.pool_sampler import (
@@ -115,7 +115,7 @@ def _get_git_hash() -> Optional[str]:
 
 
 def _accept_row(
-    sRGB: List[int],
+    lab: List[float],
     rng: np.random.Generator,
     chroma_threshold: float,
     greyscale_keep_prob: float,
@@ -125,7 +125,7 @@ def _accept_row(
     Returns (accept, chroma). If chroma >= threshold the row is always
     accepted; otherwise it is accepted with probability greyscale_keep_prob.
     """
-    chroma = srgb_chroma(sRGB)
+    chroma = lab_chroma(lab)
     if chroma >= chroma_threshold:
         return True, chroma
     return (rng.random() < greyscale_keep_prob), chroma
@@ -157,10 +157,10 @@ def build_rows(
 
     while len(rows) < target_rows and n_attempts < max_attempts:
         n_attempts += 1
-        layer_materials, layer_thicknesses, sRGB = sim.sample_structure()
+        layer_materials, layer_thicknesses, lab = sim.sample_structure()
 
         accept, chroma = _accept_row(
-            sRGB, accept_rng, greyscale_chroma_threshold, greyscale_keep_prob
+            lab, accept_rng, greyscale_chroma_threshold, greyscale_keep_prob
         )
         if not accept:
             n_grey_rejected += 1
@@ -174,7 +174,7 @@ def build_rows(
         )
 
         rows.append({
-            "rgb_R": json.dumps(sRGB),
+            "lab": json.dumps([float(c) for c in lab]),
             "pool_size": len(pool),
             "pool_n": [m.n.tolist() for m in pool],
             "pool_k": [m.k.tolist() for m in pool],

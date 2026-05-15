@@ -1,13 +1,13 @@
 """
-Flexible-Material RGB → Structure Model
-=======================================
+Flexible-Material Color → Structure Model
+=========================================
 
 Replaces `pretrain_rgb_to_structure/src/model.py` from the original
 CHROMA-Lite. Key architectural changes:
 
 1. The model takes a *variable* pool of materials (n,k spectra) as input,
-   alongside RGB and the partial structure. It does not have a fixed
-   25-material vocabulary.
+   alongside the target color (CIE Lab) and the partial structure.
+   It does not have a fixed 25-material vocabulary.
 
 2. A shared `MaterialEncoder` MLP is applied independently to each pool
    slot's n,k features. Sharing weights enforces permutation equivariance:
@@ -26,7 +26,7 @@ carry over.
 Forward pass shape walkthrough
 ------------------------------
 Inputs:
-    rgb              : [B, 3]
+    lab              : [B, 3]
     pool_features    : [B, M_MAX, 2, NUM_LAMBDA]   (zero-padded)
     pool_mask        : [B, M_MAX]   bool, True for valid slots
     structure_matrix : [B, M_MAX, MAX_LAYERS]      (also zero in padded slots)
@@ -40,7 +40,7 @@ Flatten:
     structure_flat   : [B, M_MAX * MAX_LAYERS]
 
 Concatenate:
-    x = [rgb, pool_flat, structure_flat, pool_size_norm]
+    x = [lab, pool_flat, structure_flat, pool_size_norm]
         -> [B, 3 + M_MAX*emb_dim + M_MAX*MAX_LAYERS + 1]
 
 Backbone MLP:
@@ -199,7 +199,7 @@ class FlexMaterialMLP(nn.Module):
         self.material_encoder = MaterialEncoder(config)
 
         # Backbone input dim:
-        #   3                          : RGB
+        #   3                          : Lab target
         #   M_MAX * encoder_out        : encoded material pool (zeroed in padded slots)
         #   M_MAX * MAX_LAYERS         : structure matrix (zeroed in padded slots)
         #   1                          : pool size normalised to (0, 1]
@@ -234,7 +234,7 @@ class FlexMaterialMLP(nn.Module):
 
     def forward(
         self,
-        rgb: torch.Tensor,
+        lab: torch.Tensor,
         pool_features: torch.Tensor,
         pool_mask: torch.Tensor,
         structure_matrix: torch.Tensor,
@@ -245,7 +245,7 @@ class FlexMaterialMLP(nn.Module):
 
         Parameters
         ----------
-        rgb : torch.Tensor, [B, 3]
+        lab : torch.Tensor, [B, 3]
         pool_features : torch.Tensor, [B, M_MAX, 2, L]
         pool_mask : torch.Tensor, [B, M_MAX], dtype=bool
         structure_matrix : torch.Tensor, [B, M_MAX, MAX_LAYERS]
@@ -258,7 +258,7 @@ class FlexMaterialMLP(nn.Module):
         -------
         logits : torch.Tensor, [B, VOCAB_SIZE]
         """
-        B = rgb.size(0)
+        B = lab.size(0)
 
         # 1. Encode each slot's n,k. Shared weights → permutation-equivariant.
         emb = self.material_encoder(pool_features)         # [B, M_MAX, E]
@@ -271,7 +271,7 @@ class FlexMaterialMLP(nn.Module):
         struct_flat = structure_matrix.reshape(B, -1)      # [B, M_MAX*MAX_LAYERS]
         pool_size_norm = (pool_size.float() / float(M_MAX)).unsqueeze(-1)  # [B, 1]
 
-        x = torch.cat([rgb, emb_flat, struct_flat, pool_size_norm], dim=1)
+        x = torch.cat([lab, emb_flat, struct_flat, pool_size_norm], dim=1)
         assert x.size(1) == self._input_dim, (
             f"Input dim mismatch: got {x.size(1)}, expected {self._input_dim}"
         )
@@ -299,14 +299,14 @@ def compute_loss(
     """Standard cross-entropy loss + accuracy.
 
     `batch` is expected to have:
-        rgb, pool_features, pool_mask, structure_matrix, pool_size,
+        lab, pool_features, pool_mask, structure_matrix, pool_size,
         target_token
 
     The output mask is applied automatically inside the forward pass, so
     invalid tokens are -inf and contribute zero gradient through softmax.
     """
     logits = model(
-        rgb=batch["rgb"],
+        lab=batch["lab"],
         pool_features=batch["pool_features"],
         pool_mask=batch["pool_mask"],
         structure_matrix=batch["structure_matrix"],
@@ -325,7 +325,7 @@ def compute_loss(
 
 def generate_structure(
     model: FlexMaterialMLP,
-    rgb: torch.Tensor,
+    lab: torch.Tensor,
     pool: List[MaterialNK],
     device: torch.device,
     max_layers: int = MAX_LAYERS,
@@ -333,13 +333,13 @@ def generate_structure(
     temperature: float = 1.0,
     generator: Optional[torch.Generator] = None,
 ) -> Tuple[List[int], List[int], str]:
-    """Autoregressively decode a structure for a single (rgb, pool) example.
+    """Autoregressively decode a structure for a single (lab, pool) example.
 
     Parameters
     ----------
     model : FlexMaterialMLP
-    rgb : torch.Tensor, [3]
-        Normalised RGB target.
+    lab : torch.Tensor, [3]
+        Normalised CIE Lab target.
     pool : list of MaterialNK
         The material pool for this example. Length must be ≤ M_MAX.
     device : torch.device
@@ -372,7 +372,7 @@ def generate_structure(
     pool_feats, pool_mask = pad_pool_features(pool_feats_unpadded, m_max=M_MAX)
 
     # Add batch dim and move to device.
-    rgb_b = rgb.unsqueeze(0).to(device)
+    lab_b = lab.unsqueeze(0).to(device)
     pool_feats_b = pool_feats.unsqueeze(0).to(device)
     pool_mask_b = pool_mask.unsqueeze(0).to(device)
     pool_size_b = torch.tensor([pool_size], dtype=torch.long, device=device)
@@ -388,7 +388,7 @@ def generate_structure(
         for step in range(max_layers):
             structure_b = structure.unsqueeze(0)
             logits = model(
-                rgb=rgb_b,
+                lab=lab_b,
                 pool_features=pool_feats_b,
                 pool_mask=pool_mask_b,
                 structure_matrix=structure_b,
@@ -453,7 +453,7 @@ if __name__ == "__main__":
     pool_full = list(load_jll_directory(materials_dir).values())
     pool = pool_full[:5]  # 5-material pool
 
-    rgb = torch.tensor([0.5, 0.2, 0.8])
+    lab = torch.tensor([0.5, 0.2, -0.4])  # normalised: L*=50, a*=25.6, b*=-51.2
     pool_feats_unpadded = featurize_pool(pool, mode=cfg.feature_mode)
     pool_feats, pool_mask = pad_pool_features(pool_feats_unpadded, m_max=M_MAX)
 
@@ -462,7 +462,7 @@ if __name__ == "__main__":
     pool_size = torch.tensor([5], dtype=torch.long)
 
     batch = {
-        "rgb": rgb.unsqueeze(0),
+        "lab": lab.unsqueeze(0),
         "pool_features": pool_feats.unsqueeze(0),
         "pool_mask": pool_mask.unsqueeze(0),
         "structure_matrix": structure.unsqueeze(0),
@@ -479,7 +479,7 @@ if __name__ == "__main__":
     # Verify masking: tokens for slots ≥ 5 should be -inf in logits.
     with torch.no_grad():
         logits = model(
-            rgb=batch["rgb"],
+            lab=batch["lab"],
             pool_features=batch["pool_features"],
             pool_mask=batch["pool_mask"],
             structure_matrix=batch["structure_matrix"],
@@ -492,7 +492,7 @@ if __name__ == "__main__":
 
     # Autoregressive generation.
     print(f"\nAutoregressive generation:")
-    slots, thicks, term = generate_structure(model, rgb, pool, torch.device("cpu"))
+    slots, thicks, term = generate_structure(model, lab, pool, torch.device("cpu"))
     print(f"  termination: {term}")
     print(f"  slots: {slots}")
     print(f"  thicknesses: {thicks}")

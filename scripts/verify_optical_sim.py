@@ -130,9 +130,13 @@ def main() -> None:
     # 100nm Ag mirror reference.
     if "Ag" in real_pool:
         ag_rgb = new_sim.compute_color(pool=[real_pool["Ag"]], slot_indices=[0], thicknesses_nm=[100])
+        ag_lab = new_sim.compute_lab(pool=[real_pool["Ag"]], slot_indices=[0], thicknesses_nm=[100])
         print(f"[INFO] 100nm Ag mirror sRGB: {ag_rgb}  (expected near [251, 249, 245])")
+        print(f"[INFO] 100nm Ag mirror Lab:  L*={ag_lab[0]:.2f} a*={ag_lab[1]:.2f} b*={ag_lab[2]:.2f}  (expected L*≈98, a*≈0, b*≈small +)")
         if _max_channel_delta(ag_rgb, [251, 249, 245]) > 5:
             print(f"[WARN] 100nm Ag mirror sRGB differs noticeably from reference — investigate")
+        if not (95 < ag_lab[0] < 100 and abs(ag_lab[1]) < 5 and abs(ag_lab[2]) < 10):
+            print(f"[WARN] 100nm Ag mirror Lab outside the expected near-neutral-bright window — investigate")
 
     # Cross-check against original CHROMA-Lite simulator if available.
     OriginalSim, available, src_path = _try_import_original_sim()
