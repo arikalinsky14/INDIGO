@@ -8,10 +8,11 @@ memorize JaxLayerLumos's ~30 named materials.
 
 Three independent strategies are exposed; the data generator can mix them:
 
-1. `perturb_real`        — Take a real JLL material and apply structured
-                           noise (smooth wavelength-dependent rescaling,
-                           small additive jitter on n and k).
-                           Output spectra are coherent and close to real ones.
+1. `perturb_real`        — Take a real JLL material and apply two
+                           band-limited smooth perturbations (a coarse
+                           multiplicative envelope + a finer additive
+                           smooth detail; no white noise).
+                           Output spectra are smooth and close to real ones.
 
 2. `interpolate_real`    — Linearly blend two real JLL materials in n,k space.
                            Output spectra are smooth combinations that can
@@ -113,14 +114,21 @@ def _smooth_random_curve(
 
 
 # Amplitude presets — tuned against the JLL envelope via
-# scripts/visualize_synthetic.py. The jitter terms are deliberately small:
-# real materials have smooth dispersion, so any visible high-frequency noise
-# in synthetic samples is unphysical.
+# scripts/visualize_synthetic.py. Both terms are band-limited smooth
+# curves (no white noise), because real materials have analytic, smooth
+# dispersion. *_scale_amp is the coarse multiplicative envelope
+# (4 harmonics); *_detail_amp is a finer additive smooth perturbation
+# (8 harmonics) that breaks exact equivalence with the base without
+# introducing high-frequency artefacts.
+#
+# (The *_detail_amp keys were historically named *_jitter_amp when the
+#  term was white noise; kept the dict keys stable for back-compat with
+#  any override kwargs, but the semantics are now "smooth detail".)
 _PERTURB_PRESETS = {
     "small": dict(n_scale_amp=0.10, k_scale_amp=0.20,
-                  n_jitter_amp=0.02, k_jitter_amp=0.02),
+                  n_jitter_amp=0.04, k_jitter_amp=0.04),
     "large": dict(n_scale_amp=0.25, k_scale_amp=0.40,
-                  n_jitter_amp=0.03, k_jitter_amp=0.03),
+                  n_jitter_amp=0.07, k_jitter_amp=0.07),
 }
 
 
@@ -130,12 +138,15 @@ def perturb_real(
     magnitude: Literal["small", "large"] = "small",
     **overrides,
 ) -> MaterialNK:
-    """Apply structured perturbation to a real material's n,k.
+    """Apply a smooth structured perturbation to a real material's n,k.
 
-    Two perturbations are composed:
-    - Multiplicative smooth curve (low-frequency Fourier) — shifts the overall
-      shape of the dispersion without introducing high-frequency artefacts.
-    - Small white-noise jitter — breaks exact equivalence with the source.
+    Two band-limited smooth perturbations are composed (no white noise —
+    every output curve stays as smooth as a real dispersion curve):
+    - Coarse multiplicative envelope (4-harmonic Fourier) — shifts the
+      overall shape of the dispersion.
+    - Finer additive detail (8-harmonic Fourier) — adds local structure
+      and breaks exact equivalence with the source, while remaining
+      continuous and differentiable.
 
     `magnitude` selects an amplitude preset. `small` keeps the output
     recognisably in the same class as the source; `large` is broader. Any
@@ -149,14 +160,25 @@ def perturb_real(
     magnitude : 'small' or 'large'
     **overrides : float
         Override individual preset entries
-        (n_scale_amp, k_scale_amp, n_jitter_amp, k_jitter_amp).
+        (n_scale_amp, k_scale_amp, n_jitter_amp, k_jitter_amp). The
+        *_jitter_amp entries now scale the smooth additive detail term.
     """
     params = {**_PERTURB_PRESETS[magnitude], **overrides}
+
+    # Coarse multiplicative envelope.
     n_curve = 1.0 + _smooth_random_curve(rng, NUM_LAMBDA, amplitude=params["n_scale_amp"])
     k_curve = 1.0 + _smooth_random_curve(rng, NUM_LAMBDA, amplitude=params["k_scale_amp"])
 
-    n = base.n * n_curve + rng.normal(0.0, params["n_jitter_amp"], size=NUM_LAMBDA)
-    k = base.k * k_curve + rng.normal(0.0, params["k_jitter_amp"], size=NUM_LAMBDA)
+    # Finer additive smooth detail (band-limited; NOT white noise).
+    n_detail = _smooth_random_curve(
+        rng, NUM_LAMBDA, num_components=8, amplitude=params["n_jitter_amp"]
+    )
+    k_detail = _smooth_random_curve(
+        rng, NUM_LAMBDA, num_components=8, amplitude=params["k_jitter_amp"]
+    )
+
+    n = base.n * n_curve + n_detail
+    k = base.k * k_curve + k_detail
     n, k = _clip_physical(n, k)
 
     return MaterialNK(
