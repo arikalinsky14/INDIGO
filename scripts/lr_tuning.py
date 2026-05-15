@@ -74,7 +74,7 @@ def evaluate_validation(model, val_loader, device) -> Tuple[float, float]:
         for batch in val_loader:
             batch_on_device = {k: v.to(device) for k, v in batch.items()}
             losses = compute_loss(model, batch_on_device)
-            count = batch_on_device["rgb"].size(0)
+            count = batch_on_device["lab"].size(0)
             total_loss += losses["loss"].item() * count
             total_correct += int(losses["accuracy"].item() * count)
             total_samples += count
