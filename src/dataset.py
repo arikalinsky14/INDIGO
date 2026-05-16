@@ -43,7 +43,11 @@ import pyarrow.parquet as pq
 import torch
 from torch.utils.data import IterableDataset, get_worker_info
 
-from src.material_features import NUM_LAMBDA, MaterialNK
+from src.material_features import (
+    NUM_LAMBDA,
+    MaterialNK,
+    materialnk_validation_disabled,
+)
 from src.materials_vocab import normalize_lab
 
 
@@ -293,24 +297,28 @@ class FlexThinFilmDataset(IterableDataset):
             file_to_positions.setdefault(fid, []).append((local_idx, row_idx))
 
         results: Dict[int, TrainingExample] = {}
-        for fid, positions in file_to_positions.items():
-            file_meta = self._file_by_id[fid]
-            try:
-                table = pq.read_table(file_meta.path, columns=list(_REQUIRED_COLUMNS))
-            except Exception as exc:
-                print(f"[WARN] Could not read {file_meta.path}: {exc}")
-                continue
-
-            for local_idx, row_idx in positions:
+        # Parquet rows were validated when generated; skip the per-MaterialNK
+        # __post_init__ numpy reductions on this hot path (~9% of pipeline
+        # CPU). _row_to_example still enforces the n,k shape guard.
+        with materialnk_validation_disabled():
+            for fid, positions in file_to_positions.items():
+                file_meta = self._file_by_id[fid]
                 try:
-                    row = {col: table[col][row_idx].as_py() for col in table.column_names}
-                    results[local_idx] = _row_to_example(row)
+                    table = pq.read_table(file_meta.path, columns=list(_REQUIRED_COLUMNS))
                 except Exception as exc:
-                    print(
-                        f"[WARN] Skipping row {row_idx} of "
-                        f"{file_meta.path}: {exc}"
-                    )
+                    print(f"[WARN] Could not read {file_meta.path}: {exc}")
                     continue
+
+                for local_idx, row_idx in positions:
+                    try:
+                        row = {col: table[col][row_idx].as_py() for col in table.column_names}
+                        results[local_idx] = _row_to_example(row)
+                    except Exception as exc:
+                        print(
+                            f"[WARN] Skipping row {row_idx} of "
+                            f"{file_meta.path}: {exc}"
+                        )
+                        continue
 
         for i in range(len(indices)):
             if i in results:

@@ -102,9 +102,10 @@ BATCH_SIZE="${BATCH_SIZE:-256}"
 # (pyarrow .as_py() on the nested pool arrays is ~1.9 ms/row, ~64% of
 # load cost; raw disk read is only ~0.2 ms/row). More workers ≈ linear
 # speedup here. Profiled throughput: 0w 330 ex/s, 2w 354, 4w 549.
-# 8 OOM'd the host RAM allocation (each worker prefetches ~2 batches of
-# expanded pool tensors); 4 is the safe middle.
-NUM_WORKERS="${NUM_WORKERS:-4}"
+# 8 OOM'd the host RAM allocation on some nodes but not others; 6 is
+# the reliable ceiling (each worker prefetches ~2 batches of expanded
+# pool tensors). Lower NUM_WORKERS if a node still OOMs.
+NUM_WORKERS="${NUM_WORKERS:-6}"
 
 # Output.
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search}"
