@@ -5,13 +5,18 @@ k-Nearest Structures by Color
 
 Scans a customizable subset of the training data, finds the k structures
 whose Lab target is closest to a query color (CIEDE2000 distance), and
-writes a side-by-side visualization showing each match's reflectance
-spectrum and resulting sRGB swatch.
+writes a compact proposal-style figure:
 
-Useful as a sanity tool: pick any color you'd want the model to hit at
-inference time, see what real structures in the training distribution
-land near it, eyeball whether the dataset has good coverage of that
-neighborhood.
+  - LEFT: all k designs' reflectance spectra overlaid on one axis. Each
+    line is drawn in the sRGB colour that design actually produces and
+    given a distinct linestyle (-, --, -., :, (0,(3,1,1,1))), legend
+    "Design 1".."Design k".
+  - RIGHT: the target swatch followed by the k design swatches in a
+    grid (target + 5 -> 2x3, matching the proposal layout).
+
+This conveys inverse-design degeneracy — many physically different
+multilayer structures producing nearly the same perceived colour —
+in a single space-efficient panel.
 
 Examples
 --------
@@ -182,7 +187,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--query-rgb", type=int, nargs=3, default=None, metavar=("R", "G", "B"),
                    help="Query color as sRGB ints in [0, 255]. Converted to Lab internally.")
 
-    p.add_argument("--k", type=int, default=8, help="Number of nearest matches to plot")
+    p.add_argument("--k", type=int, default=5,
+                   help="Number of nearest designs to show (default: 5 — the "
+                        "proposal figure is built around target + 5 designs; "
+                        "k>5 cycles the 5 linestyles and grows the swatch grid)")
     p.add_argument("--scan-rows", type=int, default=100_000,
                    help="How many training rows to scan for candidates (default: 100K)")
     p.add_argument("--output", type=str, default="outputs/k_nearest_structures.png")
@@ -250,8 +258,12 @@ def main() -> None:
             "reflectance": np.array(reflectance),
         })
 
-    # 4. Visualization: query swatch on the left; for each match a row of
-    #    [reflectance plot | swatch (Lab→sRGB) | text info].
+    # 4. Proposal figure: LEFT = all designs' reflectance overlaid (each
+    #    line drawn in the colour that design actually produces, with a
+    #    distinct linestyle); RIGHT = target swatch + per-design swatches
+    #    in a compact grid. Conveys inverse-design degeneracy (many
+    #    different structures → nearly the same perceived colour) in one
+    #    space-efficient panel.
     try:
         import matplotlib.patches as mpatches
         import matplotlib.pyplot as plt
@@ -259,66 +271,68 @@ def main() -> None:
         print("[WARN] matplotlib not available - skipping plot")
         return
 
-    fig, axes = plt.subplots(args.k + 1, 3, figsize=(13, 2.2 * (args.k + 1)),
-                              gridspec_kw={"width_ratios": [3, 1, 2]})
-    fig.suptitle(
-        f"k-Nearest Structures (k={args.k})  query ΔE measured in CIEDE2000",
-        fontsize=13, fontweight="bold",
+    import math as _math
+
+    n_des = len(matches)
+    # User-specified linestyle sequence; cycles if k > 5.
+    _LINESTYLES = ["-", "--", "-.", ":", (0, (3, 1, 1, 1))]
+
+    def _txt_color(srgb):
+        # Black text on light swatches, white on dark (perceived brightness).
+        b = (0.299 * srgb[0] + 0.587 * srgb[1] + 0.114 * srgb[2]) / 255.0
+        return "black" if b > 0.55 else "white"
+
+    ncols_sw = 3
+    nrows_sw = _math.ceil((n_des + 1) / ncols_sw)
+
+    fig = plt.figure(figsize=(11, 1.6 * nrows_sw + 0.6))
+    gs = fig.add_gridspec(
+        nrows_sw, 1 + ncols_sw,
+        width_ratios=[3.4] + [1.0] * ncols_sw,
+        wspace=0.12, hspace=0.18,
     )
 
-    # Header row: the query.
-    axes[0, 0].axis("off")
-    axes[0, 0].text(0.5, 0.5,
-                    f"QUERY\n"
-                    f"Lab = ({query_lab[0]:.1f}, {query_lab[1]:.1f}, {query_lab[2]:.1f})\n"
-                    f"sRGB display = {query_rgb}\n"
-                    f"Scanned {len(candidates)} rows from {args.data_dir}",
-                    ha="center", va="center", fontsize=10)
-    q_color = [c / 255 for c in query_rgb]
-    axes[0, 1].add_patch(mpatches.Rectangle((0, 0), 1, 1, facecolor=q_color))
-    axes[0, 1].set_xlim(0, 1); axes[0, 1].set_ylim(0, 1); axes[0, 1].axis("off")
-    axes[0, 1].set_title("Query swatch", fontsize=9)
-    axes[0, 2].axis("off")
-
+    # --- Left: overlaid reflectance spectra ---
+    ax = fig.add_subplot(gs[:, 0])
     for i, m in enumerate(matches):
-        row_ax = i + 1
-        # Reflectance.
-        axes[row_ax, 0].plot(CANONICAL_LAMBDA_NM, m["reflectance"], "k-", linewidth=1.2)
-        axes[row_ax, 0].set_xlim(CANONICAL_LAMBDA_NM.min(), CANONICAL_LAMBDA_NM.max())
-        axes[row_ax, 0].set_ylim(0, 1.0)
-        axes[row_ax, 0].set_ylabel("R", fontsize=8)
-        axes[row_ax, 0].grid(True, alpha=0.3)
-        if row_ax == args.k:
-            axes[row_ax, 0].set_xlabel("Wavelength (nm)", fontsize=9)
-        else:
-            axes[row_ax, 0].tick_params(axis="x", labelbottom=False)
-
-        # Swatch (Lab → sRGB for display).
         srgb = lab_to_srgb_int(m["lab"])
-        axes[row_ax, 1].add_patch(mpatches.Rectangle((0, 0), 1, 1,
-                                                      facecolor=[c / 255 for c in srgb]))
-        axes[row_ax, 1].set_xlim(0, 1); axes[row_ax, 1].set_ylim(0, 1)
-        axes[row_ax, 1].axis("off")
-        axes[row_ax, 1].set_title(f"sRGB display\n{srgb}", fontsize=8)
-
-        # Info text: structure description.
-        struct_lines = "\n".join(
-            f"  {mat}: {thk}nm"
-            for mat, thk in zip(m["layer_materials"], m["layer_thicknesses"])
+        ax.plot(
+            CANONICAL_LAMBDA_NM, m["reflectance"],
+            color=[c / 255 for c in srgb],
+            linestyle=_LINESTYLES[i % len(_LINESTYLES)],
+            linewidth=1.8,
+            label=f"Design {m['rank'] + 1}",
         )
-        info = (
-            f"#{m['rank']}  ΔE₀₀ = {m['delta_e']:.2f}\n"
-            f"Lab: ({m['lab'][0]:.1f}, {m['lab'][1]:.1f}, {m['lab'][2]:.1f})\n"
-            f"{m['n_layers']} layers:\n{struct_lines}"
-        )
-        axes[row_ax, 2].axis("off")
-        axes[row_ax, 2].text(0.0, 0.5, info, ha="left", va="center",
-                              fontsize=8, family="monospace")
+    ax.set_xlim(CANONICAL_LAMBDA_NM.min(), CANONICAL_LAMBDA_NM.max())
+    ax.set_ylim(0, 1.0)
+    ax.set_xlabel("Wavelength (nm)", fontsize=11)
+    ax.set_ylabel("Reflectance", fontsize=11)
+    ax.grid(True, alpha=0.25)
+    ax.legend(fontsize=9, loc="upper left", framealpha=0.9)
 
-    plt.tight_layout()
+    # --- Right: target + design swatches in a grid ---
+    cells = [("target", query_rgb)] + [
+        (f"design {m['rank'] + 1}", lab_to_srgb_int(m["lab"])) for m in matches
+    ]
+    for idx, (label, srgb) in enumerate(cells):
+        r, c = divmod(idx, ncols_sw)
+        sax = fig.add_subplot(gs[r, 1 + c])
+        sax.add_patch(mpatches.Rectangle((0, 0), 1, 1,
+                                         facecolor=[v / 255 for v in srgb]))
+        sax.set_xlim(0, 1)
+        sax.set_ylim(0, 1)
+        sax.set_xticks([])
+        sax.set_yticks([])
+        sax.text(0.5, 0.5, label, ha="center", va="center",
+                 fontsize=12, color=_txt_color(srgb))
+    # Blank any unused trailing grid cells.
+    for idx in range(len(cells), nrows_sw * ncols_sw):
+        r, c = divmod(idx, ncols_sw)
+        fig.add_subplot(gs[r, 1 + c]).axis("off")
+
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.savefig(output_path, dpi=200, bbox_inches="tight")
     plt.close()
     print(f"[INFO] Saved visualization to {output_path}")
 
