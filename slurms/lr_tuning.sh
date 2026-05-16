@@ -98,9 +98,13 @@ DROPOUT="${DROPOUT:-0.1}"
 # Training. Batch size MUST match your planned production batch size —
 # optimal LR depends on it.
 BATCH_SIZE="${BATCH_SIZE:-256}"
-# DataLoader workers — keep small. Each worker prefetches ~2 batches of
-# pool data; too many can OOM the host RAM allocation.
-NUM_WORKERS="${NUM_WORKERS:-2}"
+# DataLoader workers. The pipeline is CPU-deserialization-bound
+# (pyarrow .as_py() on the nested pool arrays is ~1.9 ms/row, ~64% of
+# load cost; raw disk read is only ~0.2 ms/row). More workers ≈ linear
+# speedup here. Profiled throughput: 0w 330 ex/s, 2w 354, 4w 549.
+# 8 OOM'd the host RAM allocation (each worker prefetches ~2 batches of
+# expanded pool tensors); 4 is the safe middle.
+NUM_WORKERS="${NUM_WORKERS:-4}"
 
 # Output.
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search}"
