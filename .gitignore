@@ -10,3 +10,7 @@ outputs/
 .venv/
 .DS_Store
 .claude/
+
+# ad-hoc local investigation/profiling scripts (not committed)
+_profile_*.py
+_scratch_*.py
