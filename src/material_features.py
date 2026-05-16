@@ -42,9 +42,10 @@ treats them identically to anything it saw in training.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import ClassVar, Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -127,7 +128,17 @@ class MaterialNK:
     k: np.ndarray
     source: str = "unknown"
 
+    # Validation toggle. ON by default so synthetic-material generators
+    # still get the safety net. The training/eval data loader disables it
+    # via `materialnk_validation_disabled()` because parquet rows were
+    # already validated at generation time and the per-object numpy
+    # reductions are ~9% of the data-pipeline CPU cost (see the pipeline
+    # profiling in commit history).
+    _VALIDATE: ClassVar[bool] = True
+
     def __post_init__(self) -> None:
+        if not MaterialNK._VALIDATE:
+            return
         # Defensive validation. These are cheap and catch silent bugs in
         # synthetic-material generators.
         assert self.n.shape == (NUM_LAMBDA,), f"n shape {self.n.shape} != ({NUM_LAMBDA},)"
@@ -138,6 +149,23 @@ class MaterialNK:
         # (We allow n down to ~0.1 because some metals have anomalous n < 1.)
         assert np.all(self.n > 0), f"non-positive n in {self.name}"
         assert np.all(self.k >= 0), f"negative k in {self.name}"
+
+
+@contextmanager
+def materialnk_validation_disabled() -> Iterator[None]:
+    """Temporarily skip MaterialNK.__post_init__ validation.
+
+    Use only where the n,k arrays are already known-good (e.g. the
+    training-data loader reconstructing pre-validated parquet rows).
+    Restores the prior setting on exit, so nesting / generation code is
+    unaffected.
+    """
+    prev = MaterialNK._VALIDATE
+    MaterialNK._VALIDATE = False
+    try:
+        yield
+    finally:
+        MaterialNK._VALIDATE = prev
 
 
 # ============================================================================

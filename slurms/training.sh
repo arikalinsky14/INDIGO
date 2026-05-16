@@ -100,7 +100,9 @@ EPOCHS="${EPOCHS:-1}"                         # Number of training epochs
 
 # -------------------- Data Loading --------------------
 BATCH_SIZE="${BATCH_SIZE:-64}"                # Batch size
-NUM_WORKERS="${NUM_WORKERS:-4}"               # DataLoader workers
+NUM_WORKERS="${NUM_WORKERS:-6}"               # DataLoader workers
+                                              # (CPU-deser-bound pipeline;
+                                              # 8 OOM'd some nodes, 6 reliable)
 
 # -------------------- Checkpointing --------------------
 SAVE_DIR="${SAVE_DIR:-}"                   # Override checkpoint dir (default: auto-generated)
