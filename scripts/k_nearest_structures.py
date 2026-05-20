@@ -11,12 +11,15 @@ writes a compact proposal-style figure:
     line is drawn in the sRGB colour that design actually produces and
     given a distinct linestyle (-, --, -., :, (0,(3,1,1,1))), legend
     "Design 1".."Design k".
-  - RIGHT: the target swatch followed by the k design swatches in a
-    grid (target + 5 -> 2x3, matching the proposal layout).
+  - RIGHT (top row): target swatch + the k design swatches in one row.
+  - RIGHT (bottom row): a 2D side-view layer-stack picture aligned
+    under each design — bar heights accurate to the stored layer
+    thicknesses, each material drawn with a stable (hatch, grey-shade)
+    pair so reused materials are visually identifiable across designs.
 
-This conveys inverse-design degeneracy — many physically different
-multilayer structures producing nearly the same perceived colour —
-in a single space-efficient panel.
+This conveys inverse-design degeneracy in a single space-efficient
+panel — many physically different multilayer structures producing
+nearly the same perceived colour.
 
 Examples
 --------
@@ -260,39 +263,71 @@ def main() -> None:
 
     # 4. Proposal figure: LEFT = all designs' reflectance overlaid (each
     #    line drawn in the colour that design actually produces, with a
-    #    distinct linestyle); RIGHT = target swatch + per-design swatches
-    #    in a compact grid. Conveys inverse-design degeneracy (many
-    #    different structures → nearly the same perceived colour) in one
-    #    space-efficient panel.
+    #    distinct linestyle); RIGHT = top row of target + per-design
+    #    swatches, bottom row of stylised 2D layer-stack pictures aligned
+    #    under each design (blank under target — no structure to show).
+    #    Layer heights are accurate to the stored thicknesses; each
+    #    material gets a stable (hatch, shade) pair so the eye can spot
+    #    when two designs reuse the same material.
     try:
+        import matplotlib as mpl
         import matplotlib.patches as mpatches
         import matplotlib.pyplot as plt
     except ImportError:
         print("[WARN] matplotlib not available - skipping plot")
         return
 
-    import math as _math
-
     n_des = len(matches)
     # User-specified linestyle sequence; cycles if k > 5.
     _LINESTYLES = ["-", "--", "-.", ":", (0, (3, 1, 1, 1))]
 
+    # Hatch + grey-shade palette for layers. Sized so 4-5 designs with
+    # Poisson(4.5) layers each comfortably show unique materials; cycles
+    # if a query happens to involve more than 10 distinct materials.
+    _LAYER_PALETTE = [
+        ("",       "#dcdcdc"),
+        ("///",    "#b8b8b8"),
+        ("\\\\\\", "#909090"),
+        ("---",    "#cccccc"),
+        ("|||",    "#a8a8a8"),
+        ("...",    "#d4d4d4"),
+        ("xxx",    "#8a8a8a"),
+        ("+++",    "#b0b0b0"),
+        ("***",    "#c0c0c0"),
+        ("ooo",    "#9c9c9c"),
+    ]
+    # Tighter hatch lines for print legibility.
+    mpl.rcParams["hatch.linewidth"] = 0.6
+
     def _txt_color(srgb):
-        # Black text on light swatches, white on dark (perceived brightness).
         b = (0.299 * srgb[0] + 0.587 * srgb[1] + 0.114 * srgb[2]) / 255.0
         return "black" if b > 0.55 else "white"
 
-    ncols_sw = 3
-    nrows_sw = _math.ceil((n_des + 1) / ncols_sw)
+    # Assign visuals to materials in order of first appearance across the
+    # k designs — consistent across panels so a viewer can see, e.g., that
+    # design 2 and design 4 share a layer.
+    mat_order: List[str] = []
+    for m in matches:
+        for name in m["layer_materials"]:
+            if name not in mat_order:
+                mat_order.append(name)
+    mat_visual = {
+        name: _LAYER_PALETTE[i % len(_LAYER_PALETTE)]
+        for i, name in enumerate(mat_order)
+    }
+    y_max = max(sum(m["layer_thicknesses"]) for m in matches)
 
-    fig = plt.figure(figsize=(11, 1.6 * nrows_sw + 0.6))
+    # --- Layout: 2 rows x (1 spec + 1 target + n_des design) cols ---
+    n_cols_right = 1 + n_des  # target + designs
+    fig = plt.figure(figsize=(3.6 + 1.6 * n_cols_right, 4.4))
     gs = fig.add_gridspec(
-        nrows_sw, 1 + ncols_sw,
-        width_ratios=[3.4] + [1.0] * ncols_sw,
-        wspace=0.12, hspace=0.18,
+        2, 1 + n_cols_right,
+        width_ratios=[3.4] + [1.0] * n_cols_right,
+        height_ratios=[1.0, 1.25],
+        wspace=0.15, hspace=0.18,
     )
 
-    # --- Left: overlaid reflectance spectra ---
+    # --- Left (spans both rows): overlaid reflectance spectra ---
     ax = fig.add_subplot(gs[:, 0])
     for i, m in enumerate(matches):
         srgb = lab_to_srgb_int(m["lab"])
@@ -310,25 +345,43 @@ def main() -> None:
     ax.grid(True, alpha=0.25)
     ax.legend(fontsize=9, loc="upper left", framealpha=0.9)
 
-    # --- Right: target + design swatches in a grid ---
-    cells = [("target", query_rgb)] + [
+    # --- Top right row: target + design swatches ---
+    swatch_cells = [("target", query_rgb)] + [
         (f"design {m['rank'] + 1}", lab_to_srgb_int(m["lab"])) for m in matches
     ]
-    for idx, (label, srgb) in enumerate(cells):
-        r, c = divmod(idx, ncols_sw)
-        sax = fig.add_subplot(gs[r, 1 + c])
+    for col_offset, (label, srgb) in enumerate(swatch_cells):
+        sax = fig.add_subplot(gs[0, 1 + col_offset])
         sax.add_patch(mpatches.Rectangle((0, 0), 1, 1,
                                          facecolor=[v / 255 for v in srgb]))
-        sax.set_xlim(0, 1)
-        sax.set_ylim(0, 1)
-        sax.set_xticks([])
-        sax.set_yticks([])
+        sax.set_xlim(0, 1); sax.set_ylim(0, 1)
+        sax.set_xticks([]); sax.set_yticks([])
         sax.text(0.5, 0.5, label, ha="center", va="center",
                  fontsize=12, color=_txt_color(srgb))
-    # Blank any unused trailing grid cells.
-    for idx in range(len(cells), nrows_sw * ncols_sw):
-        r, c = divmod(idx, ncols_sw)
-        fig.add_subplot(gs[r, 1 + c]).axis("off")
+
+    # --- Bottom right row: structures (skip column 0 = target) ---
+    # Blank cell directly under "target" — nothing to draw there.
+    blank_ax = fig.add_subplot(gs[1, 1])
+    blank_ax.axis("off")
+
+    for i, m in enumerate(matches):
+        stax = fig.add_subplot(gs[1, 2 + i])
+        y = 0.0
+        for mat, thick in zip(m["layer_materials"], m["layer_thicknesses"]):
+            hatch, color = mat_visual[mat]
+            stax.bar(
+                0.5, thick, bottom=y, width=0.92,
+                color=color, hatch=hatch,
+                edgecolor="black", linewidth=0.6,
+            )
+            y += thick
+        stax.set_xlim(0, 1)
+        stax.set_ylim(0, y_max * 1.04)
+        stax.set_xticks([])
+        if i == 0:
+            stax.set_ylabel("Thickness (nm)", fontsize=9)
+            stax.tick_params(axis="y", labelsize=8)
+        else:
+            stax.set_yticks([])
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
