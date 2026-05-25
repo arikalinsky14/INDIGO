@@ -9,7 +9,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 
-#SBATCH --time=24:00:00
+#SBATCH --time=72:00:00
 #SBATCH --qos=short
 #SBATCH --mail-user=ajk245@pitt.edu
 #SBATCH --mail-type=END,FAIL,TIME_LIMIT
