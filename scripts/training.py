@@ -231,7 +231,9 @@ def run_one_epoch(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train INDIGO FlexMaterialMLP")
     parser.add_argument("--data-dir", type=str, default=None,
-                        help="Path to data_prompts/ directory")
+                        help="Path to a directory of INDIGO parquet shards "
+                             "(default: <repo>/data/train, matching the "
+                             "OUTPUT_DIR default of slurms/generate_data.sh)")
     parser.add_argument("--split", type=str, default="train")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--limit-examples", type=int, default=None,
@@ -282,7 +284,7 @@ def main() -> None:
     except FileNotFoundError:
         repo_root = Path(__file__).resolve().parent.parent
 
-    data_dir = Path(args.data_dir) if args.data_dir else repo_root / "create_dataset" / "data_prompts"
+    data_dir = Path(args.data_dir) if args.data_dir else repo_root / "data" / "train"
     print(f"[INFO] Loading data from {data_dir}")
 
     dataset = FlexThinFilmDataset(
