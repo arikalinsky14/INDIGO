@@ -92,14 +92,14 @@ N_LAYERS="${N_LAYERS:-8}"                     # Number of backbone hidden layers
 DROPOUT="${DROPOUT:-0.1}"                     # Backbone dropout
 
 # -------------------- Optimization --------------------
-LR="${LR:-4.42e-5}"                           # Base learning rate (re-tune for new model size!)
+LR="${LR:-1.44e-3}"                           # Base learning rate
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"          # AdamW weight decay
 GRAD_CLIP="${GRAD_CLIP:-1.0}"                 # Gradient clipping norm
 WARMUP_FRACTION="${WARMUP_FRACTION:-0.02}"    # Warmup fraction
 EPOCHS="${EPOCHS:-1}"                         # Number of training epochs
 
 # -------------------- Data Loading --------------------
-BATCH_SIZE="${BATCH_SIZE:-64}"                # Batch size
+BATCH_SIZE="${BATCH_SIZE:-256}"                # Batch size
 NUM_WORKERS="${NUM_WORKERS:-6}"               # DataLoader workers
                                               # (CPU-deser-bound pipeline;
                                               # 8 OOM'd some nodes, 6 reliable)
