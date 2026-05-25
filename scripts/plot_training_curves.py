@@ -108,7 +108,7 @@ def main() -> None:
     except FileNotFoundError:
         repo_root = Path(__file__).resolve().parent.parent
 
-    data_dir = Path(args.data_dir) if args.data_dir else repo_root / "create_dataset" / "data_prompts"
+    data_dir = Path(args.data_dir) if args.data_dir else repo_root / "data" / "train"
     print(f"[INFO] Loading validation data from {data_dir}")
     val_dataset = FlexThinFilmDataset(
         data_dir, seed=args.seed, split="validation",

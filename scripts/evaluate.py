@@ -352,7 +352,7 @@ def main() -> None:
     print(f"[INFO] Model params: {sum(p.numel() for p in model.parameters()):,}")
     print(f"[INFO] Config tag: {config.tag()}")
 
-    data_dir = Path(args.data_dir) if args.data_dir else repo_root / "create_dataset" / "data_prompts"
+    data_dir = Path(args.data_dir) if args.data_dir else repo_root / "data" / "train"
     dataset = FlexThinFilmDataset(
         data_dir, seed=args.seed, split=args.split, limit_examples=args.limit_examples
     )

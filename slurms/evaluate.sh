@@ -100,7 +100,10 @@ echo
 # ============================================================================
 
 # -------------------- Data & Evaluation Control --------------------
-DATA_DIR="${DATA_DIR:-}"                   # Path to data_prompts/ (default: auto-detect)
+DATA_DIR="${DATA_DIR:-}"                   # Path to a parquet-shards directory;
+                                           # empty -> evaluate.py defaults to
+                                           # <repo>/data/train (override e.g.
+                                           # DATA_DIR=data/test/tier_a)
 SPLIT="${SPLIT:-validation}"               # Dataset split (train/validation)
 LIMIT_EXAMPLES="${LIMIT_EXAMPLES:-}"       # Limit to N examples (for testing)
 SEED="${SEED:-42}"                         # Random seed
