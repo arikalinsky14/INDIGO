@@ -8,6 +8,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
 
 #SBATCH --time=24:00:00
 #SBATCH --qos=short
@@ -102,9 +104,12 @@ EPOCHS="${EPOCHS:-1}"                         # Number of training epochs
 
 # -------------------- Data Loading --------------------
 BATCH_SIZE="${BATCH_SIZE:-256}"                # Batch size
-NUM_WORKERS="${NUM_WORKERS:-6}"               # DataLoader workers
-                                              # (CPU-deser-bound pipeline;
-                                              # 8 OOM'd some nodes, 6 reliable)
+NUM_WORKERS="${NUM_WORKERS:-4}"               # DataLoader workers. 6+ has OOM'd
+                                              # the production training job
+                                              # at BATCH_SIZE=256 even with
+                                              # --mem=64G; 4 is the proven-
+                                              # safe value. Bump only if you
+                                              # also bump --mem above.
 
 # -------------------- Checkpointing --------------------
 SAVE_DIR="${SAVE_DIR:-}"                   # Override checkpoint dir (default: auto-generated)
