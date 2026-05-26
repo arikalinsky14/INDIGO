@@ -104,12 +104,13 @@ EPOCHS="${EPOCHS:-1}"                         # Number of training epochs
 
 # -------------------- Data Loading --------------------
 BATCH_SIZE="${BATCH_SIZE:-256}"                # Batch size
-NUM_WORKERS="${NUM_WORKERS:-4}"               # DataLoader workers. 6+ has OOM'd
-                                              # the production training job
-                                              # at BATCH_SIZE=256 even with
-                                              # --mem=64G; 4 is the proven-
-                                              # safe value. Bump only if you
-                                              # also bump --mem above.
+NUM_WORKERS="${NUM_WORKERS:-6}"               # DataLoader workers — matches the
+                                              # value lr_tuning.sh has been
+                                              # running on at the same
+                                              # --cpus-per-task=8 / --mem=64G
+                                              # allocation. 8 OOM'd some nodes
+                                              # in the earlier round; bump
+                                              # only if you also bump --mem.
 
 # -------------------- Checkpointing --------------------
 SAVE_DIR="${SAVE_DIR:-}"                   # Override checkpoint dir (default: auto-generated)
