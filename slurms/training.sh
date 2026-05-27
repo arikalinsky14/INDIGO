@@ -104,12 +104,18 @@ EPOCHS="${EPOCHS:-1}"                         # Number of training epochs
 
 # -------------------- Data Loading --------------------
 BATCH_SIZE="${BATCH_SIZE:-256}"                # Batch size
-NUM_WORKERS="${NUM_WORKERS:-6}"               # DataLoader workers — matches the
-                                              # value lr_tuning.sh has been
-                                              # running on at the same
-                                              # --cpus-per-task=8 / --mem=64G
-                                              # allocation. 8 OOM'd some nodes
-                                              # in the earlier round; bump
+NUM_WORKERS="${NUM_WORKERS:-4}"               # DataLoader workers.
+                                              # lr_tuning.sh runs at 6 on the
+                                              # same allocation, but only ever
+                                              # against LIMIT_EXAMPLES subsets.
+                                              # training iterates the FULL
+                                              # 10M-row dataset, so each worker
+                                              # eventually cycles through every
+                                              # shard (~140 MB/shard while a
+                                              # parquet table is in scope) —
+                                              # 6 OOMs at --mem=64G here.
+                                              # 4 is the proven-safe value
+                                              # against the full dataset; bump
                                               # only if you also bump --mem.
 
 # -------------------- Checkpointing --------------------
