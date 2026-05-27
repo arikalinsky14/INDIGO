@@ -255,6 +255,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--prefetch-factor", type=int, default=1,
+                        help="DataLoader prefetch_factor (default: 1). Our "
+                             "pipeline is producer-bound — workers are ~10x "
+                             "slower than the GPU consumer — so a deeper queue "
+                             "buys no throughput, only memory. Bump only if "
+                             "the model + batch grow enough to make the "
+                             "consumer the bottleneck.")
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--warmup-fraction", type=float, default=0.02)
 
@@ -295,12 +302,16 @@ def main() -> None:
         limit_examples=args.limit_examples,
     )
 
+    loader_kw = {}
+    if args.num_workers > 0:
+        loader_kw["prefetch_factor"] = args.prefetch_factor
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
         collate_fn=collate_fn,
         num_workers=args.num_workers,
         pin_memory=True,
+        **loader_kw,
     )
 
     config = ModelConfig(

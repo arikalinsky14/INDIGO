@@ -107,6 +107,11 @@ BATCH_SIZE="${BATCH_SIZE:-256}"
 # the reliable ceiling (each worker prefetches ~2 batches of expanded
 # pool tensors). Lower NUM_WORKERS if a node still OOMs.
 NUM_WORKERS="${NUM_WORKERS:-6}"
+PREFETCH_FACTOR="${PREFETCH_FACTOR:-1}"        # DataLoader prefetch_factor.
+                                              # 1 keeps worker queues small
+                                              # (~half PyTorch default's memory)
+                                              # at no throughput cost in our
+                                              # producer-bound regime.
 
 # Output.
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search}"
@@ -145,6 +150,7 @@ ARGS=(
     --dropout "${DROPOUT}"
     --batch-size "${BATCH_SIZE}"
     --num-workers "${NUM_WORKERS}"
+    --prefetch-factor "${PREFETCH_FACTOR}"
     --output-dir "${OUTPUT_DIR}"
     --log-every "${LOG_EVERY}"
 )
