@@ -112,6 +112,10 @@ PREFETCH_FACTOR="${PREFETCH_FACTOR:-1}"        # DataLoader prefetch_factor.
                                               # (~half PyTorch default's memory)
                                               # at no throughput cost in our
                                               # producer-bound regime.
+STREAMING="${STREAMING:-1}"                    # Stream shards (1) vs legacy
+                                              # buffered global-order (0). 1
+                                              # is production-safe; 0 OOMs
+                                              # at full-dataset scale.
 
 # Output.
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search}"
@@ -157,6 +161,11 @@ ARGS=(
 
 if [[ -n "${LIMIT_EXAMPLES}" ]]; then
     ARGS+=(--limit-examples "${LIMIT_EXAMPLES}")
+fi
+if [[ "${STREAMING}" == "1" ]]; then
+    ARGS+=(--streaming)
+else
+    ARGS+=(--no-streaming)
 fi
 if [[ -n "${LIMIT_VAL_EXAMPLES}" ]]; then
     ARGS+=(--limit-val-examples "${LIMIT_VAL_EXAMPLES}")

@@ -121,6 +121,16 @@ PREFETCH_FACTOR="${PREFETCH_FACTOR:-1}"        # DataLoader prefetch_factor.
                                               # only if model/batch ever grow
                                               # enough to make the GPU the
                                               # bottleneck.
+STREAMING="${STREAMING:-1}"                    # Dataset streaming mode.
+                                              # 1 (default): each worker reads
+                                              # shards one at a time, yields
+                                              # rows directly — bounded memory
+                                              # (~140 MB/worker for the current
+                                              # parquet table). 0: legacy
+                                              # global-order mode that buffers
+                                              # the worker's full epoch in
+                                              # memory (~40KB/example × millions
+                                              # → OOMs at production scale).
 
 # -------------------- Checkpointing --------------------
 SAVE_DIR="${SAVE_DIR:-}"                   # Override checkpoint dir (default: auto-generated)
@@ -167,6 +177,15 @@ ARGS=(
   --batch-size "${BATCH_SIZE}"
   --num-workers "${NUM_WORKERS}"
   --prefetch-factor "${PREFETCH_FACTOR}"
+)
+
+if [[ "${STREAMING}" == "1" ]]; then
+  ARGS+=(--streaming)
+else
+  ARGS+=(--no-streaming)
+fi
+
+ARGS+=(
 
   # Checkpointing
   --save-every "${SAVE_EVERY}"

@@ -276,6 +276,10 @@ def main() -> None:
                         help="Limit training rows used by the LR sweep")
     parser.add_argument("--limit-val-examples", type=int, default=None,
                         help="Limit validation rows used by the LR sweep")
+    parser.add_argument("--streaming", action=argparse.BooleanOptionalAction,
+                        default=False,
+                        help="Stream dataset shard-by-shard (recommended at "
+                             "production scale; the legacy mode OOMs).")
 
     parser.add_argument("--lr-min", type=float, default=1e-5)
     parser.add_argument("--lr-max", type=float, default=1e-2)
@@ -322,12 +326,12 @@ def main() -> None:
         print(f"[INFO] Loading training data (limited to {args.limit_examples} rows)...")
     train_dataset = FlexThinFilmDataset(
         data_dir, seed=args.seed, split="train", verbose=True,
-        limit_examples=args.limit_examples,
+        limit_examples=args.limit_examples, streaming=args.streaming,
     )
     print(f"[INFO] Loading validation data...")
     val_dataset = FlexThinFilmDataset(
         data_dir, seed=args.seed, split="validation", verbose=True,
-        limit_examples=args.limit_val_examples,
+        limit_examples=args.limit_val_examples, streaming=args.streaming,
     )
 
     config = ModelConfig(
