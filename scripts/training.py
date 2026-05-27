@@ -238,6 +238,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--limit-examples", type=int, default=None,
                         help="Limit to first N examples (for testing/debugging)")
+    parser.add_argument("--streaming", action=argparse.BooleanOptionalAction,
+                        default=False,
+                        help="Stream the dataset shard-by-shard (one parquet "
+                             "table in scope at a time, ~140 MB/worker). The "
+                             "legacy in-memory order-preserving path OOMs at "
+                             "production scale (~40 KB/example × millions); "
+                             "set --streaming for any full-dataset run. "
+                             "Trade-off: rows come out shard-by-shard rather "
+                             "than in the global `self.order` permutation.")
 
     # Model hyperparameters
     parser.add_argument("--feature-mode", type=str, default="raw_spectrum",
@@ -300,6 +309,7 @@ def main() -> None:
         split=args.split,
         verbose=args.verbose,
         limit_examples=args.limit_examples,
+        streaming=args.streaming,
     )
 
     loader_kw = {}

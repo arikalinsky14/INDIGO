@@ -100,6 +100,10 @@ def main() -> None:
     parser.add_argument("--output", type=str, default=None)
     parser.add_argument("--plot", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--streaming", action=argparse.BooleanOptionalAction,
+                        default=False,
+                        help="Stream dataset shard-by-shard (recommended at "
+                             "production scale; the legacy mode OOMs).")
 
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -120,6 +124,7 @@ def main() -> None:
     val_dataset = FlexThinFilmDataset(
         data_dir, seed=args.seed, split="validation",
         limit_examples=args.eval_examples, verbose=True,
+        streaming=args.streaming,
     )
     print(f"[INFO] Validation set: {len(val_dataset)} examples")
 
@@ -127,6 +132,7 @@ def main() -> None:
     train_dataset = FlexThinFilmDataset(
         data_dir, seed=args.seed, split="train",
         limit_examples=args.train_examples, verbose=True,
+        streaming=args.streaming,
     )
     print(f"[INFO] Training set: {len(train_dataset)} examples")
 

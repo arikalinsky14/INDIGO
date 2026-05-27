@@ -291,6 +291,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", type=str, default="validation")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--limit-examples", type=int, default=None)
+    parser.add_argument("--streaming", action=argparse.BooleanOptionalAction,
+                        default=False,
+                        help="Stream dataset shard-by-shard (recommended at "
+                             "production scale; the legacy mode OOMs).")
 
     # Model hyperparameters (used for checkpoint lookup if --checkpoint not given)
     parser.add_argument("--feature-mode", type=str, default="raw_spectrum",
@@ -362,7 +366,8 @@ def main() -> None:
 
     data_dir = Path(args.data_dir) if args.data_dir else repo_root / "data" / "train"
     dataset = FlexThinFilmDataset(
-        data_dir, seed=args.seed, split=args.split, limit_examples=args.limit_examples
+        data_dir, seed=args.seed, split=args.split,
+        limit_examples=args.limit_examples, streaming=args.streaming
     )
     print(f"[INFO] Evaluating {len(dataset)} examples from split '{args.split}'")
 

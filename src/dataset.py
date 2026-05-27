@@ -238,11 +238,13 @@ class FlexThinFilmDataset(IterableDataset):
         split: str = "train",
         verbose: bool = False,
         limit_examples: Optional[int] = None,
+        streaming: bool = False,
     ):
         self.seed = seed
         self.split = split
         self.verbose = verbose
         self.limit_examples = limit_examples
+        self.streaming = streaming
 
         data_prompts_dir = Path(data_prompts_dir)
         self.files = scan_files(data_prompts_dir)
@@ -277,12 +279,86 @@ class FlexThinFilmDataset(IterableDataset):
             print(
                 f"[Dataset] {split}: {len(self.order):,} examples "
                 f"from {len(self.files)} files"
+                + (" (streaming)" if streaming else "")
             )
+
+        if streaming:
+            self._build_streaming_index()
+
+    def _build_streaming_index(self) -> None:
+        """For each shard, the sorted list of row indices that belong to our
+        split. Lets `_iter_streaming` read one shard at a time and emit rows
+        in row-position order without an in-memory accumulator.
+        """
+        order_np = self.order.numpy()
+        sel_fids = self.file_ids.numpy()[order_np]
+        sel_rows = self.row_idxs.numpy()[order_np]
+        # Group by file_id via argsort, then sort within each group by row
+        # index so each shard is read sequentially.
+        sort_idx = np.argsort(sel_fids, kind="stable")
+        sorted_fids = sel_fids[sort_idx]
+        sorted_rows = sel_rows[sort_idx]
+        boundaries = np.searchsorted(sorted_fids, np.arange(len(self.files) + 1))
+        self._split_rows_by_file: Dict[int, np.ndarray] = {}
+        for fid in range(len(self.files)):
+            s, e = int(boundaries[fid]), int(boundaries[fid + 1])
+            if s < e:
+                self._split_rows_by_file[fid] = np.sort(sorted_rows[s:e])
 
     def __len__(self) -> int:
         return len(self.order)
 
     def __iter__(self) -> Iterator[TrainingExample]:
+        if self.streaming:
+            yield from self._iter_streaming()
+        else:
+            yield from self._iter_global_order()
+
+    def _iter_streaming(self) -> Iterator[TrainingExample]:
+        """Read shards one at a time in shard_id order, yielding rows that
+        belong to our split. No per-epoch results accumulator — memory is
+        bounded by ~one parquet table (~140 MB) per worker, regardless of
+        dataset size. The trade-off vs `_iter_global_order` is that rows
+        are no longer in `self.order`'s globally-shuffled order; they come
+        out shard-by-shard. Since shards are generated from independent
+        seeds, this is still a random sample of the split distribution.
+        """
+        worker_info = get_worker_info()
+        files_sorted = sorted(self.files, key=lambda f: f.shard_id)
+        if worker_info is not None:
+            my_files = files_sorted[worker_info.id::worker_info.num_workers]
+        else:
+            my_files = files_sorted
+
+        with materialnk_validation_disabled():
+            for f in my_files:
+                row_idxs = self._split_rows_by_file.get(f.file_id)
+                if row_idxs is None or len(row_idxs) == 0:
+                    continue
+                try:
+                    table = pq.read_table(f.path, columns=list(_REQUIRED_COLUMNS))
+                except Exception as exc:
+                    print(f"[WARN] Could not read {f.path}: {exc}")
+                    continue
+                for row_idx in row_idxs:
+                    try:
+                        row = {col: table[col][int(row_idx)].as_py()
+                               for col in table.column_names}
+                        yield _row_to_example(row)
+                    except Exception as exc:
+                        print(f"[WARN] Skipping row {int(row_idx)} of "
+                              f"{f.path}: {exc}")
+                        continue
+                del table  # release ~140 MB before opening the next shard
+
+    def _iter_global_order(self) -> Iterator[TrainingExample]:
+        """Original behavior: yields examples in the globally-shuffled
+        `self.order` sequence. Builds a per-worker in-memory dict of all
+        epoch examples before yielding (so it can re-order across shards),
+        which OOMs at production dataset sizes (~40 KB/example × millions).
+        Kept for small-dataset compatibility / unit testing — prefer
+        `streaming=True` for any production run.
+        """
         worker_info = get_worker_info()
         indices = (
             self.order
