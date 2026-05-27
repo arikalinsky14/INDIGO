@@ -54,11 +54,15 @@ def get_training_loss_from_meta(checkpoint_dir: Path) -> Optional[float]:
     return meta.get("loss")
 
 
-def evaluate_teacher_forcing(model, dataset, device, batch_size=64, num_workers=4) -> Dict[str, float]:
+def evaluate_teacher_forcing(model, dataset, device, batch_size=64,
+                              num_workers=4, prefetch_factor=1) -> Dict[str, float]:
     model.eval()
+    loader_kw = {}
+    if num_workers > 0:
+        loader_kw["prefetch_factor"] = prefetch_factor
     loader = DataLoader(
         dataset, batch_size=batch_size, collate_fn=collate_fn,
-        num_workers=num_workers, pin_memory=True,
+        num_workers=num_workers, pin_memory=True, **loader_kw,
     )
     total_loss = 0.0
     total_correct = 0
@@ -90,6 +94,9 @@ def main() -> None:
     parser.add_argument("--smoothing-window", type=int, default=15)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--prefetch-factor", type=int, default=1,
+                        help="DataLoader prefetch_factor (default: 1; matches "
+                             "training.py — pipeline is producer-bound)")
     parser.add_argument("--output", type=str, default=None)
     parser.add_argument("--plot", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
@@ -143,10 +150,12 @@ def main() -> None:
             train_results = evaluate_teacher_forcing(
                 model, train_dataset, device,
                 batch_size=args.batch_size, num_workers=args.num_workers,
+                prefetch_factor=args.prefetch_factor,
             )
             val_results = evaluate_teacher_forcing(
                 model, val_dataset, device,
                 batch_size=args.batch_size, num_workers=args.num_workers,
+                prefetch_factor=args.prefetch_factor,
             )
             train_loss = train_results["loss"]
             train_acc = train_results["accuracy"]

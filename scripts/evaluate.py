@@ -106,14 +106,19 @@ def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
     }
 
 
-def evaluate_teacher_forcing(model, dataset, device, batch_size=32, num_workers=4):
+def evaluate_teacher_forcing(model, dataset, device, batch_size=32,
+                              num_workers=4, prefetch_factor=1):
     model.eval()
+    loader_kw = {}
+    if num_workers > 0:
+        loader_kw["prefetch_factor"] = prefetch_factor
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
         collate_fn=collate_fn,
         num_workers=num_workers,
         pin_memory=True,
+        **loader_kw,
     )
 
     total_loss = 0.0
@@ -305,6 +310,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=str, default=None)
     parser.add_argument("--swatch-examples", type=int, default=10)
     parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--prefetch-factor", type=int, default=1,
+                        help="DataLoader prefetch_factor (default: 1; matches "
+                             "training.py — pipeline is producer-bound)")
 
     # Mode flags
     parser.add_argument("--low-compute", action="store_true")
@@ -364,7 +372,8 @@ def main() -> None:
         print("LOW-COMPUTE MODE: Teacher Forcing Evaluation")
         print("=" * 60)
         tf_results = evaluate_teacher_forcing(
-            model, dataset, device, batch_size=args.batch_size, num_workers=args.num_workers,
+            model, dataset, device, batch_size=args.batch_size,
+            num_workers=args.num_workers, prefetch_factor=args.prefetch_factor,
         )
         metrics = {
             "mode": "low_compute",
@@ -398,7 +407,8 @@ def main() -> None:
 
     print("\n--- Phase 1: Teacher Forcing ---")
     tf_results = evaluate_teacher_forcing(
-        model, dataset, device, batch_size=args.batch_size, num_workers=args.num_workers,
+        model, dataset, device, batch_size=args.batch_size,
+        num_workers=args.num_workers, prefetch_factor=args.prefetch_factor,
     )
 
     print("\n--- Phase 2: Autoregressive Generation ---")

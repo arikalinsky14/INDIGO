@@ -104,19 +104,23 @@ EPOCHS="${EPOCHS:-1}"                         # Number of training epochs
 
 # -------------------- Data Loading --------------------
 BATCH_SIZE="${BATCH_SIZE:-256}"                # Batch size
-NUM_WORKERS="${NUM_WORKERS:-4}"               # DataLoader workers.
-                                              # lr_tuning.sh runs at 6 on the
-                                              # same allocation, but only ever
-                                              # against LIMIT_EXAMPLES subsets.
-                                              # training iterates the FULL
-                                              # 10M-row dataset, so each worker
-                                              # eventually cycles through every
-                                              # shard (~140 MB/shard while a
-                                              # parquet table is in scope) —
-                                              # 6 OOMs at --mem=64G here.
-                                              # 4 is the proven-safe value
-                                              # against the full dataset; bump
-                                              # only if you also bump --mem.
+NUM_WORKERS="${NUM_WORKERS:-6}"               # DataLoader workers. 6 was
+                                              # OOM'ing previously at
+                                              # prefetch_factor=2 (PyTorch
+                                              # default); now with PREFETCH=1
+                                              # below each worker's prefetch
+                                              # queue is ~half the memory, so
+                                              # 6 fits at --mem=64G. If OOMs
+                                              # return, drop to 4 OR bump --mem.
+PREFETCH_FACTOR="${PREFETCH_FACTOR:-1}"        # DataLoader prefetch_factor.
+                                              # Default 1 (was PyTorch default 2).
+                                              # Pipeline is producer-bound — GPU
+                                              # is ~10x faster than workers — so
+                                              # a deeper queue buys no throughput
+                                              # and only costs memory. Bump
+                                              # only if model/batch ever grow
+                                              # enough to make the GPU the
+                                              # bottleneck.
 
 # -------------------- Checkpointing --------------------
 SAVE_DIR="${SAVE_DIR:-}"                   # Override checkpoint dir (default: auto-generated)
@@ -162,6 +166,7 @@ ARGS=(
   # Data loading
   --batch-size "${BATCH_SIZE}"
   --num-workers "${NUM_WORKERS}"
+  --prefetch-factor "${PREFETCH_FACTOR}"
 
   # Checkpointing
   --save-every "${SAVE_EVERY}"

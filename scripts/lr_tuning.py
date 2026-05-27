@@ -90,6 +90,7 @@ def train_with_lr(
     device: torch.device,
     batch_size: int = 64,
     num_workers: int = 4,
+    prefetch_factor: int = 1,
     weight_decay: float = 0.0,
     grad_clip: float = 1.0,
     warmup_fraction: float = 0.02,
@@ -99,13 +100,16 @@ def train_with_lr(
     model = FlexMaterialMLP(config).to(device)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
+    loader_kw = {}
+    if num_workers > 0:
+        loader_kw["prefetch_factor"] = prefetch_factor
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, collate_fn=collate_fn,
-        num_workers=num_workers, pin_memory=True,
+        num_workers=num_workers, pin_memory=True, **loader_kw,
     )
     val_loader = DataLoader(
         val_dataset, batch_size=batch_size, collate_fn=collate_fn,
-        num_workers=num_workers, pin_memory=True,
+        num_workers=num_workers, pin_memory=True, **loader_kw,
     )
 
     n_examples = len(train_dataset)
@@ -180,6 +184,7 @@ def lr_tuning(
     n_lrs: int = 8,
     batch_size: int = 64,
     num_workers: int = 4,
+    prefetch_factor: int = 1,
     weight_decay: float = 0.0,
     grad_clip: float = 1.0,
     warmup_fraction: float = 0.02,
@@ -205,6 +210,7 @@ def lr_tuning(
             train_dataset=train_dataset, val_dataset=val_dataset,
             config=config, device=device,
             batch_size=batch_size, num_workers=num_workers,
+            prefetch_factor=prefetch_factor,
             weight_decay=weight_decay, grad_clip=grad_clip,
             warmup_fraction=warmup_fraction,
             log_every=log_every, verbose=verbose,
@@ -286,6 +292,9 @@ def main() -> None:
 
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--prefetch-factor", type=int, default=1,
+                        help="DataLoader prefetch_factor (default: 1; matches "
+                             "training.py — pipeline is producer-bound)")
     parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--warmup-fraction", type=float, default=0.02)
@@ -338,6 +347,7 @@ def main() -> None:
         config=config, device=device,
         lr_min=args.lr_min, lr_max=args.lr_max, n_lrs=args.n_lrs,
         batch_size=args.batch_size, num_workers=args.num_workers,
+        prefetch_factor=args.prefetch_factor,
         weight_decay=args.weight_decay, grad_clip=args.grad_clip,
         warmup_fraction=args.warmup_fraction,
         log_every=args.log_every, verbose=args.verbose,
