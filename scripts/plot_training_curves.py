@@ -28,15 +28,15 @@ sys.path.insert(0, str(_repo_root))
 
 from scripts.training import collate_fn
 from src.dataset import FlexThinFilmDataset, find_repo_root
-from src.model import FlexMaterialMLP, ModelConfig, compute_loss
+from src.model import ModelConfig, build_model, compute_loss
 
 
-def load_model_from_checkpoint(checkpoint_dir: Path, device: torch.device) -> Tuple[FlexMaterialMLP, ModelConfig]:
+def load_model_from_checkpoint(checkpoint_dir: Path, device: torch.device) -> Tuple[torch.nn.Module, ModelConfig]:
     config_path = checkpoint_dir / "config.json"
     model_path = checkpoint_dir / "model.pt"
     with open(config_path) as f:
         config = ModelConfig.from_dict(json.load(f))
-    model = FlexMaterialMLP(config)
+    model = build_model(config)
     model.load_state_dict(
         torch.load(model_path, map_location=device, weights_only=True), strict=False
     )

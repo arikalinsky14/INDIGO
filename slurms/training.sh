@@ -86,7 +86,7 @@ SPLIT="${SPLIT:-train}"                    # Dataset split (train/validation)
 LIMIT_EXAMPLES="${LIMIT_EXAMPLES:-}"       # Limit to N examples (for testing)
 SEED="${SEED:-42}"                         # Random seed
 
-# -------------------- Model Architecture (FlexMaterialMLP) --------------------
+# -------------------- Model Architecture --------------------
 FEATURE_MODE="${FEATURE_MODE:-raw_spectrum}"  # 'raw_spectrum' or 'compact'
 ENCODER_HIDDEN="${ENCODER_HIDDEN:-128}"       # Material encoder hidden dim
 ENCODER_OUT="${ENCODER_OUT:-64}"              # Material encoder output dim
@@ -94,6 +94,14 @@ ENCODER_DROPOUT="${ENCODER_DROPOUT:-0.1}"     # Material encoder dropout
 D_MODEL="${D_MODEL:-1024}"                    # Backbone hidden dim
 N_LAYERS="${N_LAYERS:-8}"                     # Number of backbone hidden layers
 DROPOUT="${DROPOUT:-0.1}"                     # Backbone dropout
+HEAD_MODE="${HEAD_MODE:-mlp}"                 # 'mlp' (flatten-then-MLP, default)
+                                              # or 'cross_attn' (pointer head:
+                                              # per-slot transformer + query
+                                              # cross-attention; permutation-
+                                              # equivariant by construction).
+                                              # Tune LR per head — optimum
+                                              # differs across architectures.
+N_HEADS="${N_HEADS:-8}"                       # Attention heads (cross_attn only)
 
 # -------------------- Optimization --------------------
 LR="${LR:-1.44e-3}"                           # Base learning rate
@@ -157,7 +165,7 @@ ARGS=(
   --split "${SPLIT}"
   --seed "${SEED}"
 
-  # Model architecture (FlexMaterialMLP)
+  # Model architecture
   --feature-mode "${FEATURE_MODE}"
   --encoder-hidden "${ENCODER_HIDDEN}"
   --encoder-out "${ENCODER_OUT}"
@@ -165,6 +173,8 @@ ARGS=(
   --d-model "${D_MODEL}"
   --n-layers "${N_LAYERS}"
   --dropout "${DROPOUT}"
+  --head-mode "${HEAD_MODE}"
+  --n-heads "${N_HEADS}"
 
   # Optimization
   --lr "${LR}"
@@ -232,7 +242,11 @@ if [[ -n "${DATA_DIR}" ]]; then
   echo "  Data dir:        ${DATA_DIR}"
 fi
 echo
-echo "Model Architecture (FlexMaterialMLP):"
+echo "Model Architecture:"
+echo "  head_mode:       ${HEAD_MODE}"
+if [[ "${HEAD_MODE}" == "cross_attn" ]]; then
+  echo "  n_heads:         ${N_HEADS}"
+fi
 echo "  feature mode:    ${FEATURE_MODE}"
 echo "  encoder hidden:  ${ENCODER_HIDDEN}"
 echo "  encoder out:     ${ENCODER_OUT}"

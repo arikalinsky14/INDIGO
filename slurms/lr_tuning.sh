@@ -95,6 +95,18 @@ ENCODER_DROPOUT="${ENCODER_DROPOUT:-0.1}"
 D_MODEL="${D_MODEL:-1024}"
 N_LAYERS="${N_LAYERS:-8}"
 DROPOUT="${DROPOUT:-0.1}"
+HEAD_MODE="${HEAD_MODE:-mlp}"                    # 'mlp' or 'cross_attn' — MUST
+                                                 # match the architecture you
+                                                 # plan to train (optimal LR is
+                                                 # head-dependent).
+N_HEADS="${N_HEADS:-8}"                          # Attention heads (cross_attn only)
+
+# Regularisation. MUST match training.sh so the LR optimum transfers — AdamW
+# dynamics differ at different weight decay, and dropout changes effective
+# capacity.
+WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
+GRAD_CLIP="${GRAD_CLIP:-1.0}"
+WARMUP_FRACTION="${WARMUP_FRACTION:-0.02}"
 
 # Training. Batch size MUST match your planned production batch size —
 # optimal LR depends on it.
@@ -152,9 +164,14 @@ ARGS=(
     --d-model "${D_MODEL}"
     --n-layers "${N_LAYERS}"
     --dropout "${DROPOUT}"
+    --head-mode "${HEAD_MODE}"
+    --n-heads "${N_HEADS}"
     --batch-size "${BATCH_SIZE}"
     --num-workers "${NUM_WORKERS}"
     --prefetch-factor "${PREFETCH_FACTOR}"
+    --weight-decay "${WEIGHT_DECAY}"
+    --grad-clip "${GRAD_CLIP}"
+    --warmup-fraction "${WARMUP_FRACTION}"
     --output-dir "${OUTPUT_DIR}"
     --log-every "${LOG_EVERY}"
 )
@@ -198,11 +215,20 @@ echo "  DataLoader workers: ${NUM_WORKERS}"
 echo "  Seed:               ${SEED}"
 echo
 echo "Model:"
+echo "  head_mode:          ${HEAD_MODE}"
+if [[ "${HEAD_MODE}" == "cross_attn" ]]; then
+    echo "  n_heads:            ${N_HEADS}"
+fi
 echo "  feature_mode:       ${FEATURE_MODE}"
 echo "  encoder hidden/out: ${ENCODER_HIDDEN}/${ENCODER_OUT}"
 echo "  d_model:            ${D_MODEL}"
 echo "  n_layers:           ${N_LAYERS}"
 echo "  dropout:            ${DROPOUT}"
+echo
+echo "Optimization:"
+echo "  Weight decay:       ${WEIGHT_DECAY}"
+echo "  Grad clip:          ${GRAD_CLIP}"
+echo "  Warmup:             ${WARMUP_FRACTION}"
 echo
 echo "Output:"
 echo "  Output dir:         ${OUTPUT_DIR}"
