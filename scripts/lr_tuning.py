@@ -387,11 +387,13 @@ def main() -> None:
     if args.output_dir:
         output_dir = Path(args.output_dir)
     else:
+        # Partition by head_mode so MLP and cross_attn runs don't share files —
+        # fit_lr_scaling.py reads one head's results at a time.
         try:
             repo_root = find_repo_root()
-            output_dir = repo_root / "outputs" / "lr_search"
+            output_dir = repo_root / "outputs" / "lr_search" / args.head_mode
         except Exception:
-            output_dir = Path("./outputs/lr_search")
+            output_dir = Path("./outputs/lr_search") / args.head_mode
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Tag output filenames with the train-subset size so multi-N runs
@@ -405,6 +407,8 @@ def main() -> None:
             "optimal_lr": optimal_lr,
             "lr_range": [args.lr_min, args.lr_max],
             "n_lrs": args.n_lrs,
+            "head_mode": args.head_mode,
+            "n_heads": args.n_heads,
             "d_model": args.d_model,
             "n_layers": args.n_layers,
             "batch_size": args.batch_size,

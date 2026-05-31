@@ -38,11 +38,12 @@ set -euo pipefail
 # After all three complete:
 #
 #   python scripts/fit_lr_scaling.py \
-#       --results-dir outputs/lr_search \
+#       --head-mode "${HEAD_MODE:-mlp}" \
 #       --target-examples 10000000 --plot
 #
-# Each run writes outputs/lr_search/lr_search_ep1_lim<N>.json, so the three
-# jobs don't clobber each other.
+# Each run writes outputs/lr_search/<head_mode>/lr_search_ep1_lim<N>.json, so
+# the three jobs don't clobber each other and the MLP and cross_attn fits
+# stay in separate subdirectories.
 #
 # ============================================================================
 
@@ -129,8 +130,8 @@ STREAMING="${STREAMING:-1}"                    # Stream shards (1) vs legacy
                                               # is production-safe; 0 OOMs
                                               # at full-dataset scale.
 
-# Output.
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search}"
+# Output. Partition by head so MLP and cross_attn fits stay separate.
+OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/${HEAD_MODE}}"
 
 # Logging — python defaults to verbose; pass --no-verbose to silence.
 LOG_EVERY="${LOG_EVERY:-100}"
@@ -278,9 +279,13 @@ exit ${EXIT_CODE}
 # 5. Override the production batch size you're targeting:
 #    LIMIT_EXAMPLES=1000000 BATCH_SIZE=512 sbatch slurms/lr_tuning.sh
 #
-# 6. After all sweeps complete, fit and extrapolate:
+# 6. After all sweeps complete, fit and extrapolate (per head):
 #    python scripts/fit_lr_scaling.py \
-#        --results-dir outputs/lr_search \
+#        --head-mode mlp \
+#        --target-examples 10000000 --plot
+#    # or for cross-attention sweeps:
+#    python scripts/fit_lr_scaling.py \
+#        --head-mode cross_attn \
 #        --target-examples 10000000 --plot
 #
 # ============================================================================

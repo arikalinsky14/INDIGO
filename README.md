@@ -265,55 +265,56 @@ transfer because the model size and input dimensionality are different.
 
 ## LR tuning (recommended commands)
 
-`slurms/lr_tuning.sh` defaults are now aligned with `slurms/training.sh`
+`slurms/lr_tuning.sh` defaults are aligned with `slurms/training.sh`
 (`BATCH_SIZE=256`, `WEIGHT_DECAY=0.01`, `DROPOUT=0.1`, `WARMUP_FRACTION=0.02`,
 `STREAMING=1`, `NUM_WORKERS=6`, `PREFETCH_FACTOR=1`). Override any of these
 via env var when sbatch'ing to keep the LR fit meaningful for the
 architecture you'll actually train.
 
-### Sweep across 1, 2, 3 epochs at the same training budget
-
-Each job writes `outputs/lr_search/lr_search_ep<E>_lim<N>.json`, so the
-three runs never clobber each other. Streaming is on by default.
-
-```bash
-# 6-LR sweep at each epoch count on a 1 M-row subset (one GPU each, in parallel)
-for EP in 1 2 3; do
-    EPOCHS=${EP} LIMIT_EXAMPLES=1000000 sbatch slurms/lr_tuning.sh
-done
-```
-
-Use this when you want to compare LR optima across epoch counts at a fixed
-data budget — the cosine schedule reshapes with `EPOCHS`, so the optimum
-moves. Production-training the model with `EPOCHS=K` should use the LR found
-by the sweep with the matching `EPOCHS=K`.
-
-### Sweep at the production scale (full training pool)
-
-```bash
-# Single sweep, one epoch, on the entire training set (~hours)
-EPOCHS=1 sbatch slurms/lr_tuning.sh
-
-# Same, but with the cross-attention pointer head — re-tune LR per head
-HEAD_MODE=cross_attn EPOCHS=1 sbatch slurms/lr_tuning.sh
-```
+LR-search outputs are partitioned by head_mode:
+`outputs/lr_search/<head_mode>/lr_search_ep<E>_lim<N>.json`. MLP and
+cross-attention sweeps live in separate subdirectories and never clobber
+each other.
 
 ### Multi-N scaling-law fit (preferred for production-LR derivation)
 
 For a single-pass production run on `N` rows, `lr_opt` scales as a power
-law in `N`. Submit at several `N` values with `EPOCHS=1`, then extrapolate
-to your target with `scripts/fit_lr_scaling.py`:
+law in `N`: `log(lr_opt) = a + b * log(N)`. The clean way to fit this is to
+**fix `EPOCHS=1` and vary `LIMIT_EXAMPLES`** — single-pass keeps AdamW
+seeing fresh data, which is the regime the scaling law is derived for.
+Varying `EPOCHS` at fixed `N` instead would confound the fit because the
+cosine schedule reshapes with total step count under repeated-example
+dynamics that no longer obey a clean power law.
 
 ```bash
+# 1. Generate the points (one GPU per N, in parallel)
 for N in 500000 1000000 2000000; do
     EPOCHS=1 LIMIT_EXAMPLES=${N} sbatch slurms/lr_tuning.sh
 done
 
-# After all three complete:
+# 2. After all three complete, fit and extrapolate
 python scripts/fit_lr_scaling.py \
-    --results-dir outputs/lr_search \
-    --target-examples 10000000 --plot
+    --head-mode mlp \
+    --target-examples <FULL_TRAIN_POOL_SIZE> --plot
 ```
+
+For the cross-attention head, re-run the same workflow with
+`HEAD_MODE=cross_attn` (optimum is architecture-dependent). The
+per-head subdirectory keeps the two fits cleanly separated:
+
+```bash
+for N in 500000 1000000 2000000; do
+    HEAD_MODE=cross_attn EPOCHS=1 LIMIT_EXAMPLES=${N} sbatch slurms/lr_tuning.sh
+done
+python scripts/fit_lr_scaling.py \
+    --head-mode cross_attn \
+    --target-examples <FULL_TRAIN_POOL_SIZE> --plot
+```
+
+Then production-train with the extrapolated LR for as many epochs as you
+need — the cosine schedule auto-stretches over `total_steps = steps_per_epoch
+* EPOCHS`, and for properly rescaled cosine the single-pass `lr_opt` is
+roughly invariant to epoch count at fixed `N`.
 
 ### Narrow-range follow-up
 

@@ -116,6 +116,11 @@ ENCODER_DROPOUT="${ENCODER_DROPOUT:-0.1}"
 D_MODEL="${D_MODEL:-1024}"
 N_LAYERS="${N_LAYERS:-8}"
 DROPOUT="${DROPOUT:-0.1}"
+HEAD_MODE="${HEAD_MODE:-mlp}"              # 'mlp' or 'cross_attn' — MUST
+                                           # match the trained checkpoint
+                                           # (used for both architecture
+                                           # build and tag-based lookup).
+N_HEADS="${N_HEADS:-8}"                    # Attention heads (cross_attn only)
 
 # -------------------- Optimization (used to identify model) --------------------
 LR="${LR:-4.42e-5}"                        # Learning rate (for checkpoint lookup)
@@ -187,6 +192,8 @@ ARGS=(
   --d-model "${D_MODEL}"
   --n-layers "${N_LAYERS}"
   --dropout "${DROPOUT}"
+  --head-mode "${HEAD_MODE}"
+  --n-heads "${N_HEADS}"
 
   # Optimization (for checkpoint lookup)
   --lr "${LR}"
@@ -277,7 +284,11 @@ if [[ -n "${DATA_DIR}" ]]; then
   echo "  Data dir:        ${DATA_DIR}"
 fi
 echo
-echo "Model Identification (MLP):"
+echo "Model Identification:"
+echo "  head_mode:       ${HEAD_MODE}"
+if [[ "${HEAD_MODE}" == "cross_attn" ]]; then
+  echo "  n_heads:         ${N_HEADS}"
+fi
 echo "  d_model:         ${D_MODEL}"
 echo "  n_layers:        ${N_LAYERS}"
 echo "  dropout:         ${DROPOUT}"
