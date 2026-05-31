@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-Learning Rate Finder for INDIGO (FlexMaterialMLP).
+Learning Rate Finder for INDIGO (FlexMaterialMLP / FlexMaterialCrossAttn).
 
 Imports collate / step utilities from `scripts/training.py` so the search
-loop is bit-identical to a real training run.
+loop is bit-identical to a real training run. Tune LR per head — the
+optimum is architecture-dependent, so re-run this sweep whenever you
+change `--head-mode`.
 
 For a single-pass production run on N rows, the optimal LR scales as a
 power law in N. The recommended workflow is:
@@ -48,7 +50,7 @@ sys.path.insert(0, str(_repo_root))
 
 from scripts.training import collate_fn, run_one_epoch
 from src.dataset import FlexThinFilmDataset, find_repo_root
-from src.model import FlexMaterialMLP, ModelConfig, compute_loss
+from src.model import ModelConfig, build_model, compute_loss
 
 
 @dataclass
@@ -91,13 +93,13 @@ def train_with_lr(
     batch_size: int = 64,
     num_workers: int = 4,
     prefetch_factor: int = 1,
-    weight_decay: float = 0.0,
+    weight_decay: float = 0.01,
     grad_clip: float = 1.0,
     warmup_fraction: float = 0.02,
     log_every: int = 100,
     verbose: bool = True,
 ) -> LRSearchResult:
-    model = FlexMaterialMLP(config).to(device)
+    model = build_model(config).to(device)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     loader_kw = {}
@@ -185,7 +187,7 @@ def lr_tuning(
     batch_size: int = 64,
     num_workers: int = 4,
     prefetch_factor: int = 1,
-    weight_decay: float = 0.0,
+    weight_decay: float = 0.01,
     grad_clip: float = 1.0,
     warmup_fraction: float = 0.02,
     log_every: int = 100,
@@ -292,14 +294,22 @@ def main() -> None:
     parser.add_argument("--encoder-dropout", type=float, default=0.1)
     parser.add_argument("--d-model", type=int, default=1024)
     parser.add_argument("--n-layers", type=int, default=8)
-    parser.add_argument("--dropout", type=float, default=0.0)
+    # Keep aligned with scripts/training.py: optimal LR depends on regularisation.
+    parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--head-mode", type=str, default="mlp",
+                        choices=["mlp", "cross_attn"],
+                        help="Must match the architecture you plan to train; "
+                             "optimal LR is head-dependent.")
+    parser.add_argument("--n-heads", type=int, default=8,
+                        help="Attention heads (cross_attn only).")
 
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--prefetch-factor", type=int, default=1,
                         help="DataLoader prefetch_factor (default: 1; matches "
                              "training.py — pipeline is producer-bound)")
-    parser.add_argument("--weight-decay", type=float, default=0.0)
+    # Keep aligned with scripts/training.py: optimal LR is regulariser-sensitive.
+    parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--warmup-fraction", type=float, default=0.02)
 
@@ -342,8 +352,11 @@ def main() -> None:
         d_model=args.d_model,
         n_layers=args.n_layers,
         dropout=args.dropout,
+        head_mode=args.head_mode,
+        n_heads=args.n_heads,
     )
-    print(f"[INFO] Model config: d_model={args.d_model}, n_layers={args.n_layers}")
+    print(f"[INFO] Model config: head_mode={args.head_mode}, "
+          f"d_model={args.d_model}, n_layers={args.n_layers}")
 
     optimal_lr, results = lr_tuning(
         epochs=args.epochs,
@@ -374,11 +387,13 @@ def main() -> None:
     if args.output_dir:
         output_dir = Path(args.output_dir)
     else:
+        # Partition by head_mode so MLP and cross_attn runs don't share files —
+        # fit_lr_scaling.py reads one head's results at a time.
         try:
             repo_root = find_repo_root()
-            output_dir = repo_root / "outputs" / "lr_search"
+            output_dir = repo_root / "outputs" / "lr_search" / args.head_mode
         except Exception:
-            output_dir = Path("./outputs/lr_search")
+            output_dir = Path("./outputs/lr_search") / args.head_mode
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Tag output filenames with the train-subset size so multi-N runs
@@ -392,6 +407,8 @@ def main() -> None:
             "optimal_lr": optimal_lr,
             "lr_range": [args.lr_min, args.lr_max],
             "n_lrs": args.n_lrs,
+            "head_mode": args.head_mode,
+            "n_heads": args.n_heads,
             "d_model": args.d_model,
             "n_layers": args.n_layers,
             "batch_size": args.batch_size,

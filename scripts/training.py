@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Training Script for INDIGO (FlexMaterialMLP).
+Training Script for INDIGO (FlexMaterialMLP / FlexMaterialCrossAttn).
 
 Single-stage training: Lab + per-example material pool → next-layer token.
 
@@ -48,7 +48,7 @@ from src.materials_vocab import (
     build_structure_matrix,
     encode_layer,
 )
-from src.model import FlexMaterialMLP, ModelConfig, compute_loss
+from src.model import ModelConfig, build_model, compute_loss
 
 
 def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
@@ -229,7 +229,7 @@ def run_one_epoch(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train INDIGO FlexMaterialMLP")
+    parser = argparse.ArgumentParser(description="Train INDIGO flex-material model")
     parser.add_argument("--data-dir", type=str, default=None,
                         help="Path to a directory of INDIGO parquet shards "
                              "(default: <repo>/data/train, matching the "
@@ -257,6 +257,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--d-model", type=int, default=1024)
     parser.add_argument("--n-layers", type=int, default=8)
     parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--head-mode", type=str, default="mlp",
+                        choices=["mlp", "cross_attn"],
+                        help="Backbone architecture: 'mlp' (flatten-then-MLP, "
+                             "original) or 'cross_attn' (pointer head with "
+                             "per-slot transformer + query cross-attention).")
+    parser.add_argument("--n-heads", type=int, default=8,
+                        help="Attention heads (cross_attn only).")
 
     # Training hyperparameters
     parser.add_argument("--batch-size", type=int, default=64)
@@ -332,15 +339,18 @@ def main() -> None:
         d_model=args.d_model,
         n_layers=args.n_layers,
         dropout=args.dropout,
+        head_mode=args.head_mode,
+        n_heads=args.n_heads,
         learning_rate=args.lr,
         batch_size=args.batch_size,
         epochs=args.epochs,
         limit_examples=args.limit_examples,
     )
 
-    model = FlexMaterialMLP(config).to(device)
+    model = build_model(config).to(device)
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"[INFO] Model: FlexMaterialMLP (d_model={args.d_model}, n_layers={args.n_layers})")
+    print(f"[INFO] Model: {type(model).__name__} (head_mode={args.head_mode}, "
+          f"d_model={args.d_model}, n_layers={args.n_layers})")
     print(f"[INFO] Model params: {n_params:,}")
     print(f"[INFO] Config tag: {config.tag()}")
 

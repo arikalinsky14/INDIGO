@@ -38,11 +38,12 @@ set -euo pipefail
 # After all three complete:
 #
 #   python scripts/fit_lr_scaling.py \
-#       --results-dir outputs/lr_search \
+#       --head-mode "${HEAD_MODE:-mlp}" \
 #       --target-examples 10000000 --plot
 #
-# Each run writes outputs/lr_search/lr_search_ep1_lim<N>.json, so the three
-# jobs don't clobber each other.
+# Each run writes outputs/lr_search/<head_mode>/lr_search_ep1_lim<N>.json, so
+# the three jobs don't clobber each other and the MLP and cross_attn fits
+# stay in separate subdirectories.
 #
 # ============================================================================
 
@@ -95,6 +96,18 @@ ENCODER_DROPOUT="${ENCODER_DROPOUT:-0.1}"
 D_MODEL="${D_MODEL:-1024}"
 N_LAYERS="${N_LAYERS:-8}"
 DROPOUT="${DROPOUT:-0.1}"
+HEAD_MODE="${HEAD_MODE:-mlp}"                    # 'mlp' or 'cross_attn' — MUST
+                                                 # match the architecture you
+                                                 # plan to train (optimal LR is
+                                                 # head-dependent).
+N_HEADS="${N_HEADS:-8}"                          # Attention heads (cross_attn only)
+
+# Regularisation. MUST match training.sh so the LR optimum transfers — AdamW
+# dynamics differ at different weight decay, and dropout changes effective
+# capacity.
+WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"
+GRAD_CLIP="${GRAD_CLIP:-1.0}"
+WARMUP_FRACTION="${WARMUP_FRACTION:-0.02}"
 
 # Training. Batch size MUST match your planned production batch size —
 # optimal LR depends on it.
@@ -117,8 +130,8 @@ STREAMING="${STREAMING:-1}"                    # Stream shards (1) vs legacy
                                               # is production-safe; 0 OOMs
                                               # at full-dataset scale.
 
-# Output.
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search}"
+# Output. Partition by head so MLP and cross_attn fits stay separate.
+OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/${HEAD_MODE}}"
 
 # Logging — python defaults to verbose; pass --no-verbose to silence.
 LOG_EVERY="${LOG_EVERY:-100}"
@@ -152,9 +165,14 @@ ARGS=(
     --d-model "${D_MODEL}"
     --n-layers "${N_LAYERS}"
     --dropout "${DROPOUT}"
+    --head-mode "${HEAD_MODE}"
+    --n-heads "${N_HEADS}"
     --batch-size "${BATCH_SIZE}"
     --num-workers "${NUM_WORKERS}"
     --prefetch-factor "${PREFETCH_FACTOR}"
+    --weight-decay "${WEIGHT_DECAY}"
+    --grad-clip "${GRAD_CLIP}"
+    --warmup-fraction "${WARMUP_FRACTION}"
     --output-dir "${OUTPUT_DIR}"
     --log-every "${LOG_EVERY}"
 )
@@ -198,11 +216,20 @@ echo "  DataLoader workers: ${NUM_WORKERS}"
 echo "  Seed:               ${SEED}"
 echo
 echo "Model:"
+echo "  head_mode:          ${HEAD_MODE}"
+if [[ "${HEAD_MODE}" == "cross_attn" ]]; then
+    echo "  n_heads:            ${N_HEADS}"
+fi
 echo "  feature_mode:       ${FEATURE_MODE}"
 echo "  encoder hidden/out: ${ENCODER_HIDDEN}/${ENCODER_OUT}"
 echo "  d_model:            ${D_MODEL}"
 echo "  n_layers:           ${N_LAYERS}"
 echo "  dropout:            ${DROPOUT}"
+echo
+echo "Optimization:"
+echo "  Weight decay:       ${WEIGHT_DECAY}"
+echo "  Grad clip:          ${GRAD_CLIP}"
+echo "  Warmup:             ${WARMUP_FRACTION}"
 echo
 echo "Output:"
 echo "  Output dir:         ${OUTPUT_DIR}"
@@ -252,9 +279,13 @@ exit ${EXIT_CODE}
 # 5. Override the production batch size you're targeting:
 #    LIMIT_EXAMPLES=1000000 BATCH_SIZE=512 sbatch slurms/lr_tuning.sh
 #
-# 6. After all sweeps complete, fit and extrapolate:
+# 6. After all sweeps complete, fit and extrapolate (per head):
 #    python scripts/fit_lr_scaling.py \
-#        --results-dir outputs/lr_search \
+#        --head-mode mlp \
+#        --target-examples 10000000 --plot
+#    # or for cross-attention sweeps:
+#    python scripts/fit_lr_scaling.py \
+#        --head-mode cross_attn \
 #        --target-examples 10000000 --plot
 #
 # ============================================================================

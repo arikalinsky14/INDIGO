@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Evaluation Script for INDIGO (FlexMaterialMLP).
+Evaluation Script for INDIGO (FlexMaterialMLP / FlexMaterialCrossAttn).
 
 Modes:
 - --low-compute: teacher-forcing only (CE loss + token accuracy).
@@ -35,7 +35,7 @@ from src.materials_vocab import (
     denormalize_lab,
     encode_layer,
 )
-from src.model import FlexMaterialMLP, ModelConfig, compute_loss, generate_structure
+from src.model import ModelConfig, build_model, compute_loss, generate_structure
 
 
 # Optional: optical simulator for autoregressive eval.
@@ -271,14 +271,14 @@ def create_color_swatch(results: List[EvalResult], output_path: str, n: int = 10
 # ============================================================================
 
 
-def load_model(checkpoint_dir: Path, device: torch.device) -> Tuple[FlexMaterialMLP, ModelConfig]:
+def load_model(checkpoint_dir: Path, device: torch.device) -> Tuple[torch.nn.Module, ModelConfig]:
     config_path = checkpoint_dir / "config.json"
     model_path = checkpoint_dir / "model.pt"
     if not config_path.exists() or not model_path.exists():
         raise FileNotFoundError(f"Checkpoint not found at {checkpoint_dir}")
     with open(config_path) as f:
         config = ModelConfig.from_dict(json.load(f))
-    model = FlexMaterialMLP(config)
+    model = build_model(config)
     model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     model = model.to(device)
     model.eval()
@@ -286,7 +286,7 @@ def load_model(checkpoint_dir: Path, device: torch.device) -> Tuple[FlexMaterial
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate INDIGO FlexMaterialMLP")
+    parser = argparse.ArgumentParser(description="Evaluate INDIGO flex-material model")
     parser.add_argument("--data-dir", type=str, default=None)
     parser.add_argument("--split", type=str, default="validation")
     parser.add_argument("--seed", type=int, default=42)
@@ -305,6 +305,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--d-model", type=int, default=1024)
     parser.add_argument("--n-layers", type=int, default=8)
     parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--head-mode", type=str, default="mlp",
+                        choices=["mlp", "cross_attn"],
+                        help="Architecture variant (must match the checkpoint).")
+    parser.add_argument("--n-heads", type=int, default=8)
     parser.add_argument("--lr", type=float, default=4.42e-5)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=1)
@@ -352,6 +356,8 @@ def main() -> None:
             d_model=args.d_model,
             n_layers=args.n_layers,
             dropout=args.dropout,
+            head_mode=args.head_mode,
+            n_heads=args.n_heads,
             learning_rate=args.lr,
             batch_size=args.batch_size,
             epochs=args.epochs,

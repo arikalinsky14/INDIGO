@@ -16,7 +16,7 @@ INDIGO/
 │   ├── materials_vocab.py               # Slot-indexed token encoding (M_MAX × NUM_THICKNESSES + EOS)
 │   ├── optical_sim.py                   # Optical simulator (accepts arbitrary n,k)
 │   ├── dataset.py                       # FlexThinFilmDataset (streaming parquet reader)
-│   └── model.py                         # FlexMaterialMLP (shared encoder + masked output)
+│   └── model.py                         # FlexMaterialMLP + FlexMaterialCrossAttn
 │
 ├── create_dataset/
 │   ├── src/
@@ -67,8 +67,10 @@ All modules use **absolute imports from `src.*`** per project convention.
         │                                      │
         └──────────┬──── concat ───────────────┘
                    ▼
-          Backbone MLP (RGB-to-Structure-style)
-                   │
+          Backbone (head_mode = 'mlp' or 'cross_attn')
+                   │   • mlp:        flatten + n-layer MLP
+                   │   • cross_attn: per-slot transformer encoder
+                   │                 + query cross-attention pointer
                    ▼
               logits [VOCAB_SIZE]
                    │
@@ -84,6 +86,128 @@ All modules use **absolute imports from `src.*`** per project convention.
 
 `VOCAB_SIZE = M_MAX * NUM_THICKNESSES + 1 = 32 * 40 + 1 = 1281`
 (vs. 1001 in original CHROMA-Lite).
+
+## Backbone architectures — `head_mode`
+
+Two backbones produce the same `[VOCAB_SIZE]` logits over the same vocab.
+Select via `ModelConfig.head_mode` (CLI: `--head-mode {mlp,cross_attn}`,
+SLURM: `HEAD_MODE=...`). The default is `mlp` so existing checkpoints
+load unchanged; `cross_attn` is opt-in and appends `_cross_attnH<N>` to
+the checkpoint tag so it never collides with an MLP run.
+
+### `head_mode=mlp` (default — `FlexMaterialMLP`)
+
+Encoded pool is flattened (`[B, M_MAX, encoder_out] → [B, M_MAX*encoder_out]`)
+and concatenated with Lab and the flattened structure matrix. A
+feed-forward stack of `n_layers` `Linear(d_model)+ReLU+Dropout` blocks
+produces the logits. Permutation invariance over slots is learned as
+augmentation via pool_sampler's per-row slot shuffle.
+
+### `head_mode=cross_attn` (`FlexMaterialCrossAttn`)
+
+Pointer-style head with a clean encoder/decoder split: keys/values are
+the pure-n,k pool (the static "vocabulary" the decoder reads from), the
+query carries the goal *and* everything generated so far (material
+identity, thickness, and the order they were placed in).
+
+```
+                                  pool_features [B,M_MAX,2,L]
+                                            │
+                                     MaterialEncoder
+                                            ▼
+                                     emb [B,M_MAX,E]
+                                            │
+                                       slot_proj  (pure n,k -> d_model)
+                                            ▼
+                            TransformerEncoder ×n_layers      ← SELF-ATTN over SLOTS
+                            (src_key_padding_mask=~pool_mask)
+                                            ▼
+                                slot_tokens [B,M_MAX,d_model] ← keys/values
+
+   structure_matrix [B,M_MAX,MAX_LAYERS]                  lab [B,3]
+       │                                                   │
+   einsum("bsl,bse->ble", structure, emb)               + pool_size_norm [B,1]
+   (thickness × material embedding,                       │
+   summed over slots → per-layer token)                lab_proj
+       │                                                   │
+       ▼                                                   ▼
+   past_emb [B,MAX_LAYERS,E]                        goal [B,d_model]
+       │                                                   │
+   past_proj  +  layer_pos_emb                       + learned next_query
+       │                                                   │
+       ▼                                                   ▼
+   past_tokens [B,MAX_LAYERS,d_model]               next_query [B,1,d_model]
+       │                                                   │
+       └────────────────── concat ─────────────────────────┘
+                              │
+              query_seq [B, 1+MAX_LAYERS, d_model]
+                              │
+                  TransformerEncoder ×1           ← SELF-ATTN over QUERY SEQ
+                  (mask future past positions; next_query reads its prefix)
+                              │
+                              ▼
+                       query [B,1,d_model]  (the next-prediction position)
+                              │
+                  TransformerDecoder ×1           ← CROSS-ATTN query → slots
+                  (memory_key_padding_mask)
+                              │
+                              ▼
+                       query_state [B,d_model]
+                              │
+        ┌────── concat(slot_token, broadcast(query_state)) ───────┐
+        ▼                                                          ▼
+   eos_head                                              thickness_head
+        │                                              (Linear→GELU→Linear)
+   eos_logit                                                       │
+                                                  [B,M_MAX,NUM_THICKNESSES]
+                                                                   │
+                                            reshape → [B, M_MAX*NUM_THICKNESSES]
+        └─────────────────── concat ────────────────────────────────┘
+                                  │
+                       logits [B, VOCAB_SIZE]   + output_mask
+```
+
+**What attention runs over (be explicit):**
+
+| Attention                                                  | Used? | Layers     | Operates over                                                                          |
+|------------------------------------------------------------|-------|------------|----------------------------------------------------------------------------------------|
+| Self-attention over **pool slots** (keys/values)           | YES   | `n_layers` | `M_MAX` slot tokens, each = pure n,k embedding (no structure stripe)                   |
+| Self-attention over **[next_query, past_0..past_{L-1}]**   | YES   | 1          | Goal + per-layer past tokens; future past positions masked out                         |
+| Cross-attention **query → slot keys**                      | YES   | 1          | Next-prediction query (1 token) attends to all valid slot keys                         |
+
+**How the cross-attn head encodes previously generated tokens.**
+All of the partial structure lives on the query side — the keys are pure
+n,k embeddings, contextualised only by intra-pool self-attention. The
+query is built from three things:
+
+1. **Per-layer past-decision tokens** — for each layer position
+   `l ∈ [0, MAX_LAYERS)`:
+   ```
+   past_emb[b, l, :] = Σ_s structure_matrix[b, s, l] * emb[b, s, :]
+   ```
+   Since each layer column has exactly one nonzero slot, this collapses
+   to `thickness_at_l * material_emb_of_slot_used_at_l` — one token per
+   past layer that jointly carries **material identity** (the direction of
+   the encoded n,k) and **thickness** (its magnitude). Layers that haven't
+   been generated yet contribute a zero row and get masked out of attention.
+
+2. **Learned per-layer positional embedding**, added to past tokens so
+   **order** is meaningful: layer 0 followed by layer 5 looks different
+   from layer 5 followed by layer 0 even with identical materials and
+   thicknesses.
+
+3. **Goal token** — `lab_proj([lab, pool_size_norm])` summed with a
+   learned `next_query` parameter, prepended to the past sequence as the
+   prediction position.
+
+The query sequence `[goal+next_query, past_0, …, past_{L-1}]` is run
+through one self-attention layer (with the `future-past` positions masked
+out), and the goal position's output becomes the query for cross-attention
+onto the pool. The result is the standard textbook pattern: the decoder
+state (goal + trajectory) attends to the encoder states (pool), the keys
+never depend on the partial state, and per-slot identity / per-step order
+are preserved without flattening anything that would break permutation
+equivariance.
 
 ## Why this prevents overfitting to specific materials
 
@@ -176,3 +300,66 @@ land at `--lr 4.42e-5 --batch-size 64 --epochs 1 --d-model 1024
 --n-layers 8 --dropout 0.1`. Re-run `scripts/lr_tuning.py` before any
 production training — the LR power-law fit from CHROMA-Lite does not
 transfer because the model size and input dimensionality are different.
+
+## LR tuning (recommended commands)
+
+`slurms/lr_tuning.sh` defaults are aligned with `slurms/training.sh`
+(`BATCH_SIZE=256`, `WEIGHT_DECAY=0.01`, `DROPOUT=0.1`, `WARMUP_FRACTION=0.02`,
+`STREAMING=1`, `NUM_WORKERS=6`, `PREFETCH_FACTOR=1`). Override any of these
+via env var when sbatch'ing to keep the LR fit meaningful for the
+architecture you'll actually train.
+
+LR-search outputs are partitioned by head_mode:
+`outputs/lr_search/<head_mode>/lr_search_ep<E>_lim<N>.json`. MLP and
+cross-attention sweeps live in separate subdirectories and never clobber
+each other.
+
+### Multi-N scaling-law fit (preferred for production-LR derivation)
+
+For a single-pass production run on `N` rows, `lr_opt` scales as a power
+law in `N`: `log(lr_opt) = a + b * log(N)`. The clean way to fit this is to
+**fix `EPOCHS=1` and vary `LIMIT_EXAMPLES`** — single-pass keeps AdamW
+seeing fresh data, which is the regime the scaling law is derived for.
+Varying `EPOCHS` at fixed `N` instead would confound the fit because the
+cosine schedule reshapes with total step count under repeated-example
+dynamics that no longer obey a clean power law.
+
+```bash
+# 1. Generate the points (one GPU per N, in parallel)
+for N in 500000 1000000 2000000; do
+    EPOCHS=1 LIMIT_EXAMPLES=${N} sbatch slurms/lr_tuning.sh
+done
+
+# 2. After all three complete, fit and extrapolate
+python scripts/fit_lr_scaling.py \
+    --head-mode mlp \
+    --target-examples <FULL_TRAIN_POOL_SIZE> --plot
+```
+
+For the cross-attention head, re-run the same workflow with
+`HEAD_MODE=cross_attn` (optimum is architecture-dependent). The
+per-head subdirectory keeps the two fits cleanly separated:
+
+```bash
+for N in 500000 1000000 2000000; do
+    HEAD_MODE=cross_attn EPOCHS=1 LIMIT_EXAMPLES=${N} sbatch slurms/lr_tuning.sh
+done
+python scripts/fit_lr_scaling.py \
+    --head-mode cross_attn \
+    --target-examples <FULL_TRAIN_POOL_SIZE> --plot
+```
+
+Then production-train with the extrapolated LR for as many epochs as you
+need — the cosine schedule auto-stretches over `total_steps = steps_per_epoch
+* EPOCHS`, and for properly rescaled cosine the single-pass `lr_opt` is
+roughly invariant to epoch count at fixed `N`.
+
+### Narrow-range follow-up
+
+Once you know the rough scale of the optimum, narrow `LR_MIN`/`LR_MAX` and
+bump `N_LRS` for a finer sweep:
+
+```bash
+LR_MIN=5e-5 LR_MAX=5e-4 N_LRS=8 LIMIT_EXAMPLES=1000000 \
+    sbatch slurms/lr_tuning.sh
+```

@@ -102,10 +102,19 @@ class ModelConfig:
     encoder_out: int = 64
     encoder_dropout: float = 0.1
 
-    # Backbone MLP
+    # Backbone
     d_model: int = 1024
     n_layers: int = 8
     dropout: float = 0.1
+
+    # Architecture choice. 'mlp' = original flatten-then-MLP backbone.
+    # 'cross_attn' = pointer head: per-slot transformer encoder + a
+    # (lab, structure)-derived query that cross-attends onto the pool, with
+    # a per-slot thickness head. Pointer keeps permutation-equivariance by
+    # construction; the MLP relies on pool_sampler's slot-shuffling to learn
+    # it as augmentation.
+    head_mode: str = "mlp"            # 'mlp' or 'cross_attn'
+    n_heads: int = 8                  # only used when head_mode == 'cross_attn'
 
     # Training (carried in config so checkpoint tags include them, matching
     # the convention in original CHROMA-Lite)
@@ -134,6 +143,10 @@ class ModelConfig:
             f"d{self.d_model}_L{self.n_layers}_do{self.dropout}_"
             f"lr{self.learning_rate}_bs{self.batch_size}_ep{self.epochs}"
         )
+        # Only suffix non-default head modes so existing 'mlp' checkpoint
+        # directories keep their current names.
+        if self.head_mode != "mlp":
+            base += f"_{self.head_mode}H{self.n_heads}"
         if self.limit_examples is not None:
             base += f"_lim{self.limit_examples}"
         return base
@@ -288,12 +301,248 @@ class FlexMaterialMLP(nn.Module):
 
 
 # ============================================================================
+# Cross-attention pointer head — alternative to the flatten-then-MLP backbone
+# ============================================================================
+#
+# Clean cross-attention design (standard encoder/decoder split):
+#
+#   keys/values  = pure-n,k slot embeddings  (the static pool)
+#   query        = the goal + the partial structure so far
+#
+# Builds a query that carries everything about what's been generated:
+#
+#   - per-layer past-decision token  l ∈ [0, MAX_LAYERS):
+#         past_emb[b, l, :] = sum over slots of (structure[b, s, l] * emb[b, s, :])
+#     Since each layer column has exactly one nonzero slot, this equals
+#         thickness_at_l * material_emb_of_slot_used_at_l
+#     so each past token carries BOTH material identity (the n,k direction)
+#     AND thickness (the magnitude). Permutation-equivariant by construction
+#     (a sum over slots). Layers not yet generated contribute zero.
+#
+#   - a learned per-layer positional embedding, added to past tokens so that
+#     ORDER matters (layer 0 != layer 5 even with the same material/thickness).
+#
+#   - a learned "next-prediction" query token, summed with a projection of
+#     (lab, pool_size_norm), prepended to the past sequence.
+#
+#   The query sequence [next_query, past_0, past_1, ..., past_{L-1}] is run
+#   through a 1-layer self-attention so the next_query reads past decisions
+#   in their proper order. The next_query position is then cross-attended
+#   onto the pool keys, with padded slots and future past-positions masked
+#   out.
+#
+# Per-slot thickness logits come from a small head over (post-attn slot
+# token, post-cross-attn query state); EOS is a separate scalar from the
+# query. Output vocab layout is unchanged.
+
+
+class FlexMaterialCrossAttn(nn.Module):
+    """Pointer-head with clean query/key separation.
+
+    Keys = pure n,k slot embeddings (the pool). Query = goal + partial
+    structure (each past layer's material identity × thickness, plus a
+    learned positional embedding for order). Cross-attention from query
+    to slot keys produces per-slot logits.
+    """
+
+    def __init__(self, config: ModelConfig):
+        super().__init__()
+        self.config = config
+
+        # Per-slot material encoder (shared across slots).
+        self.material_encoder = MaterialEncoder(config)
+
+        # Slot keys/values: pure n,k embedding projected to d_model. No
+        # structure stripe — the past stays in the query.
+        self.slot_proj = nn.Linear(config.encoder_out, config.d_model)
+
+        # Self-attention over slot keys lets slots reason about each other.
+        slot_layer = nn.TransformerEncoderLayer(
+            d_model=config.d_model,
+            nhead=config.n_heads,
+            dim_feedforward=4 * config.d_model,
+            dropout=config.dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.slot_encoder = nn.TransformerEncoder(
+            slot_layer, num_layers=config.n_layers
+        )
+
+        # Past-decisions side: each past layer becomes its own token with a
+        # positional embedding (so the model sees ORDER, not just content).
+        self.past_proj = nn.Linear(config.encoder_out, config.d_model)
+        self.layer_pos_emb = nn.Parameter(torch.zeros(MAX_LAYERS, config.d_model))
+
+        # Goal projection: (lab, pool_size_norm) -> d_model. Summed with a
+        # learned next-prediction query token to form the prediction position.
+        self.lab_proj = nn.Linear(3 + 1, config.d_model)
+        self.next_query = nn.Parameter(torch.zeros(1, config.d_model))
+
+        # Self-attention over [next_query, past_0..past_{L-1}] so the
+        # next_query can integrate past decisions in their proper order.
+        # 1 layer is sufficient here — the heavy lifting on the pool side
+        # is done by slot_encoder above.
+        past_layer = nn.TransformerEncoderLayer(
+            d_model=config.d_model,
+            nhead=config.n_heads,
+            dim_feedforward=4 * config.d_model,
+            dropout=config.dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.past_self_attn = nn.TransformerEncoder(past_layer, num_layers=1)
+
+        # Cross-attention: query (next-prediction position) attends to slot keys.
+        cross_layer = nn.TransformerDecoderLayer(
+            d_model=config.d_model,
+            nhead=config.n_heads,
+            dim_feedforward=4 * config.d_model,
+            dropout=config.dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.query_decoder = nn.TransformerDecoder(cross_layer, num_layers=1)
+
+        # Per-slot thickness head from (post-attn slot token, post-cross-attn query).
+        self.thickness_head = nn.Sequential(
+            nn.Linear(2 * config.d_model, config.d_model),
+            nn.GELU(),
+            nn.Dropout(config.dropout),
+            nn.Linear(config.d_model, NUM_THICKNESSES),
+        )
+
+        # EOS head: a single scalar from the query state.
+        self.eos_head = nn.Linear(config.d_model, 1)
+
+        self._init_weights()
+
+    def _init_weights(self) -> None:
+        """Init projection and head Linears; trust PyTorch defaults for the
+        transformer modules (tuned for the pre-LN / GELU stack)."""
+        for module in (
+            self.slot_proj,
+            self.past_proj,
+            self.lab_proj,
+            self.eos_head,
+            *self.thickness_head.modules(),
+        ):
+            if isinstance(module, nn.Linear):
+                nn.init.kaiming_normal_(module.weight, nonlinearity="relu")
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+        nn.init.normal_(self.layer_pos_emb, std=0.02)
+        nn.init.normal_(self.next_query, std=0.02)
+
+    def forward(
+        self,
+        lab: torch.Tensor,
+        pool_features: torch.Tensor,
+        pool_mask: torch.Tensor,
+        structure_matrix: torch.Tensor,
+        pool_size: torch.Tensor,
+        apply_output_mask: bool = True,
+    ) -> torch.Tensor:
+        """Same signature as FlexMaterialMLP.forward."""
+        B = lab.size(0)
+
+        # 1. Encode each slot's n,k (shared weights — permutation-equivariant).
+        emb = self.material_encoder(pool_features)            # [B, M_MAX, E]
+
+        # 2. Slot keys: pure n,k embedding projected to d_model.
+        slot_tokens = self.slot_proj(emb)                     # [B, M_MAX, d_model]
+
+        # 3. Self-attend over slots (padded slots masked out).
+        slot_key_padding_mask = ~pool_mask                    # [B, M_MAX]
+        slot_tokens = self.slot_encoder(
+            slot_tokens, src_key_padding_mask=slot_key_padding_mask
+        )                                                     # [B, M_MAX, d_model]
+
+        # 4. Build per-layer past tokens. At column l of structure_matrix,
+        # exactly one slot has nonzero (= normalized thickness); the rest are
+        # zero. So `einsum("bsl,bse->ble", structure, emb)` collapses to
+        #     past_emb[b, l, :] = thickness_at_l * emb[b, slot_used_at_l, :]
+        # which jointly encodes material identity (direction) and thickness
+        # (magnitude). Layers not yet generated contribute zero across the
+        # row and will be masked out below.
+        past_emb = torch.einsum(
+            "bsl,bse->ble", structure_matrix, emb
+        )                                                     # [B, MAX_LAYERS, E]
+        past_tokens = self.past_proj(past_emb)                # [B, MAX_LAYERS, d_model]
+        past_tokens = past_tokens + self.layer_pos_emb.unsqueeze(0)
+
+        # 5. Goal token: (lab, pool_size_norm) projected, summed with the
+        # learned next-prediction query.
+        pool_size_norm = (pool_size.float() / float(M_MAX)).unsqueeze(-1)
+        goal = self.lab_proj(torch.cat([lab, pool_size_norm], dim=1))  # [B, d_model]
+        next_query = (goal + self.next_query).unsqueeze(1)             # [B, 1, d_model]
+
+        # 6. Past-side self-attention over [next_query, past_tokens]. Mask
+        # past positions that haven't been generated yet (full-zero columns).
+        past_padding_mask = (structure_matrix.sum(dim=1) == 0)         # [B, MAX_LAYERS]
+        seq_padding_mask = torch.cat(
+            [torch.zeros(B, 1, dtype=torch.bool, device=lab.device),
+             past_padding_mask],
+            dim=1,
+        )                                                              # [B, 1 + MAX_LAYERS]
+        query_seq = torch.cat([next_query, past_tokens], dim=1)
+        query_seq = self.past_self_attn(
+            query_seq, src_key_padding_mask=seq_padding_mask
+        )
+        query = query_seq[:, :1, :]                                    # [B, 1, d_model]
+
+        # 7. Cross-attention: query attends to slot keys.
+        query_out = self.query_decoder(
+            tgt=query,
+            memory=slot_tokens,
+            memory_key_padding_mask=slot_key_padding_mask,
+        )                                                              # [B, 1, d_model]
+        query_state = query_out.squeeze(1)                             # [B, d_model]
+
+        # 8. Per-slot thickness logits.
+        query_broadcast = query_state.unsqueeze(1).expand(-1, M_MAX, -1)
+        slot_query = torch.cat([slot_tokens, query_broadcast], dim=-1)
+        thickness_logits = self.thickness_head(slot_query)             # [B, M, NT]
+        thickness_logits = thickness_logits.reshape(B, M_MAX * NUM_THICKNESSES)
+
+        # 9. EOS logit, then concat to match the (slot×thickness, EOS) layout.
+        eos_logit = self.eos_head(query_state)                         # [B, 1]
+        logits = torch.cat([thickness_logits, eos_logit], dim=1)       # [B, VOCAB_SIZE]
+
+        # 10. Output masking — same path as the MLP head.
+        if apply_output_mask:
+            mask = build_output_mask_batch(pool_size, device=logits.device)
+            logits = logits + mask
+
+        return logits
+
+
+# ============================================================================
+# Factory
+# ============================================================================
+
+
+def build_model(config: ModelConfig) -> nn.Module:
+    """Instantiate the model variant selected by `config.head_mode`."""
+    if config.head_mode == "mlp":
+        return FlexMaterialMLP(config)
+    if config.head_mode == "cross_attn":
+        return FlexMaterialCrossAttn(config)
+    raise ValueError(
+        f"Unknown head_mode {config.head_mode!r}; expected 'mlp' or 'cross_attn'"
+    )
+
+
+# ============================================================================
 # Loss
 # ============================================================================
 
 
 def compute_loss(
-    model: FlexMaterialMLP,
+    model: nn.Module,
     batch: Dict[str, torch.Tensor],
 ) -> Dict[str, torch.Tensor]:
     """Standard cross-entropy loss + accuracy.
@@ -324,7 +573,7 @@ def compute_loss(
 
 
 def generate_structure(
-    model: FlexMaterialMLP,
+    model: nn.Module,
     lab: torch.Tensor,
     pool: List[MaterialNK],
     device: torch.device,
@@ -439,10 +688,11 @@ if __name__ == "__main__":
     )
     print(f"Config tag: {cfg.tag()}")
 
-    model = FlexMaterialMLP(cfg)
+    model = build_model(cfg)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Model param count: {n_params:,}")
-    print(f"Backbone input dim: {model._input_dim}")
+    if hasattr(model, "_input_dim"):
+        print(f"Backbone input dim: {model._input_dim}")
 
     # Build a tiny batch.
     materials_dir = Path("/home/claude/JaxLayerLumos/jaxlayerlumos/materials")
@@ -503,4 +753,38 @@ if __name__ == "__main__":
     # depends only on n,k features. Untrained model won't be invariant in
     # general, but the slot-indexed decoding should at least produce valid
     # tokens.
+
+    # Cross-attention variant: same forward signature, same vocab, same
+    # masking/loss path — should be drop-in for training/eval.
+    print(f"\nCross-attention variant:")
+    cfg_xa = ModelConfig(
+        feature_mode="raw_spectrum",
+        d_model=128, n_layers=2, n_heads=4, dropout=0.0,
+        encoder_hidden=64, encoder_out=32,
+        head_mode="cross_attn",
+    )
+    print(f"  Config tag: {cfg_xa.tag()}")
+    model_xa = build_model(cfg_xa)
+    n_params_xa = sum(p.numel() for p in model_xa.parameters())
+    print(f"  Model param count: {n_params_xa:,}")
+    out_xa = compute_loss(model_xa, batch)
+    print(f"  loss = {out_xa['loss'].item():.4f}")
+    print(f"  accuracy = {out_xa['accuracy'].item():.4f}")
+    with torch.no_grad():
+        logits_xa = model_xa(
+            lab=batch["lab"],
+            pool_features=batch["pool_features"],
+            pool_mask=batch["pool_mask"],
+            structure_matrix=batch["structure_matrix"],
+            pool_size=batch["pool_size"],
+        )
+    valid_xa = torch.isfinite(logits_xa[0]).sum().item()
+    print(f"  finite logits = {int(valid_xa)} (expected {expected_valid}) "
+          f"{'✓' if valid_xa == expected_valid else '✗'}")
+    slots_xa, thicks_xa, term_xa = generate_structure(
+        model_xa, lab, pool, torch.device("cpu")
+    )
+    print(f"  autoregressive: termination={term_xa}, slots={slots_xa}, "
+          f"thicknesses={thicks_xa}")
+
     print("\n[smoke] OK")

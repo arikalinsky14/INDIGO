@@ -25,19 +25,29 @@ A directory of `lr_search_ep1_lim<N>.json` files produced by
 `scripts/lr_tuning.py --limit-examples N --epochs 1`. The script reads
 `train_examples` and `optimal_lr` from each.
 
+Outputs are partitioned by head_mode: lr_tuning.py writes into
+`outputs/lr_search/<head_mode>/`. Use `--head-mode mlp` or
+`--head-mode cross_attn` (or pass `--results-dir` explicitly) so the fit
+stays within one architecture.
+
 Examples
 --------
-    # Generate the inputs
+    # Generate the inputs (MLP head — default)
     for N in 500000 1000000 2000000; do
-        python scripts/lr_tuning.py \
-            --data-dir data/train --epochs 1 \
-            --limit-examples ${N} --limit-val-examples 10000 \
-            --n-lrs 6 --lr-min 1e-5 --lr-max 5e-3
+        EPOCHS=1 LIMIT_EXAMPLES=${N} sbatch slurms/lr_tuning.sh
     done
 
     # Fit and extrapolate
     python scripts/fit_lr_scaling.py \
-        --results-dir outputs/lr_search --target-examples 10000000 --plot
+        --head-mode mlp --target-examples 10000000 --plot
+
+    # Same workflow for the cross-attention head (its outputs land in a
+    # separate subdir, so fits never mix architectures)
+    for N in 500000 1000000 2000000; do
+        HEAD_MODE=cross_attn EPOCHS=1 LIMIT_EXAMPLES=${N} sbatch slurms/lr_tuning.sh
+    done
+    python scripts/fit_lr_scaling.py \
+        --head-mode cross_attn --target-examples 10000000 --plot
 """
 
 import argparse
@@ -84,8 +94,13 @@ def predict(a: float, b: float, n: float) -> float:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fit LR scaling law from multi-N sweeps")
-    parser.add_argument("--results-dir", type=str, default="outputs/lr_search",
-                        help="Directory containing lr_search_*.json files")
+    parser.add_argument("--results-dir", type=str, default=None,
+                        help="Directory containing lr_search_*.json files. If "
+                             "omitted, defaults to outputs/lr_search/<head_mode>/.")
+    parser.add_argument("--head-mode", type=str, default="mlp",
+                        choices=["mlp", "cross_attn"],
+                        help="Architecture whose sweeps to fit. Only consulted "
+                             "when --results-dir is not given.")
     parser.add_argument("--target-examples", type=int, required=True,
                         help="N for which to predict optimal LR (e.g. 10000000 for "
                              "your 10M-row production run)")
@@ -95,7 +110,10 @@ def main() -> None:
                         help="Override path for the result JSON")
     args = parser.parse_args()
 
-    results_dir = Path(args.results_dir)
+    if args.results_dir:
+        results_dir = Path(args.results_dir)
+    else:
+        results_dir = Path("outputs/lr_search") / args.head_mode
     if not results_dir.exists():
         print(f"[ERROR] results-dir not found: {results_dir}", file=sys.stderr)
         sys.exit(1)
