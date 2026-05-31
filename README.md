@@ -105,71 +105,109 @@ augmentation via pool_sampler's per-row slot shuffle.
 
 ### `head_mode=cross_attn` (`FlexMaterialCrossAttn`)
 
-A pointer-style head that keeps permutation-equivariance by construction:
+Pointer-style head with a clean encoder/decoder split: keys/values are
+the pure-n,k pool (the static "vocabulary" the decoder reads from), the
+query carries the goal *and* everything generated so far (material
+identity, thickness, and the order they were placed in).
 
 ```
-            pool_features [B,M_MAX,2,L]      structure_matrix [B,M_MAX,MAX_LAYERS]
-                    │                                  │
-              MaterialEncoder                     (per-slot stripe)
-                    │                                  │
-               [B,M_MAX,E]   ───── concat ────► [B,M_MAX,E+MAX_LAYERS]
-                                                       │
-                                                  slot_proj
-                                                       ▼
-                                              [B,M_MAX,d_model]
-                                                       │
-                                  TransformerEncoder ×n_layers   ← SELF-ATTN over SLOTS
-                                  (src_key_padding_mask=~pool_mask)
-                                                       ▼
-                                              slot_tokens [B,M_MAX,d_model]
-                                                       │
-   lab[B,3] + pool_size_norm[B,1] + struct_summary[B,MAX_LAYERS]
-        │                                              │
-    query_proj                                         │
-        ▼                                              │
-   query [B,1,d_model] ─── TransformerDecoder ×1 ─────►│   ← CROSS-ATTN query→slots
-                          (memory_key_padding_mask)
-        │                                              │
-        │    ┌─── concat(slot_token, broadcast(query)) ┘
-        ▼    ▼
-   eos_head        thickness_head (Linear→GELU→Linear)
-        │                │
-   eos_logit       [B,M_MAX,NUM_THICKNESSES]   ─reshape→ [B, M_MAX*NUM_THICKNESSES]
-        └────────────────┴────── concat ──────────────────► logits [B, VOCAB_SIZE]
-                                                                + output_mask
+                                  pool_features [B,M_MAX,2,L]
+                                            │
+                                     MaterialEncoder
+                                            ▼
+                                     emb [B,M_MAX,E]
+                                            │
+                                       slot_proj  (pure n,k -> d_model)
+                                            ▼
+                            TransformerEncoder ×n_layers      ← SELF-ATTN over SLOTS
+                            (src_key_padding_mask=~pool_mask)
+                                            ▼
+                                slot_tokens [B,M_MAX,d_model] ← keys/values
+
+   structure_matrix [B,M_MAX,MAX_LAYERS]                  lab [B,3]
+       │                                                   │
+   einsum("bsl,bse->ble", structure, emb)               + pool_size_norm [B,1]
+   (thickness × material embedding,                       │
+   summed over slots → per-layer token)                lab_proj
+       │                                                   │
+       ▼                                                   ▼
+   past_emb [B,MAX_LAYERS,E]                        goal [B,d_model]
+       │                                                   │
+   past_proj  +  layer_pos_emb                       + learned next_query
+       │                                                   │
+       ▼                                                   ▼
+   past_tokens [B,MAX_LAYERS,d_model]               next_query [B,1,d_model]
+       │                                                   │
+       └────────────────── concat ─────────────────────────┘
+                              │
+              query_seq [B, 1+MAX_LAYERS, d_model]
+                              │
+                  TransformerEncoder ×1           ← SELF-ATTN over QUERY SEQ
+                  (mask future past positions; next_query reads its prefix)
+                              │
+                              ▼
+                       query [B,1,d_model]  (the next-prediction position)
+                              │
+                  TransformerDecoder ×1           ← CROSS-ATTN query → slots
+                  (memory_key_padding_mask)
+                              │
+                              ▼
+                       query_state [B,d_model]
+                              │
+        ┌────── concat(slot_token, broadcast(query_state)) ───────┐
+        ▼                                                          ▼
+   eos_head                                              thickness_head
+        │                                              (Linear→GELU→Linear)
+   eos_logit                                                       │
+                                                  [B,M_MAX,NUM_THICKNESSES]
+                                                                   │
+                                            reshape → [B, M_MAX*NUM_THICKNESSES]
+        └─────────────────── concat ────────────────────────────────┘
+                                  │
+                       logits [B, VOCAB_SIZE]   + output_mask
 ```
 
 **What attention runs over (be explicit):**
 
-| Attention                                            | Used? | Layers              | Operates over                                                                                |
-|------------------------------------------------------|-------|---------------------|----------------------------------------------------------------------------------------------|
-| Self-attention over **pool slots**                   | YES   | `n_layers`          | `M_MAX` slot tokens (each = encoded n,k + that slot's per-layer thickness stripe)            |
-| Cross-attention **query → slots**                    | YES   | 1                   | Query (1 token) attends to all `M_MAX` slot tokens, with padded slots masked out             |
-| Causal self-attention over a **sequence of past tokens** | NO  | —                   | Not used: the partial structure is *not* tokenised as a sequence of past (slot, thickness) decisions |
+| Attention                                                  | Used? | Layers     | Operates over                                                                          |
+|------------------------------------------------------------|-------|------------|----------------------------------------------------------------------------------------|
+| Self-attention over **pool slots** (keys/values)           | YES   | `n_layers` | `M_MAX` slot tokens, each = pure n,k embedding (no structure stripe)                   |
+| Self-attention over **[next_query, past_0..past_{L-1}]**   | YES   | 1          | Goal + per-layer past tokens; future past positions masked out                         |
+| Cross-attention **query → slot keys**                      | YES   | 1          | Next-prediction query (1 token) attends to all valid slot keys                         |
 
 **How the cross-attn head encodes previously generated tokens.**
-The partial structure (everything decoded so far) enters in two places, both
-derived from the `structure_matrix` `[M_MAX, MAX_LAYERS]` where
-`matrix[s, l] = normalized_thickness` iff layer `l` used slot `s`:
+All of the partial structure lives on the query side — the keys are pure
+n,k embeddings, contextualised only by intra-pool self-attention. The
+query is built from three things:
 
-1. **Per-slot stripe** → folded into each slot token *before* self-attention.
-   Slot `s`'s row holds its thickness at every layer position where it was
-   chosen (zero elsewhere). The self-attention over slots therefore reasons
-   about each slot's full usage history alongside its n,k features.
+1. **Per-layer past-decision tokens** — for each layer position
+   `l ∈ [0, MAX_LAYERS)`:
+   ```
+   past_emb[b, l, :] = Σ_s structure_matrix[b, s, l] * emb[b, s, :]
+   ```
+   Since each layer column has exactly one nonzero slot, this collapses
+   to `thickness_at_l * material_emb_of_slot_used_at_l` — one token per
+   past layer that jointly carries **material identity** (the direction of
+   the encoded n,k) and **thickness** (its magnitude). Layers that haven't
+   been generated yet contribute a zero row and get masked out of attention.
 
-2. **Per-layer thickness summary** → folded into the query *before*
-   cross-attention. Since each layer position is filled by exactly one slot,
-   `structure_matrix.sum(dim=slots)` collapses to the per-layer thickness
-   sequence (with trailing zeros revealing how many layers remain). The
-   query carries the chronological trajectory; the slot tokens do not.
+2. **Learned per-layer positional embedding**, added to past tokens so
+   **order** is meaningful: layer 0 followed by layer 5 looks different
+   from layer 5 followed by layer 0 even with identical materials and
+   thicknesses.
 
-So there *is* self-attention — but over the **set of slots**, not over a
-generated-token sequence. The chronological order of decisions is preserved
-implicitly (column index of `structure_matrix` = layer step) and exposed to
-the query as the per-layer thickness summary, but never attended over
-causally. This is a deliberate trade-off: it preserves permutation-equivariance
-over slots by construction while keeping the model O(M_MAX²) instead of
-O((M_MAX + step) · step) per forward pass.
+3. **Goal token** — `lab_proj([lab, pool_size_norm])` summed with a
+   learned `next_query` parameter, prepended to the past sequence as the
+   prediction position.
+
+The query sequence `[goal+next_query, past_0, …, past_{L-1}]` is run
+through one self-attention layer (with the `future-past` positions masked
+out), and the goal position's output becomes the query for cross-attention
+onto the pool. The result is the standard textbook pattern: the decoder
+state (goal + trajectory) attends to the encoder states (pool), the keys
+never depend on the partial state, and per-slot identity / per-step order
+are preserved without flattening anything that would break permutation
+equivariance.
 
 ## Why this prevents overfitting to specific materials
 
