@@ -48,9 +48,13 @@ from torch.utils.data import DataLoader
 _repo_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_repo_root))
 
-from scripts.training import collate_fn, run_one_epoch
+from scripts.training import (
+    collate_fn,
+    collate_fn_packed,
+    run_one_epoch,
+)
 from src.dataset import FlexThinFilmDataset, find_repo_root
-from src.model import ModelConfig, build_model, compute_loss
+from src.model import ModelConfig, build_model, compute_loss, compute_loss_packed
 
 
 @dataclass
@@ -67,7 +71,7 @@ class LRSearchResult:
     val_accs: List[float]
 
 
-def evaluate_validation(model, val_loader, device) -> Tuple[float, float]:
+def evaluate_validation(model, val_loader, device, loss_fn=compute_loss) -> Tuple[float, float]:
     model.eval()
     total_loss = 0.0
     total_correct = 0
@@ -75,7 +79,7 @@ def evaluate_validation(model, val_loader, device) -> Tuple[float, float]:
     with torch.no_grad():
         for batch in val_loader:
             batch_on_device = {k: v.to(device) for k, v in batch.items()}
-            losses = compute_loss(model, batch_on_device)
+            losses = loss_fn(model, batch_on_device)
             count = batch_on_device["lab"].size(0)
             total_loss += losses["loss"].item() * count
             total_correct += int(losses["accuracy"].item() * count)
@@ -98,19 +102,23 @@ def train_with_lr(
     warmup_fraction: float = 0.02,
     log_every: int = 100,
     verbose: bool = True,
+    packed_tf: bool = False,
+    bf16: bool = False,
 ) -> LRSearchResult:
     model = build_model(config).to(device)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
+    active_collate = collate_fn_packed if packed_tf else collate_fn
+    loss_fn = compute_loss_packed if packed_tf else compute_loss
     loader_kw = {}
     if num_workers > 0:
         loader_kw["prefetch_factor"] = prefetch_factor
     train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, collate_fn=collate_fn,
+        train_dataset, batch_size=batch_size, collate_fn=active_collate,
         num_workers=num_workers, pin_memory=True, **loader_kw,
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, collate_fn=collate_fn,
+        val_dataset, batch_size=batch_size, collate_fn=active_collate,
         num_workers=num_workers, pin_memory=True, **loader_kw,
     )
 
@@ -138,12 +146,14 @@ def train_with_lr(
             log_every=log_every,
             verbose=verbose,
             global_step_start=global_step,
+            loss_fn=loss_fn,
+            bf16=bf16,
         )
         global_step = epoch_out["global_step"]
         avg_train_loss = epoch_out["avg_loss"]
         train_losses.append(avg_train_loss)
 
-        val_loss, val_acc = evaluate_validation(model, val_loader, device)
+        val_loss, val_acc = evaluate_validation(model, val_loader, device, loss_fn=loss_fn)
         val_losses.append(val_loss)
         val_accs.append(val_acc)
         if val_loss < best_val_loss:
@@ -192,6 +202,8 @@ def lr_tuning(
     warmup_fraction: float = 0.02,
     log_every: int = 100,
     verbose: bool = True,
+    packed_tf: bool = False,
+    bf16: bool = False,
 ) -> Tuple[float, List[LRSearchResult]]:
     lrs = np.logspace(np.log10(lr_min), np.log10(lr_max), n_lrs)
     print(f"\n{'=' * 70}")
@@ -216,6 +228,7 @@ def lr_tuning(
             weight_decay=weight_decay, grad_clip=grad_clip,
             warmup_fraction=warmup_fraction,
             log_every=log_every, verbose=verbose,
+            packed_tf=packed_tf, bf16=bf16,
         )
         results.append(result)
         print(f"    Final: train_loss={result.final_train_loss:.4f}, "
@@ -302,6 +315,16 @@ def main() -> None:
                              "optimal LR is head-dependent.")
     parser.add_argument("--n-heads", type=int, default=8,
                         help="Attention heads (cross_attn only).")
+    parser.add_argument("--slot-encoder-layers", type=int, default=0,
+                        help="Slot encoder depth (cross_attn only; 0=use n-layers).")
+    parser.add_argument("--decoder-layers", type=int, default=1,
+                        help="Decoder depth (cross_attn only).")
+    parser.add_argument("--bf16", action=argparse.BooleanOptionalAction, default=False,
+                        help="bf16 autocast (~2x speedup on L40s/H100).")
+    parser.add_argument("--packed-tf", action=argparse.BooleanOptionalAction,
+                        default=None,
+                        help="Packed teacher-forcing (cross_attn only). Default: "
+                             "on for cross_attn, off for mlp.")
 
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--num-workers", type=int, default=4)
@@ -354,9 +377,17 @@ def main() -> None:
         dropout=args.dropout,
         head_mode=args.head_mode,
         n_heads=args.n_heads,
+        slot_encoder_layers=args.slot_encoder_layers,
+        decoder_layers=args.decoder_layers,
     )
+
+    # Default packed_tf to head_mode == 'cross_attn' if not set.
+    packed_tf = args.packed_tf if args.packed_tf is not None else (args.head_mode == "cross_attn")
+    if packed_tf and args.head_mode == "mlp":
+        raise ValueError("--packed-tf is incompatible with --head-mode mlp")
     print(f"[INFO] Model config: head_mode={args.head_mode}, "
-          f"d_model={args.d_model}, n_layers={args.n_layers}")
+          f"d_model={args.d_model}, n_layers={args.n_layers}, "
+          f"packed_tf={packed_tf}, bf16={args.bf16}")
 
     optimal_lr, results = lr_tuning(
         epochs=args.epochs,
@@ -368,6 +399,7 @@ def main() -> None:
         weight_decay=args.weight_decay, grad_clip=args.grad_clip,
         warmup_fraction=args.warmup_fraction,
         log_every=args.log_every, verbose=args.verbose,
+        packed_tf=packed_tf, bf16=args.bf16,
     )
 
     print("\n" + "=" * 70)

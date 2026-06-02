@@ -121,6 +121,12 @@ HEAD_MODE="${HEAD_MODE:-mlp}"              # 'mlp' or 'cross_attn' — MUST
                                            # (used for both architecture
                                            # build and tag-based lookup).
 N_HEADS="${N_HEADS:-8}"                    # Attention heads (cross_attn only)
+if [[ "${HEAD_MODE}" == "cross_attn" ]]; then
+  SLOT_ENCODER_LAYERS="${SLOT_ENCODER_LAYERS:-4}"
+else
+  SLOT_ENCODER_LAYERS="${SLOT_ENCODER_LAYERS:-0}"
+fi
+DECODER_LAYERS="${DECODER_LAYERS:-1}"
 
 # -------------------- Optimization (used to identify model) --------------------
 LR="${LR:-4.42e-5}"                        # Learning rate (for checkpoint lookup)
@@ -194,6 +200,8 @@ ARGS=(
   --dropout "${DROPOUT}"
   --head-mode "${HEAD_MODE}"
   --n-heads "${N_HEADS}"
+  --slot-encoder-layers "${SLOT_ENCODER_LAYERS}"
+  --decoder-layers "${DECODER_LAYERS}"
 
   # Optimization (for checkpoint lookup)
   --lr "${LR}"

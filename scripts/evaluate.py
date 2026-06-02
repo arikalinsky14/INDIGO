@@ -309,6 +309,10 @@ def parse_args() -> argparse.Namespace:
                         choices=["mlp", "cross_attn"],
                         help="Architecture variant (must match the checkpoint).")
     parser.add_argument("--n-heads", type=int, default=8)
+    parser.add_argument("--slot-encoder-layers", type=int, default=0,
+                        help="Slot encoder depth (cross_attn). 0 = use n-layers.")
+    parser.add_argument("--decoder-layers", type=int, default=1,
+                        help="Decoder depth (cross_attn).")
     parser.add_argument("--lr", type=float, default=4.42e-5)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=1)
@@ -358,6 +362,8 @@ def main() -> None:
             dropout=args.dropout,
             head_mode=args.head_mode,
             n_heads=args.n_heads,
+            slot_encoder_layers=args.slot_encoder_layers,
+            decoder_layers=args.decoder_layers,
             learning_rate=args.lr,
             batch_size=args.batch_size,
             epochs=args.epochs,
