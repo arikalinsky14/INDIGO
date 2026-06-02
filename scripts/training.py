@@ -25,6 +25,7 @@ Checkpoints: data/checkpoints/<config.tag()>/step_<N>/  and  .../latest/
 """
 
 import argparse
+import contextlib
 import json
 import math
 import sys
@@ -32,6 +33,11 @@ from pathlib import Path
 from typing import Dict, List
 
 import torch
+
+
+@contextlib.contextmanager
+def _nullcontext():
+    yield
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
@@ -48,7 +54,7 @@ from src.materials_vocab import (
     build_structure_matrix,
     encode_layer,
 )
-from src.model import ModelConfig, build_model, compute_loss
+from src.model import ModelConfig, build_model, compute_loss, compute_loss_packed
 
 
 def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
@@ -103,6 +109,73 @@ def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
     }
 
 
+# Sequence length for the packed cross_attn forward: start token + MAX_LAYERS
+# past tokens / prediction positions.
+_PACKED_SEQ_LEN = MAX_LAYERS + 1
+
+
+def collate_fn_packed(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
+    """Packed teacher-forcing collate for the cross_attn head.
+
+    Each example becomes ONE batch row carrying:
+      - lab, pool_features, pool_mask, pool_size : as before, 1 copy per example
+      - structure_matrix : the FULL deposited structure (all layers laid down)
+      - target_tokens [SEQ_LEN] : encoded layer tokens at positions
+        0..n_layers-1, EOS_TOKEN at position n_layers, and -100 at positions
+        n_layers+1..MAX_LAYERS so they are excluded from loss.
+
+    The packed forward predicts at every sequence position in a single pass —
+    one slot-encoder run amortised across all (n_layers + 1) token decisions
+    per example.
+    """
+    all_lab: List[torch.Tensor] = []
+    all_pool_feats: List[torch.Tensor] = []
+    all_pool_masks: List[torch.Tensor] = []
+    all_pool_sizes: List[int] = []
+    all_structures: List[torch.Tensor] = []
+    all_targets: List[torch.Tensor] = []
+
+    for ex in examples:
+        pool_feats_unpadded = featurize_pool(ex.pool, mode="raw_spectrum")
+        pool_feats, pool_mask = pad_pool_features(pool_feats_unpadded, m_max=M_MAX)
+        pool_size = len(ex.pool)
+
+        n_layers = len(ex.target_slots)
+        # Whether EOS gets a prediction position: yes if structure ended before
+        # MAX_LAYERS (so n_layers < MAX_LAYERS); no if it filled to the cap.
+        emits_eos = n_layers < MAX_LAYERS
+
+        # Full deposited structure (every layer the model is supposed to
+        # produce). The causal mask in the model ensures position p only
+        # sees layers 0..p-1, so feeding the full structure here does not
+        # leak information.
+        full_structure = build_structure_matrix(
+            ex.target_slots, ex.target_thicknesses
+        )
+
+        targets = torch.full((_PACKED_SEQ_LEN,), -100, dtype=torch.long)
+        for k in range(n_layers):
+            targets[k] = encode_layer(ex.target_slots[k], ex.target_thicknesses[k])
+        if emits_eos:
+            targets[n_layers] = EOS_TOKEN
+
+        all_lab.append(ex.lab)
+        all_pool_feats.append(pool_feats)
+        all_pool_masks.append(pool_mask)
+        all_pool_sizes.append(pool_size)
+        all_structures.append(full_structure)
+        all_targets.append(targets)
+
+    return {
+        "lab": torch.stack(all_lab),
+        "pool_features": torch.stack(all_pool_feats),
+        "pool_mask": torch.stack(all_pool_masks),
+        "pool_size": torch.tensor(all_pool_sizes, dtype=torch.long),
+        "structure_matrix": torch.stack(all_structures),
+        "target_tokens": torch.stack(all_targets),
+    }
+
+
 def get_lr_schedule(
     step: int, total_steps: int, base_lr: float, warmup_fraction: float = 0.02
 ) -> float:
@@ -135,17 +208,25 @@ def save_checkpoint(model, config, optimizer, step, loss, save_dir: Path, lr=Non
     print(f"[Checkpoint] Saved to {save_dir} at step {step}")
 
 
-def train_step(model, batch, device) -> Dict[str, torch.Tensor]:
-    """Move batch to device and run one forward + loss pass."""
+def train_step(model, batch, device, loss_fn=compute_loss) -> Dict[str, torch.Tensor]:
+    """Move batch to device and run one forward + loss pass.
+
+    `loss_fn` decides which target field is consumed:
+      - `compute_loss`        -> `target_token` (fanned-out collate)
+      - `compute_loss_packed` -> `target_tokens` (packed collate)
+    """
     batch_on_device = {
         "lab": batch["lab"].to(device),
         "pool_features": batch["pool_features"].to(device),
         "pool_mask": batch["pool_mask"].to(device),
         "pool_size": batch["pool_size"].to(device),
         "structure_matrix": batch["structure_matrix"].to(device),
-        "target_token": batch["target_token"].to(device),
     }
-    return compute_loss(model, batch_on_device)
+    if "target_token" in batch:
+        batch_on_device["target_token"] = batch["target_token"].to(device)
+    if "target_tokens" in batch:
+        batch_on_device["target_tokens"] = batch["target_tokens"].to(device)
+    return loss_fn(model, batch_on_device)
 
 
 def run_one_epoch(
@@ -164,6 +245,8 @@ def run_one_epoch(
     save_dir: "Path | None" = None,
     save_every: "int | None" = None,
     config: "ModelConfig | None" = None,
+    loss_fn=compute_loss,
+    bf16: bool = False,
 ) -> Dict[str, float]:
     """Run one epoch of training. Shared by `scripts/training.py` (single
     full run) and `scripts/lr_tuning.py` (one trial per candidate LR).
@@ -181,12 +264,19 @@ def run_one_epoch(
 
     current_lr = base_lr
     last_loss = float("nan")
+    amp_ctx = (
+        torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+        if bf16 and device.type == "cuda"
+        else _nullcontext()
+    )
     for batch in loader:
         current_lr = get_lr_schedule(global_step, total_steps, base_lr, warmup_fraction)
         set_lr(optimizer, current_lr)
 
         optimizer.zero_grad()
-        losses = train_step(model, batch, device)
+        with amp_ctx:
+            losses = train_step(model, batch, device, loss_fn=loss_fn)
+        # bf16 has the same dynamic range as fp32, so no GradScaler is needed.
         losses["loss"].backward()
 
         if grad_clip > 0:
@@ -260,10 +350,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--head-mode", type=str, default="mlp",
                         choices=["mlp", "cross_attn"],
                         help="Backbone architecture: 'mlp' (flatten-then-MLP, "
-                             "original) or 'cross_attn' (pointer head with "
-                             "per-slot transformer + query cross-attention).")
+                             "original) or 'cross_attn' (packed transformer "
+                             "decoder: causal self-attn over the partial "
+                             "structure + cross-attn onto the pool).")
     parser.add_argument("--n-heads", type=int, default=8,
                         help="Attention heads (cross_attn only).")
+    parser.add_argument("--slot-encoder-layers", type=int, default=0,
+                        help="Depth of the slot self-attention encoder "
+                             "(cross_attn only). 0 = use --n-layers. "
+                             "4 is recommended — 8-layer self-attn over "
+                             "≤32 set elements is overkill.")
+    parser.add_argument("--decoder-layers", type=int, default=1,
+                        help="Decoder depth (cross_attn only). Each layer "
+                             "does causal self-attn + cross-attn + FFN.")
 
     # Training hyperparameters
     parser.add_argument("--batch-size", type=int, default=64)
@@ -280,6 +379,23 @@ def parse_args() -> argparse.Namespace:
                              "consumer the bottleneck.")
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--warmup-fraction", type=float, default=0.02)
+
+    # Performance knobs
+    parser.add_argument("--bf16", action=argparse.BooleanOptionalAction,
+                        default=False,
+                        help="Wrap forward+loss in torch.amp.autocast bfloat16. "
+                             "~2x speedup on L40s/H100, no GradScaler needed. "
+                             "Default off so CI/CPU-only runs stay fp32.")
+    parser.add_argument("--packed-tf", action=argparse.BooleanOptionalAction,
+                        default=None,
+                        help="Use packed teacher-forcing collate (1 row per "
+                             "example, all sequence positions scored in one "
+                             "pass). cross_attn only. Default: on for "
+                             "cross_attn, off for mlp (mlp can't benefit).")
+    parser.add_argument("--compile", action=argparse.BooleanOptionalAction,
+                        default=False,
+                        help="Wrap the model in torch.compile(). Extra "
+                             "1.2-1.5x speedup once the trace stabilises.")
 
     # Checkpointing
     parser.add_argument("--save-dir", type=str, default=None)
@@ -319,13 +435,22 @@ def main() -> None:
         streaming=args.streaming,
     )
 
+    # Packed teacher-forcing defaults to on for cross_attn, off for mlp.
+    packed_tf = args.packed_tf if args.packed_tf is not None else (args.head_mode == "cross_attn")
+    if packed_tf and args.head_mode == "mlp":
+        raise ValueError("--packed-tf is incompatible with --head-mode mlp")
+    active_collate = collate_fn_packed if packed_tf else collate_fn
+    loss_fn = compute_loss_packed if packed_tf else compute_loss
+    print(f"[INFO] Collate: {active_collate.__name__} "
+          f"(packed_tf={packed_tf})")
+
     loader_kw = {}
     if args.num_workers > 0:
         loader_kw["prefetch_factor"] = args.prefetch_factor
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
-        collate_fn=collate_fn,
+        collate_fn=active_collate,
         num_workers=args.num_workers,
         pin_memory=True,
         **loader_kw,
@@ -341,6 +466,8 @@ def main() -> None:
         dropout=args.dropout,
         head_mode=args.head_mode,
         n_heads=args.n_heads,
+        slot_encoder_layers=args.slot_encoder_layers,
+        decoder_layers=args.decoder_layers,
         learning_rate=args.lr,
         batch_size=args.batch_size,
         epochs=args.epochs,
@@ -353,6 +480,12 @@ def main() -> None:
           f"d_model={args.d_model}, n_layers={args.n_layers})")
     print(f"[INFO] Model params: {n_params:,}")
     print(f"[INFO] Config tag: {config.tag()}")
+
+    if args.compile:
+        print(f"[INFO] torch.compile(model) — first batch will be slow to trace")
+        model = torch.compile(model)
+    if args.bf16:
+        print(f"[INFO] bf16 autocast: on")
 
     optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
@@ -392,6 +525,8 @@ def main() -> None:
             save_dir=save_dir,
             save_every=args.save_every,
             config=config,
+            loss_fn=loss_fn,
+            bf16=args.bf16,
         )
         global_step = epoch_out["global_step"]
         avg_loss = epoch_out["avg_loss"]

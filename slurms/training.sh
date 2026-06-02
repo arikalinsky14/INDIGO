@@ -103,6 +103,31 @@ HEAD_MODE="${HEAD_MODE:-mlp}"                 # 'mlp' (flatten-then-MLP, default
                                               # differs across architectures.
 N_HEADS="${N_HEADS:-8}"                       # Attention heads (cross_attn only)
 
+# Cross-attn-specific depth knobs. Slot encoder of 4 is the recommended
+# default — 8-layer self-attn over ≤32 set elements is overkill. Decoder
+# stays at 1 layer (causal self-attn + cross-attn + FFN).
+if [[ "${HEAD_MODE}" == "cross_attn" ]]; then
+  SLOT_ENCODER_LAYERS="${SLOT_ENCODER_LAYERS:-4}"
+else
+  SLOT_ENCODER_LAYERS="${SLOT_ENCODER_LAYERS:-0}"  # 0 = use N_LAYERS (no-op for MLP)
+fi
+DECODER_LAYERS="${DECODER_LAYERS:-1}"
+
+# -------------------- Performance --------------------
+BF16="${BF16:-1}"                             # bf16 autocast (~1.8-2x on L40s/H100,
+                                              # same dynamic range as fp32 → no
+                                              # GradScaler needed). Set to 0 for
+                                              # bit-identical fp32 reference runs.
+PACKED_TF="${PACKED_TF:-}"                    # Packed teacher-forcing collate.
+                                              # Empty = auto (on for cross_attn,
+                                              # off for mlp). 0 = force off, 1 =
+                                              # force on. cross_attn benefits ~5x
+                                              # because the slot encoder runs once
+                                              # per example instead of once per
+                                              # decoding step.
+COMPILE="${COMPILE:-0}"                       # torch.compile(model). First batch
+                                              # is slow to trace; subsequent ~1.3x.
+
 # -------------------- Optimization --------------------
 LR="${LR:-1.44e-3}"                           # Base learning rate
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"          # AdamW weight decay
@@ -175,6 +200,8 @@ ARGS=(
   --dropout "${DROPOUT}"
   --head-mode "${HEAD_MODE}"
   --n-heads "${N_HEADS}"
+  --slot-encoder-layers "${SLOT_ENCODER_LAYERS}"
+  --decoder-layers "${DECODER_LAYERS}"
 
   # Optimization
   --lr "${LR}"
@@ -193,6 +220,24 @@ if [[ "${STREAMING}" == "1" ]]; then
   ARGS+=(--streaming)
 else
   ARGS+=(--no-streaming)
+fi
+
+if [[ "${BF16}" == "1" ]]; then
+  ARGS+=(--bf16)
+else
+  ARGS+=(--no-bf16)
+fi
+
+# PACKED_TF tri-state: "" = auto (python picks per head), "1" = force on,
+# "0" = force off.
+if [[ "${PACKED_TF}" == "1" ]]; then
+  ARGS+=(--packed-tf)
+elif [[ "${PACKED_TF}" == "0" ]]; then
+  ARGS+=(--no-packed-tf)
+fi
+
+if [[ "${COMPILE}" == "1" ]]; then
+  ARGS+=(--compile)
 fi
 
 ARGS+=(
@@ -246,6 +291,8 @@ echo "Model Architecture:"
 echo "  head_mode:       ${HEAD_MODE}"
 if [[ "${HEAD_MODE}" == "cross_attn" ]]; then
   echo "  n_heads:         ${N_HEADS}"
+  echo "  slot_encoder:    ${SLOT_ENCODER_LAYERS} layer(s)"
+  echo "  decoder:         ${DECODER_LAYERS} layer(s)"
 fi
 echo "  feature mode:    ${FEATURE_MODE}"
 echo "  encoder hidden:  ${ENCODER_HIDDEN}"
@@ -254,6 +301,11 @@ echo "  d_model:         ${D_MODEL}"
 echo "  n_layers:        ${N_LAYERS}"
 echo "  dropout:         ${DROPOUT}"
 echo "  Output dim:      1281 (M_MAX=32 * NUM_THICKNESSES=40 + EOS)"
+echo
+echo "Performance:"
+echo "  bf16 autocast:   $([ "${BF16}" = "1" ] && echo on || echo off)"
+echo "  packed TF:       ${PACKED_TF:-auto (on for cross_attn, off for mlp)}"
+echo "  torch.compile:   $([ "${COMPILE}" = "1" ] && echo on || echo off)"
 echo
 echo "Optimization:"
 echo "  Learning rate:   ${LR}"

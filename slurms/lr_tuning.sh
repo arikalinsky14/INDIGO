@@ -102,6 +102,19 @@ HEAD_MODE="${HEAD_MODE:-mlp}"                    # 'mlp' or 'cross_attn' — MUS
                                                  # head-dependent).
 N_HEADS="${N_HEADS:-8}"                          # Attention heads (cross_attn only)
 
+# Cross-attn depth knobs. Default slot encoder of 4 (8 is overkill on ≤32 set
+# elements); decoder stays at 1 layer.
+if [[ "${HEAD_MODE}" == "cross_attn" ]]; then
+  SLOT_ENCODER_LAYERS="${SLOT_ENCODER_LAYERS:-4}"
+else
+  SLOT_ENCODER_LAYERS="${SLOT_ENCODER_LAYERS:-0}"
+fi
+DECODER_LAYERS="${DECODER_LAYERS:-1}"
+
+# Performance. MUST match the training run you'll do at the chosen LR.
+BF16="${BF16:-1}"
+PACKED_TF="${PACKED_TF:-}"                       # "" = auto (on for cross_attn).
+
 # Regularisation. MUST match training.sh so the LR optimum transfers — AdamW
 # dynamics differ at different weight decay, and dropout changes effective
 # capacity.
@@ -167,6 +180,8 @@ ARGS=(
     --dropout "${DROPOUT}"
     --head-mode "${HEAD_MODE}"
     --n-heads "${N_HEADS}"
+    --slot-encoder-layers "${SLOT_ENCODER_LAYERS}"
+    --decoder-layers "${DECODER_LAYERS}"
     --batch-size "${BATCH_SIZE}"
     --num-workers "${NUM_WORKERS}"
     --prefetch-factor "${PREFETCH_FACTOR}"
@@ -184,6 +199,16 @@ if [[ "${STREAMING}" == "1" ]]; then
     ARGS+=(--streaming)
 else
     ARGS+=(--no-streaming)
+fi
+if [[ "${BF16}" == "1" ]]; then
+    ARGS+=(--bf16)
+else
+    ARGS+=(--no-bf16)
+fi
+if [[ "${PACKED_TF}" == "1" ]]; then
+    ARGS+=(--packed-tf)
+elif [[ "${PACKED_TF}" == "0" ]]; then
+    ARGS+=(--no-packed-tf)
 fi
 if [[ -n "${LIMIT_VAL_EXAMPLES}" ]]; then
     ARGS+=(--limit-val-examples "${LIMIT_VAL_EXAMPLES}")
