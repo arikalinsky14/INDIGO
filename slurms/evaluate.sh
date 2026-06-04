@@ -130,7 +130,13 @@ DECODER_LAYERS="${DECODER_LAYERS:-1}"
 
 # -------------------- Optimization (used to identify model) --------------------
 LR="${LR:-4.42e-5}"                        # Learning rate (for checkpoint lookup)
-BATCH_SIZE="${BATCH_SIZE:-64}"             # Batch size (for checkpoint lookup)
+BATCH_SIZE="${BATCH_SIZE:-256}"            # MUST match the training run's
+                                           # batch size — it's part of the
+                                           # checkpoint-lookup tag, not just an
+                                           # inference-time knob. Default 256
+                                           # mirrors slurms/training.sh; override
+                                           # only if your training run used a
+                                           # different bs.
 EPOCHS="${EPOCHS:-1}"                      # Epochs (for checkpoint lookup)
 
 # -------------------- Evaluation Settings --------------------
