@@ -196,16 +196,29 @@ def set_lr(optimizer: torch.optim.Optimizer, lr: float) -> None:
 
 def save_checkpoint(model, config, optimizer, step, loss, save_dir: Path, lr=None):
     save_dir.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), save_dir / "model.pt")
-    torch.save(optimizer.state_dict(), save_dir / "optimizer.pt")
-    with open(save_dir / "config.json", "w") as f:
-        json.dump(config.to_dict(), f, indent=2)
-    meta = {"step": step, "loss": loss, "tag": config.tag()}
-    if lr is not None:
-        meta["lr"] = lr
-    with open(save_dir / "meta.json", "w") as f:
-        json.dump(meta, f, indent=2)
-    print(f"[Checkpoint] Saved to {save_dir} at step {step}")
+    try:
+        # If the model was wrapped by torch.compile, save the *original* module's
+        # state_dict so it loads back into a non-compiled model without the
+        # _orig_mod. prefix.
+        sd_model = getattr(model, "_orig_mod", model)
+        torch.save(sd_model.state_dict(), save_dir / "model.pt")
+        torch.save(optimizer.state_dict(), save_dir / "optimizer.pt")
+        with open(save_dir / "config.json", "w") as f:
+            json.dump(config.to_dict(), f, indent=2)
+        meta = {"step": step, "loss": loss, "tag": config.tag()}
+        if lr is not None:
+            meta["lr"] = lr
+        with open(save_dir / "meta.json", "w") as f:
+            json.dump(meta, f, indent=2)
+    except Exception as exc:
+        # Saves are critical — don't let them fail silently. Log the
+        # traceback so slurm err files surface the cause.
+        import traceback
+        print(f"[Checkpoint] FAILED to save to {save_dir} at step {step}: {exc}",
+              flush=True)
+        traceback.print_exc()
+        raise
+    print(f"[Checkpoint] Saved to {save_dir} at step {step}", flush=True)
 
 
 def train_step(model, batch, device, loss_fn=compute_loss) -> Dict[str, torch.Tensor]:
@@ -493,7 +506,20 @@ def main() -> None:
         save_dir = Path(args.save_dir)
     else:
         save_dir = repo_root / "data" / "checkpoints" / config.tag()
-    print(f"[INFO] Checkpoints will be saved to: {save_dir}")
+    # Create the directory NOW (parents=True) so any permission/disk error
+    # surfaces before training starts rather than at the first save attempt.
+    save_dir.mkdir(parents=True, exist_ok=True)
+    # And immediately write a sentinel so we can confirm writes work on this
+    # filesystem before sinking hours into training.
+    try:
+        (save_dir / ".write_test").write_text("ok")
+        (save_dir / ".write_test").unlink()
+    except OSError as exc:
+        raise RuntimeError(
+            f"Cannot write to checkpoint directory {save_dir}: {exc}. "
+            "Check permissions and free disk before re-running."
+        ) from exc
+    print(f"[INFO] Checkpoints will be saved to: {save_dir.resolve()}", flush=True)
 
     n_examples = len(dataset)
     steps_per_epoch = math.ceil(n_examples / args.batch_size)
@@ -538,8 +564,15 @@ def main() -> None:
         save_checkpoint(model, config, optimizer, global_step, avg_loss,
                         save_dir / "latest", lr=final_lr)
 
+    # Belt-and-suspenders: explicit save after the epoch loop exits, even if
+    # args.epochs is somehow 0 or run_one_epoch returned early. Overwrites
+    # the per-epoch "latest" with identical content if everything ran.
+    save_checkpoint(model, config, optimizer, global_step, avg_loss,
+                    save_dir / "final", lr=final_lr)
+
     print("[INFO] Training complete!")
-    print(f"[INFO] Final checkpoint: {save_dir / 'latest'}")
+    print(f"[INFO] Final checkpoint:  {save_dir / 'final'}", flush=True)
+    print(f"[INFO] Latest checkpoint: {save_dir / 'latest'}", flush=True)
 
 
 if __name__ == "__main__":
