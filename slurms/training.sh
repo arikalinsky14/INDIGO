@@ -168,6 +168,13 @@ STREAMING="${STREAMING:-1}"                    # Dataset streaming mode.
 # -------------------- Checkpointing --------------------
 SAVE_DIR="${SAVE_DIR:-}"                   # Override checkpoint dir (default: auto-generated)
 SAVE_EVERY="${SAVE_EVERY:-1000}"           # Save checkpoint every N steps
+RESUME="${RESUME:-}"                       # Path to a checkpoint subdir to
+                                           # resume from (e.g. .../step_91000/
+                                           # or .../latest/). Loads model +
+                                           # optimizer state + step; LR
+                                           # schedule continues from there.
+                                           # All other env vars MUST match the
+                                           # original run.
 
 # -------------------- Logging --------------------
 LOG_EVERY="${LOG_EVERY:-100}"              # Print per-step loss every N steps
@@ -262,6 +269,10 @@ fi
 # Add optional save-dir if specified
 if [[ -n "${SAVE_DIR}" ]]; then
   ARGS+=(--save-dir "${SAVE_DIR}")
+fi
+
+if [[ -n "${RESUME}" ]]; then
+  ARGS+=(--resume "${RESUME}")
 fi
 
 # User arguments append after ARGS, so they win for any duplicated flag

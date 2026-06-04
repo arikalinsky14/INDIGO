@@ -413,6 +413,12 @@ def parse_args() -> argparse.Namespace:
     # Checkpointing
     parser.add_argument("--save-dir", type=str, default=None)
     parser.add_argument("--save-every", type=int, default=1000)
+    parser.add_argument("--resume", type=str, default=None,
+                        help="Path to a saved checkpoint dir (e.g. step_91000/ "
+                             "or latest/) to resume from. Loads model.pt + "
+                             "optimizer.pt + step from meta.json and continues. "
+                             "All other CLI args must match the original run so "
+                             "save_dir, total_steps, and the LR schedule align.")
 
     # Logging
     parser.add_argument("--log-every", type=int, default=100,
@@ -531,11 +537,50 @@ def main() -> None:
     print(f"[INFO] Warmup steps: {warmup_steps:,} ({args.warmup_fraction:.1%} of total)")
 
     global_step = 0
+    start_epoch = 0
+    if args.resume:
+        resume_dir = Path(args.resume)
+        if not (resume_dir / "model.pt").exists():
+            raise FileNotFoundError(
+                f"--resume {resume_dir}: no model.pt found. Expected a "
+                "checkpoint dir like .../step_91000/ or .../latest/."
+            )
+        # Strip torch.compile wrapper for loading too.
+        sd_model = getattr(model, "_orig_mod", model)
+        sd_model.load_state_dict(torch.load(
+            resume_dir / "model.pt", map_location=device, weights_only=True
+        ))
+        optimizer.load_state_dict(torch.load(
+            resume_dir / "optimizer.pt", map_location=device, weights_only=True
+        ))
+        with open(resume_dir / "meta.json") as f:
+            meta = json.load(f)
+        global_step = int(meta["step"])
+        start_epoch = global_step // max(steps_per_epoch, 1)
+        print(f"[Resume] Loaded {resume_dir}", flush=True)
+        print(f"[Resume] global_step={global_step:,} (of {total_steps:,}), "
+              f"resuming at epoch {start_epoch + 1}/{args.epochs}", flush=True)
+        if global_step >= total_steps:
+            print(f"[Resume] Already at or past total_steps "
+                  f"({total_steps:,}); writing final save and exiting.",
+                  flush=True)
+            save_checkpoint(model, config, optimizer, global_step,
+                            meta.get("loss", float("nan")),
+                            save_dir / "final",
+                            lr=meta.get("lr"))
+            save_checkpoint(model, config, optimizer, global_step,
+                            meta.get("loss", float("nan")),
+                            save_dir / "latest",
+                            lr=meta.get("lr"))
+            return
+
     print("[INFO] Starting training...")
     print(f"[INFO] Logging every {args.log_every} step(s) "
           f"(verbose={args.verbose})")
 
-    for epoch in range(args.epochs):
+    avg_loss = float("nan")
+    final_lr = args.lr
+    for epoch in range(start_epoch, args.epochs):
         epoch_out = run_one_epoch(
             model=model,
             optimizer=optimizer,
