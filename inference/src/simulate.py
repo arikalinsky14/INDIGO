@@ -3,15 +3,33 @@ JAX-native differentiable physics chain for INDIGO inference.
 
   thicknesses_nm (float)  ─►  reflectance  ─►  Lab  ─►  ΔE00 vs target
 
-Every step is `jax.jit` / `jax.grad` / `jax.vmap` compatible. The stack
-geometry matches `src.optical_sim.OpticalSimulator`:
+Every step is `jax.grad`-compatible. The stack geometry matches
+`src.optical_sim.OpticalSimulator`:
 
   [Air, layer_0, ..., layer_{MAX_LAYERS-1}, Fused-silica substrate]
 
 Inactive layers are represented with `thickness = 0` and `layer_mask = False`
 — the TMM is identity on a 0-thick layer, so masked layers contribute
 nothing to reflectance. Keeping the shape fixed at `MAX_LAYERS+2` is what
-makes the whole chain `vmap`-friendly for the ensemble.
+keeps the chain well-formed even when the structure has fewer than
+MAX_LAYERS active deposits.
+
+A note on `jax.jit` / `jax.vmap`
+-------------------------------
+`jaxlayerlumos.jaxlayerlumos.stackrt_eps_mu_base` contains
+`assert thicknesses[0] == 0` (a precondition that the air superstrate is at
+position 0). Python `assert` calls `__bool__` on its argument, and under
+`jax.jit` / `jax.vmap` the argument is a Tracer — boolean conversion fails
+with `TracerBoolConversionError`. `jax.grad` is fine because grad tracing
+keeps concrete values around for the forward pass.
+
+Practical consequence: every candidate's simulation is computed sequentially.
+This is fine for the ensemble sizes the inference plan calls for (~500
+candidates). If we ever need vmap speed (e.g. larger ensembles, hyperparameter
+sweeps), the options are:
+  - monkey-patch the JLL assert away at module load time, or
+  - reimplement the (very small) normal-incidence TMM in pure JAX.
+Both are tracked work; neither blocks the current build.
 
 Why a JAX reimplementation of ΔE00
 ----------------------------------

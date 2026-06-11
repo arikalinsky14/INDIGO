@@ -253,27 +253,43 @@ def check_grad_matches_finite_diff(pool, slot_indices, thicknesses_nm,
     )
 
 
-def check_jit_path(pool, slot_indices, thicknesses_nm, target_lab) -> None:
-    """End-to-end jit + grad cleanliness."""
+def check_pipeline_timing(pool, slot_indices, thicknesses_nm, target_lab,
+                          n_repeats: int = 32) -> None:
+    """End-to-end forward + grad timing, no jit.
+
+    `jax.jit` / `jax.vmap` cannot currently wrap the JLL physics chain because
+    `jaxlayerlumos.stackrt_eps_mu_base` contains `assert thicknesses[0] == 0`,
+    which raises TracerBoolConversionError under abstract tracing. `jax.grad`
+    is fine (it traces with concrete values), and that's what refine.py /
+    sensitivity.py need. We measure unjitted-but-real-path timing here so
+    downstream modules know what kind of per-candidate latency to budget for.
+    """
     pool_n, pool_k = pad_pool_nk(pool)
     slots, thicks, mask = pad_structure(slot_indices, thicknesses_nm)
     target = jnp.asarray(target_lab, dtype=jnp.float64)
 
-    @jax.jit
-    def f_and_grad(t):
-        return delta_e_from_thicknesses(t, pool_n, pool_k, slots, mask, target), \
-               jax.grad(delta_e_from_thicknesses)(t, pool_n, pool_k, slots, mask, target)
+    def f(t):
+        return delta_e_from_thicknesses(t, pool_n, pool_k, slots, mask, target)
+
+    # Warm up (first call is slow due to JLL setup).
+    _ = float(f(thicks))
 
     t0 = time.time()
-    val, grad = f_and_grad(thicks)
-    val.block_until_ready()
-    t_compile = time.time() - t0
+    for _ in range(n_repeats):
+        val = float(f(thicks))
+    t_fwd = (time.time() - t0) / n_repeats
+
     t0 = time.time()
-    val, grad = f_and_grad(thicks + 1.0)
-    val.block_until_ready()
-    t_run = time.time() - t0
-    print(f"  [jit]         val={float(val):.4f}  compile={t_compile*1e3:.1f} ms  "
-          f"run={t_run*1e3:.2f} ms")
+    for _ in range(n_repeats):
+        g = jax.grad(f)(thicks)
+        g.block_until_ready()
+    t_grad = (time.time() - t0) / n_repeats
+
+    print(f"  [forward]     val={val:.4f}   avg over {n_repeats}: "
+          f"{t_fwd*1e3:.2f} ms")
+    print(f"  [grad]        avg grad over {n_repeats}: {t_grad*1e3:.2f} ms")
+    print(f"  Budget @ N=500 ensemble: ~{500 * t_fwd:.1f} s forward, "
+          f"~{500 * t_grad:.1f} s grad")
 
 
 def check_schema_roundtrip() -> None:
@@ -345,8 +361,8 @@ def main() -> int:
     print("4. jax.grad of ΔE wrt thicknesses matches centered finite differences")
     check_grad_matches_finite_diff(pool, slot_indices, thicknesses_nm, target_lab)
     print()
-    print("5. End-to-end jit + grad path")
-    check_jit_path(pool, slot_indices, thicknesses_nm, target_lab)
+    print("5. Pipeline timing (forward + grad, no jit — see simulate.py docstring)")
+    check_pipeline_timing(pool, slot_indices, thicknesses_nm, target_lab)
     print()
     print("6. Schema JSON round-trip")
     check_schema_roundtrip()

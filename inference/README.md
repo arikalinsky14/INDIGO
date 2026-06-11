@@ -37,6 +37,21 @@ Per the implementation plan, in build order:
 7. `solve.py` — orchestrator
 8. `scripts/run_inference.py` — CLI
 
+## Known constraint: no `jax.jit` / `jax.vmap` on the physics chain
+
+`jaxlayerlumos.jaxlayerlumos.stackrt_eps_mu_base` contains
+`assert thicknesses[0] == 0`. Under `jax.jit` / `jax.vmap` the argument is
+a Tracer and the `__bool__` call inside `assert` raises
+`TracerBoolConversionError`. `jax.grad` is fine because grad tracing
+keeps concrete values around.
+
+Consequence: every candidate is simulated **sequentially**. For the
+planned ensemble of N=500 this is ~1–3 s of simulation per inference
+call — acceptable. If we ever need vmap speed, the fix is either to
+monkey-patch the JLL assert away at module load or to reimplement the
+(small) normal-incidence TMM in pure JAX. Both are tracked work; neither
+blocks the current build.
+
 ## Conventions
 
 - **Numerical fidelity with training.** `reflectance_to_lab` routes
