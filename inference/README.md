@@ -32,8 +32,12 @@ inference/
 │   │                    OpenAI call. Three validation gates (schema,
 │   │                    semantic, physical). INDIGO_PARSE_BACKEND=mock
 │   │                    for offline tests.
-│   └── solve.py        Orchestrator. Pure function:
-│                        solve(model, pool, spec) -> Result.
+│   ├── solve.py        Orchestrator. Pure function:
+│   │                    solve(model, pool, spec) -> Result.
+│   └── visualize.py    Composite PNG per Result: target/achieved
+│                        swatches with ΔE, reflectance plot
+│                        (chosen + alts), layer-stack diagram, run
+│                        provenance footer.
 ├── scripts/
 │   ├── sim_spike.py    De-risker for simulate.py.
 │   └── run_inference.py CLI: pool from JSON or JLL dir, target Lab, optional

@@ -291,6 +291,9 @@ def main() -> int:
                    help="Random in-bounds restarts per top-k seed (multi-start)")
     p.add_argument("--output", type=str, default=None,
                    help="Output JSON path (default: inference/outputs/result_<seed>.json)")
+    p.add_argument("--plot", action=argparse.BooleanOptionalAction, default=True,
+                   help="Also write a composite PNG (swatches + reflectance + "
+                        "layer diagram) next to the JSON. --no-plot to skip.")
     args = p.parse_args()
 
     # Load pool — JSON file > explicit JLL dir > installed JLL package.
@@ -353,6 +356,14 @@ def main() -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     result.to_json(path=out_path)
     print(f"[run] result written to {out_path}")
+
+    if args.plot:
+        from inference.src.visualize import render_result
+        png_path = out_path.with_suffix(".png")
+        emitted = render_result(result, png_path)
+        if emitted is not None:
+            print(f"[run] plot written to {emitted}")
+
     _print_summary(result)
     return 0 if result.chosen is not None else 1
 

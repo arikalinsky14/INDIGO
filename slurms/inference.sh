@@ -102,6 +102,8 @@ REFINE_STEP="${REFINE_STEP:-1.0}"       # nm; Adam initial step
 MC_SAMPLES="${MC_SAMPLES:-32}"
 SEED="${SEED:-42}"
 RANDOM_RESTARTS="${RANDOM_RESTARTS:-0}"
+PLOT="${PLOT:-1}"                       # 1=emit composite PNG next to the JSON,
+                                        # 0=JSON only (faster, matplotlib-less envs)
 
 # Anything you pass after the script name flows through to run_inference.py.
 USER_ARGS=("$@")
@@ -167,6 +169,9 @@ fi
 if [[ -n "${OUTPUT}" ]]; then
   ARGS+=(--output "${OUTPUT}")
 fi
+if [[ "${PLOT}" == "0" ]]; then
+  ARGS+=(--no-plot)
+fi
 
 CMD=(python inference/scripts/run_inference.py "${ARGS[@]}" "${USER_ARGS[@]}")
 
@@ -215,6 +220,7 @@ echo "  seed:            ${SEED}"
 echo
 echo "Output:"
 echo "  File:            ${OUTPUT:-(default: inference/outputs/result_seed${SEED}.json)}"
+echo "  Plot:            $([ "${PLOT}" = "1" ] && echo 'on (composite PNG next to JSON)' || echo 'off')"
 echo
 echo "============================================================================"
 echo "COMMAND:"
