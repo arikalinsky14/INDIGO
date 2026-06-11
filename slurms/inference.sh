@@ -66,8 +66,14 @@ echo
 # REQUIRED — the model to use.
 CHECKPOINT="${CHECKPOINT:-}"
 
-# REQUIRED — target color as three space-separated Lab values, e.g. "60 5 -8".
+# REQUIRED — exactly one of:
+#   TARGET_LAB: three space-separated Lab values, e.g. "60 5 -8"
+#   PROMPT:     free-text request, routed through the LLM parser.
+# With PROMPT, the LLM also fills in any constraints it derives from the
+# text; CONSTRAINTS below is ignored. Backend defaults to OpenAI (needs
+# $OPENAI_API_KEY); set INDIGO_PARSE_BACKEND=mock for offline tests.
 TARGET_LAB="${TARGET_LAB:-}"
+PROMPT="${PROMPT:-}"
 
 # Pool: at most one of (POOL_JSON, POOL_DIR). If neither is set the CLI uses
 # the installed jaxlayerlumos materials/ subdir (or $JLL_MATERIALS_DIR if
@@ -109,9 +115,14 @@ if [[ -z "${CHECKPOINT}" ]]; then
   echo "        Example: CHECKPOINT=data/checkpoints/flex_..._cross_attn.../latest" >&2
   exit 2
 fi
-if [[ -z "${TARGET_LAB}" ]]; then
-  echo "[ERROR] TARGET_LAB env var is required." >&2
+if [[ -z "${TARGET_LAB}" && -z "${PROMPT}" ]]; then
+  echo "[ERROR] Set TARGET_LAB or PROMPT (exactly one)." >&2
   echo "        Example: TARGET_LAB=\"60 5 -8\"" >&2
+  echo "              or PROMPT=\"a deep red structure with 3-5 layers\"" >&2
+  exit 2
+fi
+if [[ -n "${TARGET_LAB}" && -n "${PROMPT}" ]]; then
+  echo "[ERROR] TARGET_LAB and PROMPT are mutually exclusive." >&2
   exit 2
 fi
 if [[ -n "${POOL_JSON}" && -n "${POOL_DIR}" ]]; then
@@ -125,7 +136,6 @@ fi
 
 ARGS=(
   --checkpoint "${CHECKPOINT}"
-  --target-lab ${TARGET_LAB}   # intentional word-splitting → three positional floats
   --ensemble-n "${ENSEMBLE_N}"
   --temperature "${TEMPERATURE}"
   --tolerance "${TOLERANCE}"
@@ -137,13 +147,21 @@ ARGS=(
   --seed "${SEED}"
   --random-restarts "${RANDOM_RESTARTS}"
 )
+if [[ -n "${TARGET_LAB}" ]]; then
+  # Intentional word-splitting → three positional floats.
+  ARGS+=(--target-lab ${TARGET_LAB})
+fi
+if [[ -n "${PROMPT}" ]]; then
+  ARGS+=(--prompt "${PROMPT}")
+fi
 if [[ -n "${POOL_JSON}" ]]; then
   ARGS+=(--pool "${POOL_JSON}")
 fi
 if [[ -n "${POOL_DIR}" ]]; then
   ARGS+=(--pool-dir "${POOL_DIR}")
 fi
-if [[ -n "${CONSTRAINTS}" ]]; then
+if [[ -n "${CONSTRAINTS}" && -z "${PROMPT}" ]]; then
+  # CONSTRAINTS only applies with TARGET_LAB; with PROMPT the LLM derives them.
   ARGS+=(--constraints "${CONSTRAINTS}")
 fi
 if [[ -n "${OUTPUT}" ]]; then
@@ -164,7 +182,12 @@ echo "Model:"
 echo "  Checkpoint:      ${CHECKPOINT}"
 echo
 echo "Target:"
-echo "  Lab:             ${TARGET_LAB}"
+if [[ -n "${PROMPT}" ]]; then
+  echo "  Prompt:          ${PROMPT}"
+  echo "  Parser backend:  ${INDIGO_PARSE_BACKEND:-openai}"
+else
+  echo "  Lab:             ${TARGET_LAB}"
+fi
 echo
 echo "Pool:"
 if [[ -n "${POOL_JSON}" ]]; then
@@ -217,10 +240,20 @@ exit ${EXIT_CODE}
 # USAGE
 # ============================================================================
 #
-# Minimal:
+# Minimal — structured input:
 #   CHECKPOINT=data/checkpoints/flex_..._cross_attn.../latest \
 #     TARGET_LAB="60 5 -8" \
 #     sbatch slurms/inference.sh
+#
+# Natural-language prompt (default OpenAI; export $OPENAI_API_KEY beforehand):
+#   CHECKPOINT=data/checkpoints/<tag>/latest \
+#     PROMPT="A deep red structure with 3-5 layers, no silver" \
+#     sbatch --export=ALL slurms/inference.sh
+#
+# Offline prompt smoke (no API call):
+#   CHECKPOINT=data/checkpoints/<tag>/latest \
+#     PROMPT="something blue" INDIGO_PARSE_BACKEND=mock \
+#     sbatch --export=ALL slurms/inference.sh
 #
 # With constraints + custom knobs:
 #   CHECKPOINT=data/checkpoints/<tag>/latest \
