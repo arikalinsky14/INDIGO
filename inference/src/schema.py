@@ -282,9 +282,30 @@ class Result:
 
     @classmethod
     def from_json(cls, path_or_str: Any) -> "Result":
-        text = (Path(path_or_str).read_text()
-                if isinstance(path_or_str, (str, Path)) and Path(str(path_or_str)).exists()
-                else str(path_or_str))
+        """Load a Result from either a Path/str path on disk OR a raw JSON string.
+
+        The string-vs-path disambiguation has to be defensive: a serialised
+        Result can be ~2 KB of text, and `Path(...).exists()` on a string
+        longer than the OS filename limit (255 bytes on Linux) raises
+        `OSError: File name too long` rather than just returning False. So
+        we wrap the path probe in a try/except and fall through to the
+        string-as-JSON branch on failure.
+        """
+        text: Optional[str] = None
+        if isinstance(path_or_str, Path):
+            text = path_or_str.read_text()
+        elif isinstance(path_or_str, str):
+            try:
+                p = Path(path_or_str)
+                if p.exists():
+                    text = p.read_text()
+            except OSError:
+                # Too-long-for-a-filename string → not a path; fall through.
+                pass
+            if text is None:
+                text = path_or_str
+        else:
+            text = str(path_or_str)
         d = json.loads(text)
         return _result_from_dict(d)
 
