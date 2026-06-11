@@ -8,13 +8,16 @@ command-line use. Future LLM-based prompt parsing lives in
 
 Examples
 --------
-    # Greyscale target, default knobs, JLL pool from the trained library
+    # Default knobs, full installed JLL pool (no --pool-dir needed)
     python inference/scripts/run_inference.py \\
         --checkpoint data/checkpoints/<tag>/latest \\
-        --target-lab 60 5 -8 \\
-        --pool-dir src/_jll_materials
+        --target-lab 60 5 -8
 
-    # With a JSON pool file and a JSON constraints file
+    # Override the JLL location at runtime
+    JLL_MATERIALS_DIR=/some/path python inference/scripts/run_inference.py \\
+        --checkpoint <ckpt> --target-lab 70 0 0
+
+    # JSON pool file + JSON constraints + custom knobs
     python inference/scripts/run_inference.py \\
         --checkpoint data/checkpoints/<tag>/latest \\
         --target-lab 70 0 0 \\
@@ -41,7 +44,7 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 from src.material_features import load_jll_directory, NUM_LAMBDA
-from src.materials_vocab import normalize_lab
+from src.materials_vocab import M_MAX, normalize_lab
 
 from inference.src.schema import (
     InferenceKnobs, InferenceSpec, MaterialEntry,
@@ -86,6 +89,63 @@ def load_pool_from_jll(directory: Path) -> List[MaterialEntry]:
             k=m.k.astype(np.float32), source=m.source,
         ))
     return out
+
+
+# Hard-coded fallback for the legacy cluster install where the package was
+# unpacked outside of site-packages. Only consulted if the installed
+# `jaxlayerlumos` package can't be located at runtime.
+_LEGACY_JLL_MATERIALS = Path("/home/claude/JaxLayerLumos/jaxlayerlumos/materials")
+
+
+def default_jll_materials_dir() -> Path:
+    """Locate the JLL `materials/` directory on whichever machine we're on.
+
+    Resolution order:
+      1. `JLL_MATERIALS_DIR` env var (explicit override).
+      2. Installed `jaxlayerlumos` package's `materials/` subdir.
+      3. Legacy hard-coded path used elsewhere in the repo.
+
+    Raises FileNotFoundError if none of the above exists — the caller is
+    then expected to surface a clear error to the user.
+    """
+    import os
+    env_override = os.environ.get("JLL_MATERIALS_DIR")
+    if env_override:
+        p = Path(env_override)
+        if p.exists():
+            return p
+    try:
+        import jaxlayerlumos
+        installed = Path(jaxlayerlumos.__file__).parent / "materials"
+        if installed.exists():
+            return installed
+    except ImportError:
+        pass
+    if _LEGACY_JLL_MATERIALS.exists():
+        return _LEGACY_JLL_MATERIALS
+    raise FileNotFoundError(
+        "Could not locate the JLL materials directory. Tried (in order): "
+        "$JLL_MATERIALS_DIR, the installed jaxlayerlumos package's "
+        f"materials/ subdir, and the legacy path {_LEGACY_JLL_MATERIALS}. "
+        "Override with `--pool-dir <path>` or set $JLL_MATERIALS_DIR."
+    )
+
+
+def cap_pool_at_m_max(pool: List[MaterialEntry], m_max: int) -> List[MaterialEntry]:
+    """If the pool exceeds the model's M_MAX, deterministically trim it.
+
+    Sorted by canonical name (load_pool_from_jll already sorts), then truncated
+    to the first `m_max` entries. Warns to stdout so the user sees what got
+    dropped — a silent truncation here would be a surprise.
+    """
+    if len(pool) <= m_max:
+        return pool
+    kept = pool[:m_max]
+    dropped = [m.canonical_name for m in pool[m_max:]]
+    print(f"[pool] WARNING: pool of {len(pool)} exceeds M_MAX={m_max}; "
+          f"keeping the first {m_max} by canonical-name order.")
+    print(f"[pool]          dropped: {dropped}")
+    return kept
 
 
 def build_spec(
@@ -186,11 +246,17 @@ def main() -> int:
     p.add_argument("--target-lab", nargs=3, required=True, type=float,
                    metavar=("L", "A", "B"),
                    help="Target color in CIE Lab (raw, not normalised)")
-    pool_grp = p.add_mutually_exclusive_group(required=True)
+    # Pool: either a JSON file or a JLL CSV directory. Neither is required;
+    # if neither is given we use the installed jaxlayerlumos `materials/` dir
+    # (or the legacy /home/claude/... path) — same default the training-side
+    # smokes in src/model.py and src/dataset.py have always used.
+    pool_grp = p.add_mutually_exclusive_group(required=False)
     pool_grp.add_argument("--pool", type=str,
-                          help="JSON pool file (list of materials with n,k)")
+                          help="JSON pool file (list of materials with n,k).")
     pool_grp.add_argument("--pool-dir", type=str,
-                          help="Directory of JLL CSV files to load as pool")
+                          help="Directory of JLL CSV files. Default: the "
+                               "installed jaxlayerlumos package's materials/ "
+                               "subdir (or $JLL_MATERIALS_DIR if set).")
     p.add_argument("--constraints", type=str, default=None,
                    help="JSON file: list of constraint dicts (see solve.py "
                         "docstring for schema)")
@@ -213,12 +279,18 @@ def main() -> int:
                    help="Output JSON path (default: inference/outputs/result_<seed>.json)")
     args = p.parse_args()
 
-    # Load pool.
+    # Load pool — JSON file > explicit JLL dir > installed JLL package.
     if args.pool:
         pool = load_pool_from_json(Path(args.pool))
+        pool_origin = f"json:{args.pool}"
     else:
-        pool = load_pool_from_jll(Path(args.pool_dir))
-    print(f"[run] pool: {len(pool)} materials, fingerprint "
+        pool_dir = Path(args.pool_dir) if args.pool_dir else default_jll_materials_dir()
+        pool = load_pool_from_jll(pool_dir)
+        pool_origin = f"jll:{pool_dir}"
+    # Cap at M_MAX so the model can index every slot.
+    pool = cap_pool_at_m_max(pool, M_MAX)
+    print(f"[run] pool: {len(pool)} materials from {pool_origin}, "
+          f"fingerprint "
           f"{__import__('inference.src.schema', fromlist=['pool_fingerprint']).pool_fingerprint(pool)}")
 
     # Build spec + knobs.
