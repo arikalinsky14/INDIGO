@@ -207,8 +207,14 @@ Available materials (canonical names — use EXACTLY as written):
 
 Constraint kinds (use only these `kind` values):
   - allowed_subset      params: allowed_names: [str, ...]
+                        Restricts the model to ONLY these materials.
   - layer_identity      params: position: int, material_name: str
+                        Pins one layer position to one specific material.
   - adjacent_forbidden  params: forbidden_pairs: [[str, str], ...]
+                        Pairs that may not appear at consecutive positions.
+                        Pairs may be self-pairs (e.g. ["Ag","Ag"] = "no two
+                        adjacent silver layers"), but ONLY use this when the
+                        user is restricting *adjacency*, not global usage.
   - thickness_range     params: min_nm: int (5..200), max_nm: int (5..200),
                                 position: int|null (null = global)
   - layer_count         params: min_layers: int (1..10),
@@ -217,6 +223,27 @@ Constraint kinds (use only these `kind` values):
   - total_thickness     params: max_total_nm: int (5..2000),
                                 markovian_decode: true|null
   - symmetry            params: match_thickness: true|null
+
+Picking the right kind matters. Common phrasings:
+  - "no X" / "without X" / "don't use X"
+        ⇒ allowed_subset listing every pool name EXCEPT X. NOT
+          adjacent_forbidden — that would only block X-next-to-X / X-next-to-Y.
+  - "only X and Y"
+        ⇒ allowed_subset: ["X", "Y"].
+  - "X and Y can't be touching" / "no X-Y interface"
+        ⇒ adjacent_forbidden: [["X", "Y"]].
+  - "the bottom layer must be X" / "layer 0 is X"
+        ⇒ layer_identity: position=0, material_name="X".
+  - "between N and M layers" / "at most N layers"
+        ⇒ layer_count.
+  - "thinner than N nm everywhere"
+        ⇒ thickness_range with position=null.
+  - "X has to come before Y"
+        ⇒ ordering_before.
+  - "symmetric stack" / "palindromic"
+        ⇒ symmetry.
+  - "total stack thickness ≤ N nm" / "thinner than N nm overall"
+        ⇒ total_thickness.
 
 Constants you MUST respect:
   - Layer positions are 0-indexed in [0, 10).
@@ -491,10 +518,16 @@ def _validate_physical(spec_dict: Dict[str, Any]) -> None:
         elif kind == "adjacent_forbidden":
             pairs = c.get("forbidden_pairs") or []
             for pair in pairs:
-                if len(pair) != 2 or pair[0] == pair[1]:
-                    raise ParseError("physical",
-                                     f"constraint {i}: adjacent_forbidden "
-                                     f"pair {pair} must be two distinct names")
+                if len(pair) != 2:
+                    raise ParseError(
+                        "physical",
+                        f"constraint {i}: adjacent_forbidden pair {pair} "
+                        f"must be exactly two names"
+                    )
+                # Self-pairs (e.g. ("Ag", "Ag") meaning "no two adjacent Ag
+                # layers") are legitimate — `check` / `decode_mask` handle
+                # them correctly. Only the empty / wrong-arity cases are
+                # rejected here.
 
 
 # ----------------------------------------------------------------------------
