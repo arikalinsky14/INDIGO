@@ -127,11 +127,23 @@ def _response_json_schema() -> Dict[str, Any]:
 
 
 def _constraint_schema() -> Dict[str, Any]:
-    """anyOf over the 8 constraint kinds."""
+    """One sub-schema covering all 8 constraint kinds.
+
+    OpenAI's `response_format=json_schema` strict mode requires every key in
+    `properties` to also appear in `required`; the trick to keep this single
+    schema flexible across kinds is to make all non-`kind` fields nullable.
+    The LLM emits null for whichever fields don't apply to the chosen kind.
+    """
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["kind"],
+        "required": [
+            "kind",
+            "allowed_names", "position", "material_name",
+            "forbidden_pairs", "min_nm", "max_nm",
+            "min_layers", "max_layers", "name_a", "name_b",
+            "max_total_nm", "markovian_decode", "match_thickness",
+        ],
         "properties": {
             "kind": {
                 "type": "string",
@@ -142,6 +154,7 @@ def _constraint_schema() -> Dict[str, Any]:
                 ],
             },
             # All possible params; only the ones relevant to `kind` are read.
+            # Nullable so the LLM can emit null when a field doesn't apply.
             "allowed_names": {"type": ["array", "null"],
                               "items": {"type": "string"}},
             "position": {"type": ["integer", "null"]},
