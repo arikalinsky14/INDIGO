@@ -229,21 +229,24 @@ def _call_openai(prompt: str, pool_names: List[str], model: str
                  ) -> Dict[str, Any]:
     """Single forced-JSON OpenAI call. Returns the parsed JSON dict.
 
-    Reads `OPENAI_API_KEY`. Honours `OPENAI_BASE_URL` if the user is pointing
-    at a compatible alternative endpoint. Single attempt — the orchestrator
-    decides whether to retry.
+    Prefers the official `openai` SDK if it's importable; otherwise falls
+    back to a `urllib.request` POST so this works on any env without an
+    extra install. Reads `OPENAI_API_KEY`. Honours `OPENAI_BASE_URL` if the
+    user is pointing at a compatible alternative endpoint.
     """
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise ParseError("backend",
-                         "openai package not installed. `pip install openai` "
-                         "or set INDIGO_PARSE_BACKEND=mock for offline tests."
-                         ) from exc
     if not os.environ.get("OPENAI_API_KEY"):
         raise ParseError("backend",
                          "OPENAI_API_KEY not set. Export it (sbatch's "
                          "--export forwards it) or use INDIGO_PARSE_BACKEND=mock.")
+    try:
+        from openai import OpenAI
+        return _call_openai_sdk(OpenAI, prompt, pool_names, model)
+    except ImportError:
+        return _call_openai_urllib(prompt, pool_names, model)
+
+
+def _call_openai_sdk(OpenAI, prompt: str, pool_names: List[str], model: str
+                     ) -> Dict[str, Any]:
     client = OpenAI()
     resp = client.chat.completions.create(
         model=model,
@@ -257,6 +260,63 @@ def _call_openai(prompt: str, pool_names: List[str], model: str
     )
     text = resp.choices[0].message.content
     if text is None:
+        raise ParseError("backend", "OpenAI returned empty content")
+    return json.loads(text)
+
+
+def _call_openai_urllib(prompt: str, pool_names: List[str], model: str
+                        ) -> Dict[str, Any]:
+    """Stdlib HTTP call to OpenAI's chat-completions endpoint.
+
+    Lets parse.py run on any Python env without needing the `openai` SDK
+    installed. The request body uses the same response_format=json_schema
+    strict mode the SDK path uses.
+    """
+    import urllib.error
+    import urllib.request
+    api_key = os.environ["OPENAI_API_KEY"]
+    base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    url = f"{base}/chat/completions"
+    body = json.dumps({
+        "model": model,
+        "response_format": {"type": "json_schema",
+                            "json_schema": _response_json_schema()},
+        "messages": [
+            {"role": "system", "content": _system_prompt(pool_names)},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.0,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            payload = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        # Surface the response body so quota / model-name errors are legible.
+        body_text = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+        raise ParseError(
+            "backend",
+            f"OpenAI HTTP {exc.code}: {body_text[:400]}"
+        ) from exc
+    except Exception as exc:
+        raise ParseError(
+            "backend", f"OpenAI call failed: {type(exc).__name__}: {exc}"
+        ) from exc
+
+    try:
+        text = payload["choices"][0]["message"]["content"]
+    except (KeyError, IndexError) as exc:
+        raise ParseError(
+            "backend",
+            f"OpenAI response shape unexpected: {json.dumps(payload)[:400]}"
+        ) from exc
+    if not text:
         raise ParseError("backend", "OpenAI returned empty content")
     return json.loads(text)
 
