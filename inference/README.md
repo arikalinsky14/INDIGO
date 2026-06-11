@@ -1,41 +1,48 @@
 # INDIGO inference branch
 
-Status: scaffolding + JAX physics chain landed. Constraints / generate /
-refine / parse / solve still to come.
+Status: end-to-end pipeline runnable via CLI on a saved cross_attn
+checkpoint. LLM-based prompt parsing (`parse.py`) is the last remaining
+module — for now the CLI takes a structured constraints JSON file directly.
 
 ## What's here
 
 ```
 inference/
 ├── src/
-│   ├── simulate.py      JAX-native compute_reflectance + reflectance_to_lab
-│   │                    + ciede2000 + delta_e_from_thicknesses. Fixed-shape
-│   │                    [MAX_LAYERS+2] stack with masked layers for vmap.
-│   └── schema.py        InferenceSpec, Candidate, Result, Provenance,
-│                        RobustnessReport. JSON round-trip for the GUI
-│                        contract. Pool fingerprinting.
+│   ├── simulate.py     JAX-native compute_reflectance + reflectance_to_lab
+│   │                    + ciede2000 + delta_e_from_thicknesses.
+│   ├── schema.py       InferenceSpec, Candidate, Result, Provenance,
+│   │                    RobustnessReport, ConstraintCheck, EnsembleStats.
+│   │                    JSON round-trip; pool fingerprinting.
+│   ├── constraints.py  8 constraint kinds (AllowedSubset, LayerIdentity,
+│   │                    AdjacentForbidden, ThicknessRange, LayerCount,
+│   │                    OrderingBefore, TotalThickness, Symmetry) with
+│   │                    unified `check + decode_mask`; ConstraintSet
+│   │                    composes them and partitions during/post.
+│   ├── generate.py     Batched constrained ensemble decoder over a single
+│   │                    model forward per step; per-replica torch.Generator
+│   │                    for reproducibility; strict dedup.
+│   ├── sensitivity.py  grad_robustness (R_max + R_l2) and
+│   │                    monte_carlo_robustness (p50 / p95 / worst).
+│   ├── select.py       simulate_and_score, filter_feasible, top_k_by_objective,
+│   │                    select_top_k all-in-one. FeasibilityError on empty.
+│   ├── refine.py       Projected Adam on continuous nm, multi-start,
+│   │                    post-refine constraint recheck + J-regression fallback.
+│   └── solve.py        Orchestrator. Pure function:
+│                        solve(model, pool, spec) -> Result.
 ├── scripts/
-│   └── sim_spike.py     De-risker. Checks (1) reflectance vs numpy sim,
-│                        (2) Lab vs src.color_utils.spectrum_to_lab, (3)
-│                        ΔE_00 vs reference numpy port, (4) jax.grad vs
-│                        centered FD, (5) jit/grad pipeline, (6) schema
-│                        round-trip. Run after every change to simulate.py.
-└── outputs/             Persisted Result JSONs (gitignored downstream).
+│   ├── sim_spike.py    De-risker for simulate.py.
+│   └── run_inference.py CLI: pool from JSON or JLL dir, target Lab, optional
+│                        constraints JSON, knobs as flags.
+└── outputs/             Persisted Result JSONs.
 ```
 
-## What's not here yet
+## What's left
 
-Per the implementation plan, in build order:
-
-1. `constraints.py` — 8 checks + decode-mask interface
-2. `generate.py` — batched constrained ensemble decoding (with **slot
-   encoder cached once per pool**)
-3. `select.py` — weighted objective `J = ΔE + λ·R`, feasibility error
-4. `sensitivity.py` — gradient predicted shift + Monte-Carlo top-k
-5. `refine.py` — gradient local search, multi-start, post-refine recheck
-6. `parse.py` — forced-JSON LLM prompt → InferenceSpec with validation gates
-7. `solve.py` — orchestrator
-8. `scripts/run_inference.py` — CLI
+1. `parse.py` — forced-JSON LLM prompt → InferenceSpec with the three
+   validation gates (schema, semantic, physical-sense).
+2. End-to-end run on the cluster with the real cross_attn checkpoint.
+3. (later) Eval harness, GUI.
 
 ## Known constraint: no `jax.jit` / `jax.vmap` on the physics chain
 
