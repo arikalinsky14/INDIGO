@@ -8,14 +8,19 @@ command-line use. Future LLM-based prompt parsing lives in
 
 Examples
 --------
-    # Default knobs, full installed JLL pool (no --pool-dir needed)
+    # Structured input — pinned Lab + (optional) constraints JSON
     python inference/scripts/run_inference.py \\
         --checkpoint data/checkpoints/<tag>/latest \\
         --target-lab 60 5 -8
 
-    # Override the JLL location at runtime
-    JLL_MATERIALS_DIR=/some/path python inference/scripts/run_inference.py \\
-        --checkpoint <ckpt> --target-lab 70 0 0
+    # Natural-language prompt — routed through inference/src/parse.py
+    OPENAI_API_KEY=... python inference/scripts/run_inference.py \\
+        --checkpoint data/checkpoints/<tag>/latest \\
+        --prompt "I want a deep red structure with 3 to 5 layers, no silver"
+
+    # Offline prompt smoke (no API call), routes on keywords only
+    INDIGO_PARSE_BACKEND=mock python inference/scripts/run_inference.py \\
+        --checkpoint data/checkpoints/<tag>/latest --prompt "blueish"
 
     # JSON pool file + JSON constraints + custom knobs
     python inference/scripts/run_inference.py \\
@@ -243,9 +248,18 @@ def main() -> int:
     p.add_argument("--checkpoint", required=True, type=str,
                    help="Path to a saved checkpoint dir, e.g. "
                         "data/checkpoints/<tag>/latest or .../final")
-    p.add_argument("--target-lab", nargs=3, required=True, type=float,
-                   metavar=("L", "A", "B"),
-                   help="Target color in CIE Lab (raw, not normalised)")
+    # Either a structured spec (--target-lab + optional --constraints) OR a
+    # free-text prompt (--prompt). Exactly one path must be chosen.
+    spec_grp = p.add_mutually_exclusive_group(required=True)
+    spec_grp.add_argument("--target-lab", nargs=3, type=float,
+                          metavar=("L", "A", "B"),
+                          help="Target color in CIE Lab (raw). Pair with "
+                               "--constraints for structured input.")
+    spec_grp.add_argument("--prompt", type=str,
+                          help="Natural-language request. Routed through "
+                               "the LLM parser (see inference/src/parse.py). "
+                               "Backend: $INDIGO_PARSE_BACKEND "
+                               "(default openai); mock for offline tests.")
     # Pool: either a JSON file or a JLL CSV directory. Neither is required;
     # if neither is given we use the installed jaxlayerlumos `materials/` dir
     # (or the legacy /home/claude/... path) — same default the training-side
@@ -305,11 +319,23 @@ def main() -> int:
         mc_samples=args.mc_samples,
         seed=args.seed,
     )
-    spec = build_spec(
-        target_lab=args.target_lab,
-        constraints_path=Path(args.constraints) if args.constraints else None,
-        knobs=knobs,
-    )
+    if args.prompt:
+        from inference.src.parse import ParseError, parse_prompt
+        try:
+            pr = parse_prompt(args.prompt, pool=pool, knobs=knobs)
+        except ParseError as exc:
+            print(f"[run] LLM parse failed at {exc.gate} gate: {exc.message}",
+                  file=sys.stderr)
+            return 2
+        spec = pr.spec
+        print(f"[run] prompt: {args.prompt!r}")
+        print(f"[run] LLM disclaimer: {spec.parsed_disclaimer}")
+    else:
+        spec = build_spec(
+            target_lab=args.target_lab,
+            constraints_path=Path(args.constraints) if args.constraints else None,
+            knobs=knobs,
+        )
     print(f"[run] target Lab raw={spec.target_lab_raw}  "
           f"normalised={spec.target_lab_normalised}")
     print(f"[run] constraints: {[c.kind for c in spec.constraints] or '(none)'}")

@@ -1,0 +1,613 @@
+"""
+LLM-driven prompt parser for INDIGO inference.
+
+  free-text prompt + pool (canonical names)   ─►   InferenceSpec
+
+Trust model
+-----------
+The LLM only emits CALLS INTO the pre-coded constraint library defined in
+`inference/src/constraints.py`. We do not execute LLM-authored code or
+arbitrary structures. The JSON schema enforced by OpenAI's
+`response_format` rules out everything outside the 8 known constraint
+kinds before we even see the response.
+
+Three validation gates (applied in order)
+----------------------------------------
+1. **Schema**       — handled by the OpenAI `response_format=json_schema`
+                      strict mode. Anything outside the schema is a hard
+                      parse error from the API.
+2. **Semantic**     — every `material_name` in the response must resolve
+                      to a slot in the pool; layer positions in
+                      `[0, MAX_LAYERS)`; thicknesses on the 5 nm grid in
+                      `[5, MAX_THICKNESS_NM]`; pool size ≤ M_MAX.
+3. **Physical**     — `layer_count.min_layers ≤ max_layers` and friends;
+                      `total_thickness.max_total_nm` admits at least one
+                      valid layer; `allowed_subset` non-empty;
+                      `adjacent_forbidden` pairs reference real names;
+                      `ordering_before.name_a ≠ name_b`.
+
+Failure modes ride the same error envelope as the orchestrator — the
+caller (`run_inference.py`) builds a failure `Result` with `errors=[...]`
+populated and `chosen=None`.
+
+LLM backend
+-----------
+Default: OpenAI (`openai` SDK). Configurable model via `OPENAI_MODEL`
+env var; defaults to `gpt-4o-mini` for cost. `OPENAI_API_KEY` required
+for live calls.
+
+For tests / dev without an API key, set `INDIGO_PARSE_BACKEND=mock`
+and the parser returns a hand-rolled `InferenceSpec` from a tiny
+keyword router so the rest of the pipeline can be exercised offline.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+_root = Path(__file__).resolve().parents[2]
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
+
+from src.materials_vocab import (
+    MAX_LAYERS, MAX_THICKNESS_NM, M_MAX, THICKNESSES, normalize_lab,
+)
+
+from inference.src.constraints import (
+    AdjacentForbidden, AllowedSubset, LayerCount, LayerIdentity,
+    OrderingBefore, Symmetry, ThicknessRange, TotalThickness,
+)
+from inference.src.schema import (
+    InferenceKnobs, InferenceSpec, MaterialEntry,
+)
+
+
+# ----------------------------------------------------------------------------
+# Errors
+# ----------------------------------------------------------------------------
+
+class ParseError(RuntimeError):
+    """A user request the parser refused to honour.
+
+    Carries the gate that failed and an actionable message so the failure
+    Result envelope can render the cause clearly.
+    """
+    def __init__(self, gate: str, message: str):
+        super().__init__(f"[{gate}] {message}")
+        self.gate = gate
+        self.message = message
+
+
+# ----------------------------------------------------------------------------
+# JSON schema we force the LLM to produce
+# ----------------------------------------------------------------------------
+
+def _response_json_schema() -> Dict[str, Any]:
+    """Strict JSON-Schema describing the LLM response.
+
+    Mirrors the 8 Constraint subclasses in constraints.py. Fields the user
+    didn't talk about (e.g. unconstrained position) are nullable so the
+    schema fits all 8 kinds in one anyOf without per-kind branching.
+    """
+    return {
+        "name": "inference_spec",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["target_lab", "constraints", "disclaimer"],
+            "properties": {
+                "target_lab": {
+                    "type": "array",
+                    "description": "CIE Lab target: [L*, a*, b*]. "
+                                   "L in [0,100], a/b roughly in [-128, 128].",
+                    "items": {"type": "number"},
+                    "minItems": 3, "maxItems": 3,
+                },
+                "constraints": {
+                    "type": "array",
+                    "description": "List of structural constraints. Empty if "
+                                   "the request is underspecified — let the "
+                                   "model search the full space.",
+                    "items": _constraint_schema(),
+                },
+                "disclaimer": {
+                    "type": "string",
+                    "description": "Human-readable summary of how the prompt "
+                                   "was interpreted. Echo any defaults or "
+                                   "assumptions the parser made.",
+                },
+            },
+        },
+    }
+
+
+def _constraint_schema() -> Dict[str, Any]:
+    """anyOf over the 8 constraint kinds."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["kind"],
+        "properties": {
+            "kind": {
+                "type": "string",
+                "enum": [
+                    "allowed_subset", "layer_identity", "adjacent_forbidden",
+                    "thickness_range", "layer_count", "ordering_before",
+                    "total_thickness", "symmetry",
+                ],
+            },
+            # All possible params; only the ones relevant to `kind` are read.
+            "allowed_names": {"type": ["array", "null"],
+                              "items": {"type": "string"}},
+            "position": {"type": ["integer", "null"]},
+            "material_name": {"type": ["string", "null"]},
+            "forbidden_pairs": {
+                "type": ["array", "null"],
+                "items": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 2, "maxItems": 2,
+                },
+            },
+            "min_nm": {"type": ["integer", "null"]},
+            "max_nm": {"type": ["integer", "null"]},
+            "min_layers": {"type": ["integer", "null"]},
+            "max_layers": {"type": ["integer", "null"]},
+            "name_a": {"type": ["string", "null"]},
+            "name_b": {"type": ["string", "null"]},
+            "max_total_nm": {"type": ["integer", "null"]},
+            "markovian_decode": {"type": ["boolean", "null"]},
+            "match_thickness": {"type": ["boolean", "null"]},
+        },
+    }
+
+
+# ----------------------------------------------------------------------------
+# System prompt
+# ----------------------------------------------------------------------------
+
+def _system_prompt(pool_names: List[str]) -> str:
+    """Concise system prompt. Lists the 8 constraint kinds and the pool, with
+    explicit guidance on the underspecified case."""
+    names_str = ", ".join(pool_names)
+    return f"""You translate natural-language requests for thin-film optical design into
+a structured spec. The user describes a color they want and any structural
+constraints; you decide:
+
+  1. Target color as CIE Lab [L*, a*, b*]. L*: 0-100, a*/b*: roughly -128..128.
+     Map common color words to Lab using standard sRGB→Lab conversion. If the
+     user gives Lab directly, use those values.
+
+  2. Constraints from the 8 supported kinds. Output ONLY constraints the user
+     actually requested or implied — DO NOT invent or defend defaults. An
+     empty constraints list means "search the full space".
+
+  3. A short disclaimer (≤ 2 sentences) summarising how you read the prompt.
+
+Available materials (canonical names — use EXACTLY as written):
+  {names_str}
+
+Constraint kinds (use only these `kind` values):
+  - allowed_subset      params: allowed_names: [str, ...]
+  - layer_identity      params: position: int, material_name: str
+  - adjacent_forbidden  params: forbidden_pairs: [[str, str], ...]
+  - thickness_range     params: min_nm: int (5..200), max_nm: int (5..200),
+                                position: int|null (null = global)
+  - layer_count         params: min_layers: int (1..10),
+                                max_layers: int (1..10)
+  - ordering_before     params: name_a: str, name_b: str
+  - total_thickness     params: max_total_nm: int (5..2000),
+                                markovian_decode: true|null
+  - symmetry            params: match_thickness: true|null
+
+Constants you MUST respect:
+  - Layer positions are 0-indexed in [0, 10).
+  - Layer count max = 10.
+  - Thicknesses are integers in nm, multiples of 5, in [5, 200].
+  - Material names MUST be from the list above; do NOT abbreviate or alias.
+
+If the user names a material that is NOT in the list, leave the constraint
+out and note it in the disclaimer.
+If the user describes an impossible request (e.g. "emits light", a Lab value
+outside the achievable gamut), still output your best-effort Lab target and
+flag the concern in the disclaimer — the downstream pipeline will report
+its actual achievable ΔE.
+
+Output JSON conforming to the schema. Do not output prose."""
+
+
+# ----------------------------------------------------------------------------
+# Backends
+# ----------------------------------------------------------------------------
+
+def _call_openai(prompt: str, pool_names: List[str], model: str
+                 ) -> Dict[str, Any]:
+    """Single forced-JSON OpenAI call. Returns the parsed JSON dict.
+
+    Reads `OPENAI_API_KEY`. Honours `OPENAI_BASE_URL` if the user is pointing
+    at a compatible alternative endpoint. Single attempt — the orchestrator
+    decides whether to retry.
+    """
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise ParseError("backend",
+                         "openai package not installed. `pip install openai` "
+                         "or set INDIGO_PARSE_BACKEND=mock for offline tests."
+                         ) from exc
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise ParseError("backend",
+                         "OPENAI_API_KEY not set. Export it (sbatch's "
+                         "--export forwards it) or use INDIGO_PARSE_BACKEND=mock.")
+    client = OpenAI()
+    resp = client.chat.completions.create(
+        model=model,
+        response_format={"type": "json_schema",
+                         "json_schema": _response_json_schema()},
+        messages=[
+            {"role": "system", "content": _system_prompt(pool_names)},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.0,
+    )
+    text = resp.choices[0].message.content
+    if text is None:
+        raise ParseError("backend", "OpenAI returned empty content")
+    return json.loads(text)
+
+
+def _call_mock(prompt: str, pool_names: List[str]) -> Dict[str, Any]:
+    """Tiny offline backend so tests and dev iteration don't burn tokens.
+
+    Routes on a couple of keywords; everything else lands on neutral grey.
+    The disclaimer makes it obvious to the user that the LLM wasn't called.
+    """
+    p = prompt.lower()
+    if "red" in p:
+        lab = [50.0, 60.0, 40.0]
+    elif "blue" in p:
+        lab = [40.0, 0.0, -60.0]
+    elif "green" in p:
+        lab = [60.0, -40.0, 30.0]
+    elif "yellow" in p:
+        lab = [85.0, 0.0, 80.0]
+    elif "grey" in p or "gray" in p:
+        lab = [60.0, 0.0, 0.0]
+    else:
+        lab = [60.0, 5.0, -8.0]
+    return {
+        "target_lab": lab,
+        "constraints": [],
+        "disclaimer": "MOCK backend (no LLM call). Routed on keywords only.",
+    }
+
+
+# ----------------------------------------------------------------------------
+# Validation gates
+# ----------------------------------------------------------------------------
+
+def _validate_semantic(spec_dict: Dict[str, Any],
+                       pool: List[MaterialEntry]) -> None:
+    """Gate 2: material names, layer positions, thickness grid, pool size."""
+    target = spec_dict.get("target_lab")
+    if not isinstance(target, list) or len(target) != 3:
+        raise ParseError("semantic", f"target_lab not [L,a,b]: {target!r}")
+    for x in target:
+        if not isinstance(x, (int, float)):
+            raise ParseError("semantic", f"target_lab has non-numeric {x!r}")
+
+    if len(pool) > M_MAX:
+        raise ParseError("semantic",
+                         f"pool of {len(pool)} > M_MAX={M_MAX}; trim first")
+
+    pool_names = {m.canonical_name for m in pool}
+    unknown_names: List[str] = []
+    constraints = spec_dict.get("constraints") or []
+    for i, c in enumerate(constraints):
+        kind = c.get("kind")
+
+        # Material name fields
+        for key in ("material_name", "name_a", "name_b"):
+            v = c.get(key)
+            if isinstance(v, str) and v and v not in pool_names:
+                unknown_names.append(v)
+
+        names_list = c.get("allowed_names")
+        if isinstance(names_list, list):
+            for v in names_list:
+                if v not in pool_names:
+                    unknown_names.append(v)
+
+        pairs = c.get("forbidden_pairs")
+        if isinstance(pairs, list):
+            for pair in pairs:
+                if isinstance(pair, list) and len(pair) == 2:
+                    for v in pair:
+                        if v not in pool_names:
+                            unknown_names.append(v)
+
+        # Position
+        pos = c.get("position")
+        if pos is not None:
+            if not isinstance(pos, int) or not (0 <= pos < MAX_LAYERS):
+                raise ParseError("semantic",
+                                 f"constraint {i} ({kind}): position {pos} "
+                                 f"out of [0, {MAX_LAYERS})")
+
+        # Thickness grid
+        for key in ("min_nm", "max_nm", "max_total_nm"):
+            v = c.get(key)
+            if v is None:
+                continue
+            if not isinstance(v, int):
+                raise ParseError("semantic",
+                                 f"constraint {i} ({kind}): {key} not int")
+            # Allow total_thickness max larger than 200; per-layer caps at 200.
+            if key in ("min_nm", "max_nm"):
+                if v not in THICKNESSES:
+                    raise ParseError(
+                        "semantic",
+                        f"constraint {i} ({kind}): {key}={v} not on the 5 nm "
+                        f"grid in [5, {MAX_THICKNESS_NM}]"
+                    )
+
+        # Layer count
+        for key in ("min_layers", "max_layers"):
+            v = c.get(key)
+            if v is None:
+                continue
+            if not isinstance(v, int) or not (1 <= v <= MAX_LAYERS):
+                raise ParseError("semantic",
+                                 f"constraint {i} ({kind}): {key}={v} not in "
+                                 f"[1, {MAX_LAYERS}]")
+
+    if unknown_names:
+        unique = sorted(set(unknown_names))
+        raise ParseError(
+            "semantic",
+            f"constraint references material(s) not in pool: {unique}. "
+            f"Pool has {len(pool_names)} canonical names; check spelling "
+            f"(canonical names include disambiguators like '-Rakic-LD-1998')."
+        )
+
+
+def _validate_physical(spec_dict: Dict[str, Any]) -> None:
+    """Gate 3: contradictions, vacuous ranges, impossible combinations."""
+    constraints = spec_dict.get("constraints") or []
+    for i, c in enumerate(constraints):
+        kind = c.get("kind")
+        if kind == "allowed_subset":
+            if not c.get("allowed_names"):
+                raise ParseError("physical",
+                                 f"constraint {i}: allowed_subset must "
+                                 "list at least one material")
+        elif kind == "layer_count":
+            lo = c.get("min_layers", 1)
+            hi = c.get("max_layers", MAX_LAYERS)
+            if lo is None: lo = 1
+            if hi is None: hi = MAX_LAYERS
+            if lo > hi:
+                raise ParseError("physical",
+                                 f"constraint {i}: layer_count "
+                                 f"min={lo} > max={hi}")
+        elif kind == "thickness_range":
+            lo = c.get("min_nm")
+            hi = c.get("max_nm")
+            if lo is not None and hi is not None and lo > hi:
+                raise ParseError("physical",
+                                 f"constraint {i}: thickness_range "
+                                 f"min={lo} > max={hi}")
+        elif kind == "ordering_before":
+            a = c.get("name_a")
+            b = c.get("name_b")
+            if a is None or b is None or a == b:
+                raise ParseError("physical",
+                                 f"constraint {i}: ordering_before needs "
+                                 f"distinct name_a/name_b")
+        elif kind == "total_thickness":
+            v = c.get("max_total_nm")
+            if v is None or v < THICKNESSES[0]:
+                raise ParseError("physical",
+                                 f"constraint {i}: total_thickness max_total_nm "
+                                 f"must be ≥ {THICKNESSES[0]}")
+        elif kind == "adjacent_forbidden":
+            pairs = c.get("forbidden_pairs") or []
+            for pair in pairs:
+                if len(pair) != 2 or pair[0] == pair[1]:
+                    raise ParseError("physical",
+                                     f"constraint {i}: adjacent_forbidden "
+                                     f"pair {pair} must be two distinct names")
+
+
+# ----------------------------------------------------------------------------
+# Spec assembly
+# ----------------------------------------------------------------------------
+
+def _build_constraints(spec_dict: Dict[str, Any]) -> list:
+    """Convert validated JSON constraints → Constraint subclass instances.
+
+    Mirrors the kind dispatch in run_inference.py's `_build_constraints_from_json`
+    but tolerates the null params our schema allows.
+    """
+    out = []
+    for c in spec_dict.get("constraints") or []:
+        kind = c["kind"]
+        if kind == "allowed_subset":
+            out.append(AllowedSubset(allowed_names=tuple(c["allowed_names"])))
+        elif kind == "layer_identity":
+            out.append(LayerIdentity(position=int(c["position"]),
+                                     material_name=str(c["material_name"])))
+        elif kind == "adjacent_forbidden":
+            pairs = tuple(tuple(p) for p in c["forbidden_pairs"])
+            out.append(AdjacentForbidden(forbidden_pairs=pairs))
+        elif kind == "thickness_range":
+            out.append(ThicknessRange(
+                min_nm=int(c.get("min_nm") or 5),
+                max_nm=int(c.get("max_nm") or MAX_THICKNESS_NM),
+                position=c.get("position"),
+            ))
+        elif kind == "layer_count":
+            out.append(LayerCount(
+                min_layers=int(c.get("min_layers") or 1),
+                max_layers=int(c.get("max_layers") or MAX_LAYERS),
+            ))
+        elif kind == "ordering_before":
+            out.append(OrderingBefore(
+                name_a=str(c["name_a"]), name_b=str(c["name_b"]),
+            ))
+        elif kind == "total_thickness":
+            out.append(TotalThickness(
+                max_total_nm=int(c["max_total_nm"]),
+                markovian_decode=bool(c.get("markovian_decode")
+                                      if c.get("markovian_decode") is not None
+                                      else True),
+            ))
+        elif kind == "symmetry":
+            out.append(Symmetry(match_thickness=bool(
+                c.get("match_thickness") if c.get("match_thickness") is not None
+                else True
+            )))
+        else:
+            raise ParseError("schema", f"unknown constraint kind {kind!r}")
+    return out
+
+
+# ----------------------------------------------------------------------------
+# Public entry point
+# ----------------------------------------------------------------------------
+
+@dataclass
+class ParseResult:
+    spec: InferenceSpec
+    raw_response: Dict[str, Any]
+
+
+def parse_prompt(
+    prompt: str,
+    pool: List[MaterialEntry],
+    knobs: Optional[InferenceKnobs] = None,
+    backend: Optional[str] = None,
+    model: Optional[str] = None,
+) -> ParseResult:
+    """Free-text prompt + pool → validated InferenceSpec.
+
+    Backend selection (in order):
+      - explicit `backend` argument
+      - $INDIGO_PARSE_BACKEND env var ("openai" | "mock")
+      - default: "openai"
+
+    Raises ParseError on any of the three validation gates.
+    """
+    knobs = knobs or InferenceKnobs()
+    backend = backend or os.environ.get("INDIGO_PARSE_BACKEND", "openai")
+    model = model or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    pool_names = [m.canonical_name for m in pool]
+
+    if backend == "mock":
+        spec_dict = _call_mock(prompt, pool_names)
+    elif backend == "openai":
+        spec_dict = _call_openai(prompt, pool_names, model)
+    else:
+        raise ParseError("backend", f"unknown backend {backend!r}")
+
+    # Gate 1 was the response_format. Gates 2 + 3:
+    _validate_semantic(spec_dict, pool)
+    _validate_physical(spec_dict)
+
+    target_raw = tuple(float(x) for x in spec_dict["target_lab"])
+    norm = tuple(float(x) for x in normalize_lab(list(target_raw)).tolist())
+
+    constraints = _build_constraints(spec_dict)
+    disclaimer = str(spec_dict.get("disclaimer") or "")
+
+    spec = InferenceSpec(
+        target_lab_raw=target_raw,
+        target_lab_normalised=norm,
+        constraints=constraints,
+        enforce_during=[],
+        enforce_post=[],
+        knobs=knobs,
+        parsed_disclaimer=disclaimer,
+    )
+    return ParseResult(spec=spec, raw_response=spec_dict)
+
+
+# ----------------------------------------------------------------------------
+# Self-test (mock backend only — no API key needed)
+# ----------------------------------------------------------------------------
+
+def _self_test() -> None:
+    import numpy as np
+    pool = [
+        MaterialEntry(canonical_name="Ag-Rakic-LD-1998",
+                      n=np.ones(128, dtype=np.float32),
+                      k=np.zeros(128, dtype=np.float32)),
+        MaterialEntry(canonical_name="SiO2-Zarei-2024",
+                      n=np.full(128, 1.45, dtype=np.float32),
+                      k=np.zeros(128, dtype=np.float32)),
+    ]
+
+    # Mock backend resolves "blue" → known Lab; empty constraints.
+    out = parse_prompt("Make me a blue structure",
+                       pool=pool, backend="mock")
+    assert out.spec.target_lab_raw == (40.0, 0.0, -60.0)
+    assert out.spec.constraints == []
+    assert "MOCK" in out.spec.parsed_disclaimer
+    print(f"[parse] mock 'blue': Lab={out.spec.target_lab_raw}  "
+          f"constraints=0  disclaimer='{out.spec.parsed_disclaimer[:40]}...'")
+
+    # Hand-craft a spec_dict to exercise validation gates without an LLM.
+    spec_dict = {
+        "target_lab": [60.0, 5.0, -8.0],
+        "constraints": [
+            {"kind": "allowed_subset",
+             "allowed_names": ["Ag-Rakic-LD-1998", "SiO2-Zarei-2024"]},
+            {"kind": "layer_count", "min_layers": 2, "max_layers": 6},
+            {"kind": "thickness_range", "min_nm": 20, "max_nm": 150},
+        ],
+        "disclaimer": "hand-crafted",
+    }
+    _validate_semantic(spec_dict, pool)
+    _validate_physical(spec_dict)
+    cs = _build_constraints(spec_dict)
+    assert len(cs) == 3
+    print(f"[parse] valid spec built {len(cs)} constraints")
+
+    # Semantic gate: unknown material
+    bad = {
+        "target_lab": [60.0, 0.0, 0.0],
+        "constraints": [{"kind": "allowed_subset",
+                         "allowed_names": ["Ag", "Au"]}],   # Au not in pool
+        "disclaimer": "",
+    }
+    try:
+        _validate_semantic(bad, pool)
+        assert False, "expected semantic gate to fire"
+    except ParseError as exc:
+        assert exc.gate == "semantic"
+        print(f"[parse] semantic gate caught unknown name: {exc.message[:60]}...")
+
+    # Physical gate: min > max layers
+    bad = {
+        "target_lab": [60.0, 0.0, 0.0],
+        "constraints": [{"kind": "layer_count",
+                         "min_layers": 8, "max_layers": 3}],
+        "disclaimer": "",
+    }
+    try:
+        _validate_physical(bad)
+        assert False, "expected physical gate to fire"
+    except ParseError as exc:
+        assert exc.gate == "physical"
+        print(f"[parse] physical gate caught min>max: {exc.message[:60]}...")
+
+    print("[parse] self-test OK")
+
+
+if __name__ == "__main__":
+    _self_test()

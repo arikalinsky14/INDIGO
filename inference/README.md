@@ -28,6 +28,10 @@ inference/
 │   │                    select_top_k all-in-one. FeasibilityError on empty.
 │   ├── refine.py       Projected Adam on continuous nm, multi-start,
 │   │                    post-refine constraint recheck + J-regression fallback.
+│   ├── parse.py        Free-text prompt → InferenceSpec via forced-JSON
+│   │                    OpenAI call. Three validation gates (schema,
+│   │                    semantic, physical). INDIGO_PARSE_BACKEND=mock
+│   │                    for offline tests.
 │   └── solve.py        Orchestrator. Pure function:
 │                        solve(model, pool, spec) -> Result.
 ├── scripts/
@@ -39,10 +43,9 @@ inference/
 
 ## What's left
 
-1. `parse.py` — forced-JSON LLM prompt → InferenceSpec with the three
-   validation gates (schema, semantic, physical-sense).
-2. End-to-end run on the cluster with the real cross_attn checkpoint.
-3. (later) Eval harness, GUI.
+1. (later) Eval harness — sweep ΔE distribution / constraint-pass rate /
+   refinement uplift across target colors.
+2. (later) GUI: FastAPI + static page over `solve()`.
 
 ## Known constraint: no `jax.jit` / `jax.vmap` on the physics chain
 
