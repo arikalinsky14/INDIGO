@@ -42,6 +42,10 @@ source "$HOME/envs/llm-env/bin/activate"
 export TOKENIZERS_PARALLELISM=false
 export JAX_PLATFORMS="${JAX_PLATFORMS:-cpu}"   # spike is CPU-bound; opt in to GPU
                                                # via JAX_PLATFORMS=cuda if desired
+# Silence the JAX CUDA-plugin probe noise. The smp partition has no GPU,
+# so JAX's jax-cuda12 plugin would error out during `import jax` even
+# though we never use CUDA. CUDA_VISIBLE_DEVICES="" skips the probe.
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-}"
 
 cd "${SLURM_SUBMIT_DIR}"
 mkdir -p job-outputs
