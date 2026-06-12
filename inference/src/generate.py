@@ -234,9 +234,32 @@ def generate_ensemble(
             constraint_mask = constraint_set.decode_mask(partial, pool)
             allowed = slot_validity_bool & constraint_mask
 
+            # Universal: no two adjacent layers may share a slot. Two
+            # consecutive layers of the same material would just be one
+            # thicker layer of that material and would game the layer_count
+            # constraints. Applied AFTER the constraint mask so Symmetry's
+            # boost cannot accidentally suggest a same-slot repeat.
+            if slots_by_replica[r]:
+                prev_slot = slots_by_replica[r][-1]
+                lo = prev_slot * NUM_THICKNESSES
+                hi = lo + NUM_THICKNESSES
+                allowed[lo:hi] = False
+
             row = step_logits[r].copy()
+
+            # Apply any active logit boosts BEFORE masking out the disallowed
+            # tokens — masking sets disallowed positions to -inf which is
+            # idempotent under further additions, so boost order doesn't
+            # matter for blocked positions.
+            boost = constraint_set.decode_boost(partial, pool)
+            if boost is not None:
+                row = row + boost
+
             if not allowed.any():
-                # Infeasible step — forced EOS so this replica terminates.
+                # Infeasible step — force EOS so this replica terminates
+                # gracefully. The post-hoc constraint check will decide
+                # whether the resulting (possibly invalid) structure gets
+                # dropped. We never raise here — that's the contract.
                 token_id = EOS_TOKEN
             else:
                 row[~allowed] = -np.inf
