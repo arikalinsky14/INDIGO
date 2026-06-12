@@ -215,13 +215,21 @@ Constraint kinds (use only these `kind` values):
                         Pairs may be self-pairs (e.g. ["Ag","Ag"] = "no two
                         adjacent silver layers"), but ONLY use this when the
                         user is restricting *adjacency*, not global usage.
-  - thickness_range     params: min_nm: int (5..200), max_nm: int (5..200),
+  - thickness_range     params: min_nm: int (PER-LAYER, 5..200),
+                                max_nm: int (PER-LAYER, 5..200),
                                 position: int|null (null = global)
+                        Bounds for ONE individual layer (or every layer if
+                        position is null). For a budget on the *sum* of
+                        layer thicknesses use total_thickness instead.
   - layer_count         params: min_layers: int (1..10),
                                 max_layers: int (1..10)
   - ordering_before     params: name_a: str, name_b: str
   - total_thickness     params: max_total_nm: int (5..2000),
                                 markovian_decode: true|null
+                        Budget on the SUM of all layer thicknesses. Use for
+                        "no thicker than N nm in total" / "≤ N nm overall
+                        stack". The field is `max_total_nm` — leave
+                        `min_nm`/`max_nm` as null on this kind.
   - symmetry            params: match_thickness: true|null
 
 Picking the right kind matters. Common phrasings:
@@ -391,9 +399,32 @@ def _call_mock(prompt: str, pool_names: List[str]) -> Dict[str, Any]:
 # Validation gates
 # ----------------------------------------------------------------------------
 
+# Which sub-fields each constraint kind actually uses. OpenAI's strict JSON
+# schema mode forces the LLM to emit every property (with null for
+# irrelevant ones), so we restrict our validation to the fields that the
+# CHOSEN kind actually reads — otherwise a non-null leak on an irrelevant
+# field (e.g. max_nm=250 alongside kind=total_thickness) would falsely fail
+# the gate.
+_KIND_RELEVANT_FIELDS: Dict[str, Tuple[str, ...]] = {
+    "allowed_subset":      ("allowed_names",),
+    "layer_identity":      ("position", "material_name"),
+    "adjacent_forbidden":  ("forbidden_pairs",),
+    "thickness_range":     ("min_nm", "max_nm", "position"),
+    "layer_count":         ("min_layers", "max_layers"),
+    "ordering_before":     ("name_a", "name_b"),
+    "total_thickness":     ("max_total_nm", "markovian_decode"),
+    "symmetry":            ("match_thickness",),
+}
+
+
 def _validate_semantic(spec_dict: Dict[str, Any],
                        pool: List[MaterialEntry]) -> None:
-    """Gate 2: material names, layer positions, thickness grid, pool size."""
+    """Gate 2: material names, layer positions, thickness grid, pool size.
+
+    Only validates fields that the chosen constraint kind actually uses —
+    avoids false errors from null-but-present fields that the strict JSON
+    schema requires the LLM to emit alongside the ones it cares about.
+    """
     target = spec_dict.get("target_lab")
     if not isinstance(target, list) or len(target) != 3:
         raise ParseError("semantic", f"target_lab not [L,a,b]: {target!r}")
@@ -410,54 +441,72 @@ def _validate_semantic(spec_dict: Dict[str, Any],
     constraints = spec_dict.get("constraints") or []
     for i, c in enumerate(constraints):
         kind = c.get("kind")
+        relevant = _KIND_RELEVANT_FIELDS.get(kind, ())
+        if not relevant:
+            raise ParseError("schema", f"constraint {i}: unknown kind {kind!r}")
 
-        # Material name fields
+        # Material name fields — only check ones the kind actually uses.
         for key in ("material_name", "name_a", "name_b"):
+            if key not in relevant:
+                continue
             v = c.get(key)
             if isinstance(v, str) and v and v not in pool_names:
                 unknown_names.append(v)
+        if "allowed_names" in relevant:
+            names_list = c.get("allowed_names")
+            if isinstance(names_list, list):
+                for v in names_list:
+                    if v not in pool_names:
+                        unknown_names.append(v)
+        if "forbidden_pairs" in relevant:
+            pairs = c.get("forbidden_pairs")
+            if isinstance(pairs, list):
+                for pair in pairs:
+                    if isinstance(pair, list) and len(pair) == 2:
+                        for v in pair:
+                            if v not in pool_names:
+                                unknown_names.append(v)
 
-        names_list = c.get("allowed_names")
-        if isinstance(names_list, list):
-            for v in names_list:
-                if v not in pool_names:
-                    unknown_names.append(v)
+        # Position — only validate when this kind reads it.
+        if "position" in relevant:
+            pos = c.get("position")
+            if pos is not None:
+                if not isinstance(pos, int) or not (0 <= pos < MAX_LAYERS):
+                    raise ParseError("semantic",
+                                     f"constraint {i} ({kind}): position {pos} "
+                                     f"out of [0, {MAX_LAYERS})")
 
-        pairs = c.get("forbidden_pairs")
-        if isinstance(pairs, list):
-            for pair in pairs:
-                if isinstance(pair, list) and len(pair) == 2:
-                    for v in pair:
-                        if v not in pool_names:
-                            unknown_names.append(v)
-
-        # Position
-        pos = c.get("position")
-        if pos is not None:
-            if not isinstance(pos, int) or not (0 <= pos < MAX_LAYERS):
-                raise ParseError("semantic",
-                                 f"constraint {i} ({kind}): position {pos} "
-                                 f"out of [0, {MAX_LAYERS})")
-
-        # Thickness grid
-        for key in ("min_nm", "max_nm", "max_total_nm"):
+        # Per-layer thickness fields. We accept values outside the [5, 200]
+        # grid — they just become looser bounds (the downstream constraint
+        # check is "min_nm <= t <= max_nm" over an integer t, and the
+        # decode_mask iterates the actual grid so out-of-grid mins/maxes
+        # naturally degenerate to "no extra restriction"). Type check only.
+        for key in ("min_nm", "max_nm"):
+            if key not in relevant:
+                continue
             v = c.get(key)
             if v is None:
                 continue
             if not isinstance(v, int):
-                raise ParseError("semantic",
-                                 f"constraint {i} ({kind}): {key} not int")
-            # Allow total_thickness max larger than 200; per-layer caps at 200.
-            if key in ("min_nm", "max_nm"):
-                if v not in THICKNESSES:
-                    raise ParseError(
-                        "semantic",
-                        f"constraint {i} ({kind}): {key}={v} not on the 5 nm "
-                        f"grid in [5, {MAX_THICKNESS_NM}]"
-                    )
+                raise ParseError(
+                    "semantic",
+                    f"constraint {i} ({kind}): {key} not int (got {v!r})"
+                )
+
+        # Total-thickness budget. No grid; just sanity-bound to positive.
+        if "max_total_nm" in relevant:
+            v = c.get("max_total_nm")
+            if v is not None and (not isinstance(v, int) or v < THICKNESSES[0]):
+                raise ParseError(
+                    "semantic",
+                    f"constraint {i} ({kind}): max_total_nm must be int "
+                    f"≥ {THICKNESSES[0]} (got {v!r})"
+                )
 
         # Layer count
         for key in ("min_layers", "max_layers"):
+            if key not in relevant:
+                continue
             v = c.get(key)
             if v is None:
                 continue
