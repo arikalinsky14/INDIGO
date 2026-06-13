@@ -52,7 +52,35 @@ _POOL_ORIGIN = ""
 _DEVICE = None
 
 
-def _startup(checkpoint: Path, pool_dir: Optional[Path]) -> None:
+def _resolve_device(force_cpu: bool) -> "torch.device":
+    """Pick CPU vs CUDA defensively.
+
+    `torch.cuda.is_available()` only checks that the NVIDIA driver is loaded,
+    not that every shared library torch was built against (cuDNN, cuBLAS) is
+    actually findable. On visualization / non-GPU nodes at Pitt CRC the
+    driver is present but `libcudnn_graph.so.9.10.x` is not — a real CUDA
+    op core-dumps before any of our code runs.
+
+    Probe with a tiny op; fall back to CPU loudly. `--cpu` forces it.
+    """
+    import torch
+    if force_cpu:
+        print("[server] --cpu set; using CPU for the model forward.")
+        return torch.device("cpu")
+    if not torch.cuda.is_available():
+        return torch.device("cpu")
+    try:
+        torch.zeros(1, device="cuda").sum().item()
+        return torch.device("cuda")
+    except Exception as exc:
+        print(f"[server] CUDA visible but unusable "
+              f"({type(exc).__name__}: {exc}). Falling back to CPU.",
+              file=sys.stderr)
+        return torch.device("cpu")
+
+
+def _startup(checkpoint: Path, pool_dir: Optional[Path],
+             force_cpu: bool = False) -> None:
     """Load model + pool once. Called from main() before serving."""
     import torch
     from inference.scripts.run_inference import (
@@ -64,7 +92,7 @@ def _startup(checkpoint: Path, pool_dir: Optional[Path]) -> None:
     global _MODEL, _MODEL_CONFIG, _MODEL_TAG, _MODEL_SHA
     global _POOL, _POOL_ORIGIN, _DEVICE
 
-    _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    _DEVICE = _resolve_device(force_cpu)
     print(f"[server] device: {_DEVICE}")
 
     print(f"[server] loading model from {checkpoint}")
@@ -241,10 +269,14 @@ def main() -> int:
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--reload", action="store_true",
                    help="dev-only: uvicorn reload on file change")
+    p.add_argument("--cpu", action="store_true",
+                   help="Force CPU for the model forward. Use on viz / "
+                        "non-GPU nodes where CUDA libs are incomplete.")
     args = p.parse_args()
 
     _startup(Path(args.checkpoint),
-             Path(args.pool_dir) if args.pool_dir else None)
+             Path(args.pool_dir) if args.pool_dir else None,
+             force_cpu=args.cpu)
 
     try:
         import uvicorn
