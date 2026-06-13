@@ -114,7 +114,7 @@ def _startup(checkpoint: Path, pool_dir: Optional[Path],
 # ----------------------------------------------------------------------------
 
 def _make_app():
-    from fastapi import FastAPI, HTTPException
+    from fastapi import Body, FastAPI, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
     from fastapi.staticfiles import StaticFiles
@@ -179,7 +179,11 @@ def _make_app():
         }
 
     @app.post("/api/solve")
-    def solve_route(body: SolveIn) -> JSONResponse:
+    def solve_route(body: SolveIn = Body(...)) -> JSONResponse:
+        # `Body(...)` is required on FastAPI ≥ 0.115 when every field on the
+        # Pydantic model is Optional — without it FastAPI heuristics route
+        # the param to query parsing and the client gets a 422
+        # "Field required" at loc=['query','body'].
         if _MODEL is None:
             raise HTTPException(503, "model not loaded")
 
