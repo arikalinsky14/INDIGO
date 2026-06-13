@@ -1,0 +1,165 @@
+/* INDIGO frontend — custom styles that Tailwind utility classes can't
+   express concisely. Keep this file small; prefer utility classes in HTML. */
+
+:root {
+  --grid: rgba(255, 255, 255, 0.06);
+  --label: rgba(255, 255, 255, 0.55);
+}
+
+html, body { font-family: 'Inter', system-ui, sans-serif; }
+
+/* Glass panels --------------------------------------------------------- */
+.glass {
+  background: linear-gradient(180deg,
+              rgba(255, 255, 255, 0.04) 0%,
+              rgba(255, 255, 255, 0.015) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.6);
+}
+
+/* Form primitives ------------------------------------------------------ */
+.label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--label);
+  margin-bottom: 6px;
+}
+
+.input, .textarea {
+  width: 100%;
+  background: rgba(7, 9, 18, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 13px;
+  color: #e2e8f0;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.input:focus, .textarea:focus {
+  outline: none;
+  border-color: rgba(124, 92, 255, 0.7);
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.15);
+}
+.textarea {
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* Tabs ----------------------------------------------------------------- */
+.tab {
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 500;
+  transition: background 140ms ease, color 140ms ease;
+}
+.tab:hover { color: white; }
+.tab-active {
+  background: rgba(255, 255, 255, 0.06);
+  color: white;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+/* Buttons -------------------------------------------------------------- */
+.btn-primary {
+  position: relative;
+  background: linear-gradient(180deg, #8b6cff 0%, #6b4eea 100%);
+  color: white;
+  font-weight: 600;
+  padding: 12px 20px;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px -10px rgba(124, 92, 255, 0.6),
+              inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transition: transform 80ms ease, box-shadow 200ms ease, opacity 200ms ease;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 14px 36px -10px rgba(124, 92, 255, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.18); }
+.btn-primary:active { transform: translateY(0); }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.btn-primary .spinner {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Swatches ------------------------------------------------------------- */
+.swatch {
+  width: 100%;
+  height: 96px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.5),
+              inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: #1a1c2a;
+  transition: background-color 200ms ease;
+}
+
+/* Stat cards ----------------------------------------------------------- */
+.stat {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.stat-label { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--label); }
+.stat-value { font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #e2e8f0; margin-top: 4px; }
+
+/* Reflectance chart ---------------------------------------------------- */
+#reflChart {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.005) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+#reflChart .grid-line { stroke: var(--grid); stroke-width: 1; }
+#reflChart .axis-label { fill: var(--label); font-size: 9px; font-family: 'JetBrains Mono', monospace; }
+#reflChart .vis-band { fill: rgba(255, 255, 255, 0.025); }
+#reflChart .alt-line { fill: none; stroke: rgba(255, 255, 255, 0.12); stroke-width: 1.2; }
+#reflChart .main-line {
+  fill: none;
+  stroke: url(#mainGradient);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 6px rgba(124, 92, 255, 0.5));
+}
+
+/* Layer bars ----------------------------------------------------------- */
+.layer-bar {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  border-right: 1px solid rgba(0, 0, 0, 0.3);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: filter 120ms ease;
+}
+.layer-bar:last-child { border-right: 0; }
+.layer-bar:hover { filter: brightness(1.15); }
+.layer-bar .lbl { padding: 0 6px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
+
+/* Alternatives cards --------------------------------------------------- */
+.alt-card {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 8px;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+.alt-card:hover { border-color: rgba(124, 92, 255, 0.4); transform: translateY(-2px); }
+.alt-swatch { height: 56px; border-radius: 6px; margin-bottom: 6px; border: 1px solid rgba(255, 255, 255, 0.08); }
+.alt-meta { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--label); }
+.alt-de { color: #e2e8f0; }
+
+/* Result body slide-in ------------------------------------------------- */
+#resultBody.show { animation: fade-up 280ms ease; }
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

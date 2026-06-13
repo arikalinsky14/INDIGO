@@ -1,0 +1,5 @@
+# Web layer for INDIGO inference. Install on top of the existing env that
+# already carries torch + jax + jaxlayerlumos.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.0

@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>INDIGO — flexible-material color design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Inter', 'system-ui', 'sans-serif'],
+          mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        },
+        colors: {
+          ink:    { 950: '#070912', 900: '#0d1020', 800: '#141727',
+                    700: '#1d2236', 600: '#2b3251', 500: '#444b6e' },
+          accent: { DEFAULT: '#7c5cff', soft: '#a999ff' },
+        },
+      },
+    },
+  }
+</script>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+
+<body class="bg-ink-950 text-slate-200 antialiased min-h-screen">
+
+<!-- ambient gradient -->
+<div class="fixed inset-0 -z-10 pointer-events-none">
+  <div class="absolute -top-32 -left-32 w-[36rem] h-[36rem] bg-accent/20 rounded-full blur-3xl"></div>
+  <div class="absolute top-1/3 right-0 w-[28rem] h-[28rem] bg-cyan-500/10 rounded-full blur-3xl"></div>
+  <div class="absolute bottom-0 left-1/3 w-[32rem] h-[32rem] bg-fuchsia-500/10 rounded-full blur-3xl"></div>
+</div>
+
+<header class="container mx-auto px-6 pt-8 pb-6 flex items-center gap-4">
+  <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-accent to-fuchsia-500 grid place-items-center font-bold text-white shadow-lg shadow-accent/40">I</div>
+  <div>
+    <h1 class="text-xl font-semibold tracking-tight">INDIGO</h1>
+    <p class="text-xs text-slate-400 tracking-wide">flexible-material color design</p>
+  </div>
+  <div class="ml-auto flex items-center gap-4 text-xs text-slate-400">
+    <span id="statusDevice" class="hidden md:inline">device: <span class="font-mono text-slate-300">…</span></span>
+    <span id="statusPool"   class="hidden md:inline">pool: <span class="font-mono text-slate-300">…</span></span>
+    <span id="statusModel"  class="hidden lg:inline">model: <span class="font-mono text-slate-300">…</span></span>
+  </div>
+</header>
+
+<main class="container mx-auto px-6 pb-12 grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-6">
+
+  <!-- ============================================================ INPUT -->
+  <section class="glass p-6 rounded-2xl">
+
+    <!-- mode tabs -->
+    <div class="flex gap-1 p-1 rounded-xl bg-ink-900 mb-5">
+      <button data-tab="prompt"  class="tab tab-active flex-1 py-2 text-sm rounded-lg">Prompt</button>
+      <button data-tab="structured" class="tab flex-1 py-2 text-sm rounded-lg">Structured</button>
+    </div>
+
+    <!-- prompt tab -->
+    <div data-tab-pane="prompt" class="space-y-3">
+      <label class="label">Describe the color and any structural constraints</label>
+      <textarea id="promptInput" rows="4" class="textarea"
+        placeholder="A deep red structure with 3-5 layers, no silver"></textarea>
+      <p id="promptHint" class="text-xs text-slate-500">
+        Routed through the OpenAI parser. Falls back to mock keywords if no API key.
+      </p>
+    </div>
+
+    <!-- structured tab -->
+    <div data-tab-pane="structured" class="space-y-4 hidden">
+      <div class="grid grid-cols-3 gap-3">
+        <div>
+          <label class="label">L*</label>
+          <input id="labL" type="number" step="0.1" min="0" max="100" value="60" class="input">
+        </div>
+        <div>
+          <label class="label">a*</label>
+          <input id="labA" type="number" step="0.1" min="-128" max="128" value="5" class="input">
+        </div>
+        <div>
+          <label class="label">b*</label>
+          <input id="labB" type="number" step="0.1" min="-128" max="128" value="-8" class="input">
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <div class="label !mb-0">preview</div>
+        <div id="labPreview" class="h-8 w-24 rounded-md ring-1 ring-white/10"></div>
+      </div>
+      <details class="text-xs text-slate-400">
+        <summary class="cursor-pointer">add constraints (advanced)</summary>
+        <textarea id="constraintsInput" rows="5" class="textarea mt-2 font-mono"
+          placeholder='[
+  {"kind": "layer_count", "min_layers": 3, "max_layers": 5}
+]'></textarea>
+        <p class="mt-1 text-[10px] text-slate-500">JSON array of constraint dicts (see <code>parse.py</code>).</p>
+      </details>
+    </div>
+
+    <!-- knobs -->
+    <details class="mt-6 group">
+      <summary class="cursor-pointer select-none flex items-center gap-2 text-sm text-slate-300 hover:text-white">
+        <span class="rotate-0 group-open:rotate-90 transition-transform">▸</span>
+        Advanced settings
+      </summary>
+      <div class="grid grid-cols-2 gap-3 mt-3 text-sm">
+        <div><label class="label">Ensemble N</label><input id="knobN" type="number" min="10" max="2000" value="500" class="input"></div>
+        <div><label class="label">Top-k</label><input id="knobK" type="number" min="1" max="20" value="5" class="input"></div>
+        <div><label class="label">Temperature</label><input id="knobT" type="number" step="0.05" min="0" max="2" value="1.0" class="input"></div>
+        <div><label class="label">Tolerance %</label><input id="knobTol" type="number" step="0.5" min="0" max="20" value="5.0" class="input"></div>
+        <div><label class="label">Weight λ</label><input id="knobLambda" type="number" step="0.1" min="0" max="10" value="1.0" class="input"></div>
+        <div><label class="label">Seed</label><input id="knobSeed" type="number" value="42" class="input"></div>
+      </div>
+    </details>
+
+    <button id="runBtn" class="btn-primary w-full mt-6">
+      <span class="btn-label">Generate</span>
+      <span class="spinner hidden"></span>
+    </button>
+
+    <p id="errorBanner" class="hidden mt-3 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-md px-3 py-2"></p>
+  </section>
+
+  <!-- ============================================================ RESULT -->
+  <section id="resultPanel" class="glass p-6 rounded-2xl min-h-[600px]">
+
+    <!-- placeholder -->
+    <div id="placeholder" class="h-full flex flex-col items-center justify-center text-center text-slate-500">
+      <div class="w-16 h-16 mb-4 rounded-2xl bg-gradient-to-br from-accent/30 to-fuchsia-500/20 grid place-items-center text-3xl">◐</div>
+      <p class="text-sm">Type a prompt or set a Lab target.</p>
+      <p class="text-xs mt-1">INDIGO will return a layered thin-film stack that achieves the color.</p>
+    </div>
+
+    <!-- result body, populated by app.js -->
+    <div id="resultBody" class="hidden space-y-6">
+
+      <!-- top row: swatches + ΔE -->
+      <div class="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-6">
+        <div class="text-center space-y-2">
+          <div class="text-xs uppercase tracking-widest text-slate-400">target</div>
+          <div id="targetSwatch" class="swatch"></div>
+          <div id="targetLab" class="font-mono text-xs text-slate-400"></div>
+        </div>
+        <div class="text-center px-4">
+          <div class="text-xs uppercase tracking-widest text-slate-400">ΔE_00</div>
+          <div id="deltaE" class="text-5xl font-semibold bg-gradient-to-br from-accent to-fuchsia-300 bg-clip-text text-transparent leading-tight">—</div>
+          <div id="deltaELabel" class="text-xs text-slate-400 mt-1">—</div>
+        </div>
+        <div class="text-center space-y-2">
+          <div class="text-xs uppercase tracking-widest text-slate-400">achieved</div>
+          <div id="achievedSwatch" class="swatch"></div>
+          <div id="achievedLab" class="font-mono text-xs text-slate-400"></div>
+        </div>
+      </div>
+
+      <!-- reflectance chart -->
+      <div>
+        <div class="text-xs uppercase tracking-widest text-slate-400 mb-2">reflectance spectrum</div>
+        <svg id="reflChart" class="w-full h-48" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
+      </div>
+
+      <!-- layer diagram -->
+      <div>
+        <div class="text-xs uppercase tracking-widest text-slate-400 mb-2">layer stack</div>
+        <div id="layerBars" class="flex h-12 rounded-lg overflow-hidden ring-1 ring-white/10"></div>
+        <div id="layerLegend" class="mt-2 text-xs text-slate-400 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1"></div>
+      </div>
+
+      <!-- robustness + summary -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+        <div class="stat"><div class="stat-label">R_l2</div><div id="statR" class="stat-value">—</div></div>
+        <div class="stat"><div class="stat-label">J</div><div id="statJ" class="stat-value">—</div></div>
+        <div class="stat"><div class="stat-label">MC p95</div><div id="statMc" class="stat-value">—</div></div>
+        <div class="stat"><div class="stat-label">refined</div><div id="statRefined" class="stat-value">—</div></div>
+      </div>
+
+      <!-- alternatives -->
+      <div>
+        <div class="text-xs uppercase tracking-widest text-slate-400 mb-2">alternatives</div>
+        <div id="altGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"></div>
+      </div>
+
+      <!-- provenance -->
+      <details class="text-xs text-slate-500">
+        <summary class="cursor-pointer hover:text-slate-300">run details</summary>
+        <pre id="provJSON" class="mt-2 p-3 bg-ink-900 rounded-lg overflow-x-auto font-mono text-[11px]"></pre>
+      </details>
+
+    </div>
+  </section>
+</main>
+
+<footer class="container mx-auto px-6 pb-6 text-[11px] text-slate-500">
+  <span class="font-mono">pure-function boundary: solve(model, pool, spec) → Result</span>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>
