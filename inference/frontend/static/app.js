@@ -1,111 +1,358 @@
 // INDIGO frontend — vanilla JS, no framework
-// Layout:
-//   - tab switching (prompt vs structured)
-//   - Lab live preview
-//   - submit → POST /api/solve → render result
-//   - SVG reflectance chart, layer bars, alternatives grid
 
-const $ = (sel) => document.querySelector(sel);
+const $  = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
-// ---------- status ----------------------------------------------------------
+// ============================================================================
+// localStorage shims
+// ============================================================================
+const LS = {
+  get(k, fallback)   { try { const v = localStorage.getItem(k); return v == null ? fallback : JSON.parse(v); } catch { return fallback; } },
+  set(k, v)          { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+// ============================================================================
+// Status + bootstrap
+// ============================================================================
+let _MMAX = 32;
+
 async function loadStatus() {
   try {
-    const r = await fetch('/api/status');
-    if (!r.ok) return;
+    const r = await fetch('/api/status'); if (!r.ok) return;
     const s = await r.json();
+    if (s.m_max)             _MMAX = s.m_max;
     if (s.device)            $('#statusDevice').querySelector('span').textContent = s.device;
-    if (s.pool_size != null) $('#statusPool').querySelector('span').textContent   = `${s.pool_size} materials`;
+    if (s.pool_size != null) $('#statusPool').querySelector('span').textContent   = `${s.pool_size} mats (cap ${_MMAX})`;
     if (s.model_tag)         $('#statusModel').querySelector('span').textContent  = s.model_tag.slice(0, 36) + (s.model_tag.length > 36 ? '…' : '');
-    if (!s.openai_key_present) {
-      $('#promptHint').textContent = 'No OPENAI_API_KEY — set INDIGO_PARSE_BACKEND=mock to test with keyword routing.';
+    $('#csvMmax').textContent = String(_MMAX);
+    if (!s.openai_key_present && !LS.get('openai_api_key')) {
+      $('#promptHint').textContent = 'No server-side OPENAI_API_KEY. Paste yours in Advanced settings, or set INDIGO_PARSE_BACKEND=mock.';
       $('#promptHint').classList.remove('text-slate-500');
       $('#promptHint').classList.add('text-amber-300/80');
     }
   } catch (e) { console.error('status', e); }
 }
 
-// ---------- tabs ------------------------------------------------------------
+// ============================================================================
+// Tab switching
+// ============================================================================
 function bindTabs() {
   $$('.tab').forEach((tab) => {
     tab.addEventListener('click', () => {
       $$('.tab').forEach((t) => t.classList.remove('tab-active'));
       tab.classList.add('tab-active');
       const target = tab.dataset.tab;
-      $$('[data-tab-pane]').forEach((pane) => {
-        pane.classList.toggle('hidden', pane.dataset.tabPane !== target);
-      });
+      $$('[data-tab-pane]').forEach((p) => p.classList.toggle('hidden', p.dataset.tabPane !== target));
     });
   });
 }
 
-// ---------- Lab live preview ------------------------------------------------
-function labToSrgb(L, a, b) {
-  // CIE Lab D65 → linear sRGB → sRGB-gamma. Clamped to [0,1].
+// ============================================================================
+// Lab ↔ sRGB
+// ============================================================================
+function labToSrgbObj(L, a, b) {
   const fy = (L + 16) / 116;
   const fx = a / 500 + fy;
   const fz = fy - b / 200;
-  const eps3 = (6 / 29) ** 3;
-  const f = (t) => (t ** 3 > eps3 ? t ** 3 : (t - 4 / 29) * 3 * (6 / 29) ** 2);
-  const X = 95.047 * f(fx) / 100;
-  const Y = 100.0  * f(fy) / 100;
-  const Z = 108.883* f(fz) / 100;
-  const rl =  3.2404542 * X + -1.5371385 * Y + -0.4985314 * Z;
-  const gl = -0.9692660 * X +  1.8760108 * Y +  0.0415560 * Z;
-  const bl =  0.0556434 * X + -0.2040259 * Y +  1.0572252 * Z;
-  const enc = (c) => {
-    c = Math.max(0, Math.min(1, c));
-    return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
-  };
-  const r = enc(rl), g = enc(gl), bb = enc(bl);
-  return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(bb * 255)})`;
+  const eps3 = (6/29)**3;
+  const f = (t) => (t**3 > eps3 ? t**3 : (t - 4/29) * 3 * (6/29)**2);
+  const X = 95.047  * f(fx) / 100;
+  const Y = 100.0   * f(fy) / 100;
+  const Z = 108.883 * f(fz) / 100;
+  const rl =  3.2404542*X + -1.5371385*Y + -0.4985314*Z;
+  const gl = -0.9692660*X +  1.8760108*Y +  0.0415560*Z;
+  const bl =  0.0556434*X + -0.2040259*Y +  1.0572252*Z;
+  const enc = (c) => { c = Math.max(0, Math.min(1, c)); return c <= 0.0031308 ? 12.92*c : 1.055*Math.pow(c, 1/2.4) - 0.055; };
+  return { r: enc(rl), g: enc(gl), b: enc(bl) };
+}
+function labToSrgb(L,a,b) { const {r,g,b:bb} = labToSrgbObj(L,a,b); return `rgb(${Math.round(r*255)}, ${Math.round(g*255)}, ${Math.round(bb*255)})`; }
+
+function srgbHexToLab(hex) {
+  const m = hex.replace('#','').match(/^([0-9a-f]{6})$/i);
+  if (!m) return null;
+  const r = parseInt(m[1].slice(0,2),16)/255, g = parseInt(m[1].slice(2,4),16)/255, b = parseInt(m[1].slice(4,6),16)/255;
+  const lin = (c) => (c <= 0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4));
+  const rl=lin(r), gl=lin(g), bl=lin(b);
+  const X = (0.4124564*rl + 0.3575761*gl + 0.1804375*bl) * 100;
+  const Y = (0.2126729*rl + 0.7151522*gl + 0.0721750*bl) * 100;
+  const Z = (0.0193339*rl + 0.1191920*gl + 0.9503041*bl) * 100;
+  const Xn=95.047, Yn=100.0, Zn=108.883;
+  const delta = 6/29;
+  const f = (t) => (t > delta**3 ? Math.cbrt(t) : t/(3*delta*delta) + 4/29);
+  const fx=f(X/Xn), fy=f(Y/Yn), fz=f(Z/Zn);
+  return { L: 116*fy - 16, a: 500*(fx - fy), b: 200*(fy - fz) };
 }
 
-function bindLabPreview() {
-  const upd = () => {
+function bindColorInputs() {
+  const sync = (src) => {
     const L = parseFloat($('#labL').value);
     const a = parseFloat($('#labA').value);
     const b = parseFloat($('#labB').value);
-    if (Number.isFinite(L) && Number.isFinite(a) && Number.isFinite(b)) {
-      $('#labPreview').style.backgroundColor = labToSrgb(L, a, b);
+    if (![L,a,b].every(Number.isFinite)) return;
+    $('#labPreview').style.backgroundColor = labToSrgb(L,a,b);
+    if (src !== 'rgb') {
+      const { r, g, b:bb } = labToSrgbObj(L,a,b);
+      const hex = '#' + [r,g,bb].map((v) => Math.round(v*255).toString(16).padStart(2,'0')).join('');
+      $('#rgbPicker').value = hex;
+      $('#rgbReadout').textContent = hex;
     }
   };
-  ['labL', 'labA', 'labB'].forEach((id) => $(`#${id}`).addEventListener('input', upd));
-  upd();
+  ['labL','labA','labB'].forEach((id) => $(`#${id}`).addEventListener('input', () => sync('lab')));
+  $('#rgbPicker').addEventListener('input', (e) => {
+    const hex = e.target.value; $('#rgbReadout').textContent = hex;
+    const lab = srgbHexToLab(hex); if (!lab) return;
+    $('#labL').value = lab.L.toFixed(1);
+    $('#labA').value = lab.a.toFixed(1);
+    $('#labB').value = lab.b.toFixed(1);
+    sync('rgb');
+  });
+  sync('lab');
 }
 
-// ---------- submit ----------------------------------------------------------
+// ============================================================================
+// Constraint chips (cheat-sheet → appends to textarea)
+// ============================================================================
+function bindConstraintChips() {
+  $$('.cs-btn').forEach((b) => {
+    b.addEventListener('click', () => {
+      const ta = $('#constraintsInput');
+      let cur = []; const txt = ta.value.trim();
+      if (txt) {
+        try { cur = JSON.parse(txt); if (!Array.isArray(cur)) cur = [cur]; }
+        catch { cur = []; }
+      }
+      try { cur.push(JSON.parse(b.dataset.cs)); } catch {}
+      ta.value = JSON.stringify(cur, null, 2);
+    });
+  });
+}
+
+// ============================================================================
+// Material picker
+// ============================================================================
+let MATERIAL_LIST = [];           // [{canonical_name, source}]
+const SELECTED   = new Set();     // selected canonical_name set
+const CUSTOM     = new Map();     // canonical_name -> {n,k,source}
+
+async function loadPool() {
+  const r = await fetch('/api/pool'); if (!r.ok) return;
+  const data = await r.json();
+  MATERIAL_LIST = data.materials || [];
+  _MMAX = data.m_max || _MMAX;
+  // Server's default subset becomes our initial selection unless localStorage has one.
+  const stored = LS.get('pool_subset', null);
+  const initial = stored ?? (data.default_subset || MATERIAL_LIST.slice(0, _MMAX).map((m) => m.canonical_name));
+  SELECTED.clear(); initial.forEach((n) => SELECTED.add(n));
+  renderPool();
+}
+
+function renderPool() {
+  const filter = ($('#poolSearch').value || '').toLowerCase();
+  const list = $('#poolList'); list.innerHTML = '';
+
+  const allMats = [
+    ...[...CUSTOM.values()].map((m) => ({ ...m, custom: true })),
+    ...MATERIAL_LIST,
+  ];
+
+  allMats
+    .filter((m) => !filter || m.canonical_name.toLowerCase().includes(filter))
+    .forEach((m) => {
+      const row = document.createElement('label');
+      row.className = 'pool-row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = SELECTED.has(m.canonical_name);
+      cb.addEventListener('change', () => {
+        if (cb.checked) {
+          if (SELECTED.size >= _MMAX) {
+            cb.checked = false;
+            flashError(`Pool capped at ${_MMAX}. Deselect another first.`);
+            return;
+          }
+          SELECTED.add(m.canonical_name);
+        } else {
+          SELECTED.delete(m.canonical_name);
+        }
+        LS.set('pool_subset', [...SELECTED]);
+        updatePoolCount();
+      });
+      const label = document.createElement('span');
+      label.className = 'truncate';
+      label.textContent = m.canonical_name;
+      const badge = document.createElement('span');
+      badge.className = 'pool-badge';
+      badge.textContent = m.custom ? 'custom' : (m.source === 'jaxlayerlumos' ? 'JLL' : m.source);
+      row.appendChild(cb); row.appendChild(label); row.appendChild(badge);
+      list.appendChild(row);
+    });
+  updatePoolCount();
+}
+
+function updatePoolCount() {
+  $('#poolCount').textContent = `${SELECTED.size} / ${_MMAX}`;
+  $('#poolCount').classList.toggle('text-rose-300', SELECTED.size > _MMAX);
+}
+
+function bindPoolControls() {
+  $('#poolSearch').addEventListener('input', renderPool);
+  $('#poolSelectAll').addEventListener('click', () => {
+    SELECTED.clear();
+    const allNames = [...CUSTOM.keys(), ...MATERIAL_LIST.map((m) => m.canonical_name)];
+    for (const n of allNames) { if (SELECTED.size >= _MMAX) break; SELECTED.add(n); }
+    LS.set('pool_subset', [...SELECTED]); renderPool();
+  });
+  $('#poolSelectNone').addEventListener('click', () => {
+    SELECTED.clear(); LS.set('pool_subset', []); renderPool();
+  });
+  $('#poolUploadBtn').addEventListener('click', () => openCsvModal());
+}
+
+// ============================================================================
+// CSV upload modal
+// ============================================================================
+function openCsvModal() {
+  $('#csvModal').classList.remove('hidden');
+  $('#csvName').value = ''; $('#csvFile').value = '';
+  $('#csvError').classList.add('hidden');
+}
+function closeCsvModal() { $('#csvModal').classList.add('hidden'); }
+
+async function submitCsvUpload() {
+  const name = ($('#csvName').value || '').trim();
+  const file = $('#csvFile').files[0];
+  const err  = $('#csvError');
+  err.classList.add('hidden');
+  if (!name)  { err.textContent = 'Canonical name is required.'; err.classList.remove('hidden'); return; }
+  if (!file)  { err.textContent = 'Choose a CSV file.';            err.classList.remove('hidden'); return; }
+
+  const btn = $('#csvSubmitBtn');
+  btn.disabled = true; btn.querySelector('.spinner').classList.remove('hidden');
+  btn.querySelector('.btn-label').textContent = 'Uploading…';
+
+  const fd = new FormData(); fd.append('name', name); fd.append('file', file);
+  try {
+    const r = await fetch('/api/material_from_csv', { method: 'POST', body: fd });
+    if (!r.ok) { const txt = await r.text(); throw new Error(`${r.status}: ${txt}`); }
+    const mat = await r.json();
+    CUSTOM.set(mat.canonical_name, mat);
+    if (SELECTED.size < _MMAX) SELECTED.add(mat.canonical_name);
+    LS.set('pool_subset', [...SELECTED]);
+    renderPool();
+    closeCsvModal();
+  } catch (e) {
+    err.textContent = e.message; err.classList.remove('hidden');
+  } finally {
+    btn.disabled = false; btn.querySelector('.spinner').classList.add('hidden');
+    btn.querySelector('.btn-label').textContent = 'Upload & add to pool';
+  }
+}
+
+function bindCsvModal() {
+  $('#csvCloseBtn').addEventListener('click', closeCsvModal);
+  $('#csvCancelBtn').addEventListener('click', closeCsvModal);
+  $('#csvSubmitBtn').addEventListener('click', submitCsvUpload);
+  $('#csvModal').addEventListener('click', (e) => { if (e.target === $('#csvModal')) closeCsvModal(); });
+}
+
+// ============================================================================
+// Progress strip + elapsed timer
+// ============================================================================
+const PHASES = [
+  { until: 0.10, label: 'encoding pool' },
+  { until: 0.35, label: 'sampling ensemble' },
+  { until: 0.70, label: 'simulating candidates' },
+  { until: 0.90, label: 'refining top-k' },
+  { until: 1.00, label: 'finalising' },
+];
+
+let _progressTimer = null, _progressStart = 0, _progressEnd = 0;
+
+function startProgress(estSeconds) {
+  _progressStart = performance.now();
+  _progressEnd   = _progressStart + estSeconds * 1000;
+  $('#progressStrip').classList.remove('hidden');
+  $('#errorBanner').classList.add('hidden');
+  $('#elapsedBadge').classList.remove('hidden');
+  const tick = () => {
+    const now = performance.now();
+    const elapsedS = (now - _progressStart) / 1000;
+    // Slow the bar's asymptote as it approaches 95% so the user never sees it hit 100% prematurely.
+    let pct = ((now - _progressStart) / (_progressEnd - _progressStart)) * 100;
+    if (pct >= 95) pct = 95 + (1 - Math.exp(-(elapsedS - estSeconds) / 20)) * 4.9;
+    pct = Math.max(0, Math.min(99.5, pct));
+    $('#progressBar').style.width = pct.toFixed(1) + '%';
+    $('#progressTime').textContent = elapsedS.toFixed(1) + 's';
+    $('#elapsedBadge').textContent = elapsedS.toFixed(1) + 's';
+    const phase = PHASES.find((p) => pct / 100 < p.until) || PHASES[PHASES.length - 1];
+    $('#progressPhase').textContent = phase.label;
+  };
+  tick();
+  _progressTimer = setInterval(tick, 100);
+}
+function stopProgress(success) {
+  if (_progressTimer) { clearInterval(_progressTimer); _progressTimer = null; }
+  $('#progressBar').style.width = success ? '100%' : '0%';
+  setTimeout(() => {
+    $('#progressStrip').classList.add('hidden');
+    $('#elapsedBadge').classList.add('hidden');
+    $('#progressBar').style.width = '0%';
+  }, success ? 500 : 0);
+}
+
+// ============================================================================
+// Submit
+// ============================================================================
 function readKnobs() {
   return {
-    ensemble_N: parseInt($('#knobN').value, 10),
-    top_k:      parseInt($('#knobK').value, 10),
-    temperature:    parseFloat($('#knobT').value),
-    tolerance_pct:  parseFloat($('#knobTol').value),
-    weight_lambda:  parseFloat($('#knobLambda').value),
-    seed:           parseInt($('#knobSeed').value, 10),
+    ensemble_N:      parseInt($('#knobN').value, 10),
+    top_k:           parseInt($('#knobK').value, 10),
+    temperature:     parseFloat($('#knobT').value),
+    tolerance_pct:   parseFloat($('#knobTol').value),
+    weight_lambda:   parseFloat($('#knobLambda').value),
+    mc_samples:      parseInt($('#knobMc').value, 10),
+    refine_max_iters:parseInt($('#knobRefine').value, 10),
+    seed:            parseInt($('#knobSeed').value, 10),
   };
 }
 
 function buildBody() {
   const activeTab = $('.tab-active').dataset.tab;
+  const knobs = readKnobs();
+  const openai_api_key = ($('#openaiKey').value || LS.get('openai_api_key') || '').trim() || undefined;
+
+  // Pool: subset of JLL by canonical name + any custom materials currently selected
+  const jllNames = new Set(MATERIAL_LIST.map((m) => m.canonical_name));
+  const pool_subset       = [...SELECTED].filter((n) =>  jllNames.has(n));
+  const custom_materials  = [...SELECTED]
+    .filter((n) => !jllNames.has(n))
+    .map((n) => CUSTOM.get(n))
+    .filter(Boolean);
+
   if (activeTab === 'prompt') {
     const prompt = $('#promptInput').value.trim();
-    if (!prompt) throw new Error('prompt is empty');
-    return { prompt, knobs: readKnobs() };
+    if (!prompt) throw new Error('Prompt is empty.');
+    return { prompt, knobs, pool_subset, custom_materials, openai_api_key };
   }
   const L = parseFloat($('#labL').value);
   const a = parseFloat($('#labA').value);
   const b = parseFloat($('#labB').value);
-  if (![L, a, b].every(Number.isFinite))
-    throw new Error('Lab values must all be numbers');
+  if (![L,a,b].every(Number.isFinite)) throw new Error('Lab values must all be numbers.');
   let constraints = null;
   const ct = $('#constraintsInput').value.trim();
   if (ct) {
     try { constraints = JSON.parse(ct); }
-    catch (e) { throw new Error('constraints JSON is not valid: ' + e.message); }
-    if (!Array.isArray(constraints)) throw new Error('constraints must be an array');
+    catch (e) { throw new Error('Constraints JSON invalid: ' + e.message); }
+    if (!Array.isArray(constraints)) throw new Error('Constraints must be a JSON array.');
   }
-  return { target_lab: [L, a, b], constraints, knobs: readKnobs() };
+  return { target_lab: [L,a,b], constraints, knobs, pool_subset, custom_materials };
+}
+
+function estimateSolveSeconds(knobs) {
+  // Crude CPU model: scales mainly with ensemble_N (sequential JLL physics)
+  // and top_k * refine_iters. Tuned from the existing CPU runs we've seen.
+  const base = 4;
+  return base + (knobs.ensemble_N / 50) + (knobs.top_k * knobs.refine_max_iters * 0.015);
 }
 
 async function runSolve() {
@@ -115,13 +362,13 @@ async function runSolve() {
   const err = $('#errorBanner');
   err.classList.add('hidden');
 
-  let body;
-  try { body = buildBody(); }
-  catch (e) { err.textContent = e.message; err.classList.remove('hidden'); return; }
+  let body; try { body = buildBody(); } catch (e) { err.textContent = e.message; err.classList.remove('hidden'); return; }
 
-  btn.disabled = true;
-  spinner.classList.remove('hidden');
-  lbl.textContent = 'Generating…';
+  // Persist OpenAI key whenever the user kicks off a run.
+  if (body.openai_api_key) LS.set('openai_api_key', body.openai_api_key);
+
+  btn.disabled = true; spinner.classList.remove('hidden'); lbl.textContent = 'Generating';
+  startProgress(estimateSolveSeconds(body.knobs));
 
   try {
     const r = await fetch('/api/solve', {
@@ -129,24 +376,21 @@ async function runSolve() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!r.ok) {
-      const txt = await r.text();
-      throw new Error(`HTTP ${r.status}: ${txt}`);
-    }
+    if (!r.ok) { const txt = await r.text(); throw new Error(`HTTP ${r.status}: ${txt}`); }
     const result = await r.json();
+    stopProgress(true);
     renderResult(result);
   } catch (e) {
-    console.error(e);
-    err.textContent = e.message;
-    err.classList.remove('hidden');
+    stopProgress(false);
+    console.error(e); err.textContent = e.message; err.classList.remove('hidden');
   } finally {
-    btn.disabled = false;
-    spinner.classList.add('hidden');
-    lbl.textContent = 'Generate';
+    btn.disabled = false; spinner.classList.add('hidden'); lbl.textContent = 'Generate';
   }
 }
 
-// ---------- result rendering ------------------------------------------------
+// ============================================================================
+// Result rendering
+// ============================================================================
 function deltaELabel(de) {
   if (de < 1)  return 'imperceptible';
   if (de < 2)  return 'just perceptible';
@@ -154,10 +398,8 @@ function deltaELabel(de) {
   if (de < 10) return 'clearly different';
   return 'far off';
 }
-
-function fmt(x, d = 2) { return Number(x).toFixed(d); }
-
-const PALETTE = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16', '#a855f7', '#f97316'];
+const fmt = (x, d=2) => Number(x).toFixed(d);
+const PALETTE = ['#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16','#a855f7','#f97316'];
 
 function renderResult(result) {
   $('#placeholder').classList.add('hidden');
@@ -172,47 +414,37 @@ function renderResult(result) {
     $('#achievedSwatch').style.backgroundColor = '#1a1c2a';
     return;
   }
-
   const c = result.chosen;
   const tgt = result.spec_echo.target_lab_raw;
 
-  // Swatches + labels
   $('#targetSwatch').style.backgroundColor   = labToSrgb(tgt[0], tgt[1], tgt[2]);
   $('#achievedSwatch').style.backgroundColor = labToSrgb(c.achieved_lab[0], c.achieved_lab[1], c.achieved_lab[2]);
-  $('#targetLab').textContent   = `L* ${fmt(tgt[0], 1)}  a* ${fmt(tgt[1], 1)}  b* ${fmt(tgt[2], 1)}`;
-  $('#achievedLab').textContent = `L* ${fmt(c.achieved_lab[0], 1)}  a* ${fmt(c.achieved_lab[1], 1)}  b* ${fmt(c.achieved_lab[2], 1)}`;
+  $('#targetLab').textContent   = `L* ${fmt(tgt[0],1)}  a* ${fmt(tgt[1],1)}  b* ${fmt(tgt[2],1)}`;
+  $('#achievedLab').textContent = `L* ${fmt(c.achieved_lab[0],1)}  a* ${fmt(c.achieved_lab[1],1)}  b* ${fmt(c.achieved_lab[2],1)}`;
   $('#deltaE').textContent = fmt(c.delta_e, 3);
   $('#deltaELabel').textContent = deltaELabel(c.delta_e);
 
-  // Reflectance chart
   drawReflectance(c.reflectance, result.alternatives || []);
-
-  // Layer bars
   drawLayerBars(c.material_names, c.thicknesses_nm);
 
-  // Stats
   $('#statR').textContent       = fmt(c.robustness.grad_l2_shift, 3);
   $('#statJ').textContent       = fmt(c.objective, 3);
   $('#statMc').textContent      = c.robustness.mc_samples > 0 ? fmt(c.robustness.mc_p95, 2) : '—';
   $('#statRefined').textContent = c.refined ? 'yes' : 'no';
 
-  // Alternatives
-  const grid = $('#altGrid');
-  grid.innerHTML = '';
+  const grid = $('#altGrid'); grid.innerHTML = '';
   (result.alternatives || []).slice(0, 8).forEach((alt) => {
     const card = document.createElement('div'); card.className = 'alt-card';
     const sw = document.createElement('div');   sw.className = 'alt-swatch';
     sw.style.backgroundColor = labToSrgb(alt.achieved_lab[0], alt.achieved_lab[1], alt.achieved_lab[2]);
     const meta = document.createElement('div'); meta.className = 'alt-meta';
     meta.innerHTML = `<span class="alt-de">ΔE ${fmt(alt.delta_e, 2)}</span> · ${alt.slot_indices.length}L`;
-    card.appendChild(sw); card.appendChild(meta);
-    grid.appendChild(card);
+    card.appendChild(sw); card.appendChild(meta); grid.appendChild(card);
   });
   if (!result.alternatives || result.alternatives.length === 0) {
     grid.innerHTML = '<div class="text-xs text-slate-500 col-span-full">No alternatives — top_k = 1.</div>';
   }
 
-  // Provenance
   $('#provJSON').textContent = JSON.stringify({
     spec_echo: result.spec_echo,
     ensemble_stats: result.ensemble_stats,
@@ -222,95 +454,85 @@ function renderResult(result) {
 
 function drawReflectance(refl, alts) {
   const svg = $('#reflChart');
-  const W = 600, H = 200;
-  const padL = 32, padR = 8, padT = 12, padB = 20;
+  const W=600, H=200, padL=32, padR=8, padT=12, padB=20;
   const innerW = W - padL - padR, innerH = H - padT - padB;
-
-  // canonical wavelength grid: 300-900 nm, 128 samples (matches CANONICAL_LAMBDA_NM)
-  const N = refl.length;
-  const lamMin = 300, lamMax = 900;
-  const yMax = Math.max(1.0, Math.max(...refl) * 1.1, ...alts.flatMap((a) => a.reflectance || []).map(Math.abs).concat([0])) || 1.0;
+  const N = refl.length, lamMin = 300, lamMax = 900;
+  const altsArr = alts.flatMap((a) => a.reflectance || []);
+  const yMax = Math.max(1.0, Math.max(...refl) * 1.1, ...altsArr) || 1.0;
   const yScale = (v) => padT + innerH - (v / yMax) * innerH;
   const xScale = (i) => padL + (i / (N - 1)) * innerW;
-  const pathFor = (arr) => {
-    let d = '';
-    for (let i = 0; i < arr.length; i++) {
-      d += (i === 0 ? 'M' : 'L') + xScale(i).toFixed(1) + ' ' + yScale(arr[i]).toFixed(1) + ' ';
-    }
-    return d.trim();
-  };
+  const pathFor = (arr) => { let d=''; for (let i=0;i<arr.length;i++) d += (i===0?'M':'L') + xScale(i).toFixed(1) + ' ' + yScale(arr[i]).toFixed(1) + ' '; return d.trim(); };
 
-  // Build SVG
-  let svgInner = '';
-  svgInner += `<defs><linearGradient id="mainGradient" x1="0" x2="1" y1="0" y2="0">
-    <stop offset="0%"  stop-color="#7c5cff"/>
-    <stop offset="100%" stop-color="#f0abfc"/>
-  </linearGradient></defs>`;
-
-  // Visible-band shading (380-780 nm).
-  const visX0 = padL + ((380 - lamMin) / (lamMax - lamMin)) * innerW;
-  const visX1 = padL + ((780 - lamMin) / (lamMax - lamMin)) * innerW;
-  svgInner += `<rect class="vis-band" x="${visX0}" y="${padT}" width="${visX1 - visX0}" height="${innerH}"/>`;
-
-  // Y-grid lines.
-  [0, 0.25, 0.5, 0.75, 1.0].forEach((v) => {
+  let s = '';
+  s += `<defs><linearGradient id="mainGradient" x1="0" x2="1" y1="0" y2="0"><stop offset="0%"  stop-color="#7c5cff"/><stop offset="100%" stop-color="#f0abfc"/></linearGradient></defs>`;
+  const visX0 = padL + ((380 - lamMin)/(lamMax - lamMin)) * innerW;
+  const visX1 = padL + ((780 - lamMin)/(lamMax - lamMin)) * innerW;
+  s += `<rect class="vis-band" x="${visX0}" y="${padT}" width="${visX1 - visX0}" height="${innerH}"/>`;
+  [0,0.25,0.5,0.75,1.0].forEach((v) => {
     if (v > yMax) return;
     const y = yScale(v);
-    svgInner += `<line class="grid-line" x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"/>`;
-    svgInner += `<text class="axis-label" x="${padL - 4}" y="${y + 3}" text-anchor="end">${v}</text>`;
+    s += `<line class="grid-line" x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"/>`;
+    s += `<text class="axis-label" x="${padL - 4}" y="${y + 3}" text-anchor="end">${v}</text>`;
   });
-  // X axis labels.
-  [400, 500, 600, 700, 800].forEach((nm) => {
-    const x = padL + ((nm - lamMin) / (lamMax - lamMin)) * innerW;
-    svgInner += `<text class="axis-label" x="${x}" y="${H - 6}" text-anchor="middle">${nm}</text>`;
+  [400,500,600,700,800].forEach((nm) => {
+    const x = padL + ((nm - lamMin)/(lamMax - lamMin)) * innerW;
+    s += `<text class="axis-label" x="${x}" y="${H - 6}" text-anchor="middle">${nm}</text>`;
   });
-
-  // Alternatives faint.
   alts.slice(0, 4).forEach((a) => {
-    if (Array.isArray(a.reflectance) && a.reflectance.length === N) {
-      svgInner += `<path class="alt-line" d="${pathFor(a.reflectance)}"/>`;
-    }
+    if (Array.isArray(a.reflectance) && a.reflectance.length === N)
+      s += `<path class="alt-line" d="${pathFor(a.reflectance)}"/>`;
   });
-
-  // Main line.
-  svgInner += `<path class="main-line" d="${pathFor(refl)}"/>`;
-  svg.innerHTML = svgInner;
+  s += `<path class="main-line" d="${pathFor(refl)}"/>`;
+  svg.innerHTML = s;
 }
 
 function drawLayerBars(names, thicks) {
-  const total = thicks.reduce((a, b) => a + b, 0) || 1;
-  const colorMap = new Map();
-  const assign = (name) => {
-    if (!colorMap.has(name)) colorMap.set(name, PALETTE[colorMap.size % PALETTE.length]);
-    return colorMap.get(name);
-  };
+  const total = thicks.reduce((a,b) => a + b, 0) || 1;
+  const cm = new Map();
+  const assign = (n) => { if (!cm.has(n)) cm.set(n, PALETTE[cm.size % PALETTE.length]); return cm.get(n); };
   const bars = $('#layerBars'); bars.innerHTML = '';
-  for (let i = 0; i < names.length; i++) {
-    const w = (thicks[i] / total) * 100;
-    const bar = document.createElement('div');
-    bar.className = 'layer-bar';
-    bar.style.flex = `0 0 ${w}%`;
-    bar.style.backgroundColor = assign(names[i]);
+  for (let i=0;i<names.length;i++) {
+    const w = (thicks[i]/total) * 100;
+    const bar = document.createElement('div'); bar.className = 'layer-bar';
+    bar.style.flex = `0 0 ${w}%`; bar.style.backgroundColor = assign(names[i]);
     bar.title = `${names[i]}  ·  ${thicks[i].toFixed(1)} nm`;
-    if (w > 8) {
-      bar.innerHTML = `<span class="lbl">${names[i].split('-')[0]}<br>${thicks[i].toFixed(0)} nm</span>`;
-    }
+    if (w > 8) bar.innerHTML = `<span class="lbl">${names[i].split('-')[0]}<br>${thicks[i].toFixed(0)} nm</span>`;
     bars.appendChild(bar);
   }
-
-  // legend (unique materials)
   const legend = $('#layerLegend'); legend.innerHTML = '';
-  [...colorMap.entries()].forEach(([name, color]) => {
+  [...cm.entries()].forEach(([name, color]) => {
     const row = document.createElement('div'); row.className = 'flex items-center gap-2';
     row.innerHTML = `<span class="inline-block w-3 h-3 rounded-sm" style="background:${color}"></span><span class="truncate">${name}</span>`;
     legend.appendChild(row);
   });
 }
 
-// ---------- init ------------------------------------------------------------
+// ============================================================================
+// Misc
+// ============================================================================
+function flashError(msg) {
+  const err = $('#errorBanner');
+  err.textContent = msg; err.classList.remove('hidden');
+  setTimeout(() => err.classList.add('hidden'), 4000);
+}
+
+function bindOpenAIKey() {
+  const saved = LS.get('openai_api_key', '');
+  if (saved) $('#openaiKey').value = saved;
+  $('#openaiKey').addEventListener('change', (e) => {
+    const v = e.target.value.trim();
+    if (v) LS.set('openai_api_key', v); else localStorage.removeItem('openai_api_key');
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   bindTabs();
-  bindLabPreview();
+  bindColorInputs();
+  bindConstraintChips();
+  bindOpenAIKey();
+  bindPoolControls();
+  bindCsvModal();
   $('#runBtn').addEventListener('click', runSolve);
   loadStatus();
+  loadPool();
 });

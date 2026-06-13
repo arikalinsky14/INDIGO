@@ -273,29 +273,33 @@ Output JSON conforming to the schema. Do not output prose."""
 # Backends
 # ----------------------------------------------------------------------------
 
-def _call_openai(prompt: str, pool_names: List[str], model: str
+def _call_openai(prompt: str, pool_names: List[str], model: str,
+                 api_key: Optional[str] = None,
                  ) -> Dict[str, Any]:
     """Single forced-JSON OpenAI call. Returns the parsed JSON dict.
 
     Prefers the official `openai` SDK if it's importable; otherwise falls
     back to a `urllib.request` POST so this works on any env without an
-    extra install. Reads `OPENAI_API_KEY`. Honours `OPENAI_BASE_URL` if the
-    user is pointing at a compatible alternative endpoint.
+    extra install. `api_key` if given overrides the env-var lookup — used
+    when the frontend wants to forward a key the user pasted into the GUI
+    so the server never persists it.
     """
-    if not os.environ.get("OPENAI_API_KEY"):
+    api_key = api_key or os.environ.get("OPENAI_API_KEY")
+    if not api_key:
         raise ParseError("backend",
-                         "OPENAI_API_KEY not set. Export it (sbatch's "
-                         "--export forwards it) or use INDIGO_PARSE_BACKEND=mock.")
+                         "OPENAI_API_KEY not set. Export it, paste it into "
+                         "the frontend's Advanced panel, or use "
+                         "INDIGO_PARSE_BACKEND=mock.")
     try:
         from openai import OpenAI
-        return _call_openai_sdk(OpenAI, prompt, pool_names, model)
+        return _call_openai_sdk(OpenAI, prompt, pool_names, model, api_key)
     except ImportError:
-        return _call_openai_urllib(prompt, pool_names, model)
+        return _call_openai_urllib(prompt, pool_names, model, api_key)
 
 
-def _call_openai_sdk(OpenAI, prompt: str, pool_names: List[str], model: str
-                     ) -> Dict[str, Any]:
-    client = OpenAI()
+def _call_openai_sdk(OpenAI, prompt: str, pool_names: List[str], model: str,
+                     api_key: str) -> Dict[str, Any]:
+    client = OpenAI(api_key=api_key)
     resp = client.chat.completions.create(
         model=model,
         response_format={"type": "json_schema",
@@ -312,17 +316,17 @@ def _call_openai_sdk(OpenAI, prompt: str, pool_names: List[str], model: str
     return json.loads(text)
 
 
-def _call_openai_urllib(prompt: str, pool_names: List[str], model: str
-                        ) -> Dict[str, Any]:
+def _call_openai_urllib(prompt: str, pool_names: List[str], model: str,
+                        api_key: str) -> Dict[str, Any]:
     """Stdlib HTTP call to OpenAI's chat-completions endpoint.
 
     Lets parse.py run on any Python env without needing the `openai` SDK
     installed. The request body uses the same response_format=json_schema
-    strict mode the SDK path uses.
+    strict mode the SDK path uses. `api_key` is mandatory here — the
+    caller (`_call_openai`) handles the env-var fallback.
     """
     import urllib.error
     import urllib.request
-    api_key = os.environ["OPENAI_API_KEY"]
     base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     url = f"{base}/chat/completions"
     body = json.dumps({
@@ -648,6 +652,7 @@ def parse_prompt(
     knobs: Optional[InferenceKnobs] = None,
     backend: Optional[str] = None,
     model: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> ParseResult:
     """Free-text prompt + pool → validated InferenceSpec.
 
@@ -655,6 +660,9 @@ def parse_prompt(
       - explicit `backend` argument
       - $INDIGO_PARSE_BACKEND env var ("openai" | "mock")
       - default: "openai"
+
+    `api_key` if given overrides the env-var key — used by the frontend
+    so a key the user pasted into the GUI never persists on the server.
 
     Raises ParseError on any of the three validation gates.
     """
@@ -666,7 +674,7 @@ def parse_prompt(
     if backend == "mock":
         spec_dict = _call_mock(prompt, pool_names)
     elif backend == "openai":
-        spec_dict = _call_openai(prompt, pool_names, model)
+        spec_dict = _call_openai(prompt, pool_names, model, api_key=api_key)
     else:
         raise ParseError("backend", f"unknown backend {backend!r}")
 
