@@ -110,6 +110,38 @@ def _startup(checkpoint: Path, pool_dir: Optional[Path],
 
 
 # ----------------------------------------------------------------------------
+# Request models — MUST live at module scope, not inside _make_app(). Pydantic
+# v2's TypeAdapter resolves forward references through module globals; a class
+# defined inside a closure isn't visible there and FastAPI's body validator
+# raises `is not fully defined; … call .rebuild() on the instance.`
+# ----------------------------------------------------------------------------
+
+from pydantic import BaseModel, Field
+
+
+class KnobsIn(BaseModel):
+    ensemble_N: int = 500
+    temperature: float = 1.0
+    tolerance_pct: float = 5.0
+    weight_lambda: float = 1.0
+    top_k: int = 5
+    refine_max_iters: int = 100
+    refine_step_size: float = 1.0
+    mc_samples: int = 32
+    seed: int = 42
+
+
+class SolveIn(BaseModel):
+    # exactly one of prompt OR target_lab is honoured (prompt wins if both)
+    prompt: Optional[str] = None
+    target_lab: Optional[List[float]] = Field(
+        default=None, min_length=3, max_length=3
+    )
+    constraints: Optional[List[Dict[str, Any]]] = None
+    knobs: Optional[KnobsIn] = None
+
+
+# ----------------------------------------------------------------------------
 # App factory
 # ----------------------------------------------------------------------------
 
@@ -118,31 +150,12 @@ def _make_app():
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
     from fastapi.staticfiles import StaticFiles
-    from pydantic import BaseModel, Field
 
     from inference.src.schema import (
         InferenceKnobs, InferenceSpec, pool_fingerprint,
     )
     from inference.src.solve import solve
     from src.materials_vocab import normalize_lab
-
-    class KnobsIn(BaseModel):
-        ensemble_N: int = 500
-        temperature: float = 1.0
-        tolerance_pct: float = 5.0
-        weight_lambda: float = 1.0
-        top_k: int = 5
-        refine_max_iters: int = 100
-        refine_step_size: float = 1.0
-        mc_samples: int = 32
-        seed: int = 42
-
-    class SolveIn(BaseModel):
-        # exactly one of prompt OR target_lab is honoured (prompt wins if both)
-        prompt: Optional[str] = None
-        target_lab: Optional[List[float]] = Field(default=None, min_length=3, max_length=3)
-        constraints: Optional[List[Dict[str, Any]]] = None
-        knobs: Optional[KnobsIn] = None
 
     app = FastAPI(title="INDIGO inference", version="1.0")
     # Permissive CORS so a co-developer can hit the API from a separate dev
