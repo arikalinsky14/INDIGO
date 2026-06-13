@@ -38,6 +38,50 @@ _root = Path(__file__).resolve().parents[2]
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
+import numpy as np
+
+from src.materials_vocab import M_MAX
+from inference.src.schema import MaterialEntry
+
+
+def _effective_pool(subset_names, custom):
+    """Build the request-time pool from the named JLL subset + uploaded custom
+    materials. If both are empty, falls back to the default server-side pool.
+
+    Caps at M_MAX. Custom materials win on canonical-name collision with
+    a JLL entry, so a user can override a built-in spectrum without renaming.
+    """
+    pool = []
+    seen: set = set()
+    if subset_names:
+        for n in subset_names:
+            m = _FULL_JLL_BY_NAME.get(n) if _FULL_JLL_BY_NAME else None
+            if m is None:
+                raise RuntimeError(f"unknown JLL material: {n!r}")
+            if m.canonical_name in seen:
+                continue
+            pool.append(m); seen.add(m.canonical_name)
+    if custom:
+        for c in custom:
+            # Coerce list[float] → np.float32 arrays once at the boundary.
+            mat = MaterialEntry(
+                canonical_name=c.canonical_name,
+                n=np.asarray(c.n, dtype=np.float32),
+                k=np.asarray(c.k, dtype=np.float32),
+                source=c.source or "custom",
+            )
+            # Replace any same-named JLL entry already in the pool.
+            pool = [p for p in pool if p.canonical_name != mat.canonical_name]
+            pool.append(mat)
+            seen.add(mat.canonical_name)
+    if not pool:
+        return _POOL  # default capped JLL
+    if len(pool) > M_MAX:
+        raise RuntimeError(
+            f"pool of {len(pool)} exceeds M_MAX={M_MAX}; deselect some"
+        )
+    return pool
+
 
 # ----------------------------------------------------------------------------
 # Process-wide handles (populated on startup)
@@ -47,9 +91,11 @@ _MODEL = None
 _MODEL_CONFIG = None
 _MODEL_TAG = ""
 _MODEL_SHA = ""
-_POOL = None         # List[MaterialEntry]
+_POOL = None             # List[MaterialEntry] — default M_MAX-capped subset
 _POOL_ORIGIN = ""
 _DEVICE = None
+_FULL_JLL_POOL = None    # List[MaterialEntry] — uncapped JLL library
+_FULL_JLL_BY_NAME = None # dict canonical_name -> MaterialEntry
 
 
 def _resolve_device(force_cpu: bool) -> "torch.device":
@@ -91,6 +137,7 @@ def _startup(checkpoint: Path, pool_dir: Optional[Path],
 
     global _MODEL, _MODEL_CONFIG, _MODEL_TAG, _MODEL_SHA
     global _POOL, _POOL_ORIGIN, _DEVICE
+    global _FULL_JLL_POOL, _FULL_JLL_BY_NAME
 
     _DEVICE = _resolve_device(force_cpu)
     print(f"[server] device: {_DEVICE}")
@@ -104,9 +151,13 @@ def _startup(checkpoint: Path, pool_dir: Optional[Path],
     print(f"[server] model sha: {_MODEL_SHA}")
 
     dir_ = pool_dir or default_jll_materials_dir()
-    _POOL = cap_pool_at_m_max(load_pool_from_jll(dir_), M_MAX)
+    full = load_pool_from_jll(dir_)
+    _FULL_JLL_POOL = full
+    _FULL_JLL_BY_NAME = {m.canonical_name: m for m in full}
+    _POOL = cap_pool_at_m_max(full, M_MAX)
     _POOL_ORIGIN = str(dir_)
-    print(f"[server] pool: {len(_POOL)} materials from {_POOL_ORIGIN}")
+    print(f"[server] JLL library: {len(full)} materials from {_POOL_ORIGIN}")
+    print(f"[server] default pool (M_MAX-capped): {len(_POOL)}")
 
 
 # ----------------------------------------------------------------------------
@@ -131,6 +182,15 @@ class KnobsIn(BaseModel):
     seed: int = 42
 
 
+class CustomMaterial(BaseModel):
+    """User-supplied material — already interpolated to the canonical
+    NUM_LAMBDA grid by /api/material_from_csv before reaching solve."""
+    canonical_name: str
+    n: List[float]
+    k: List[float]
+    source: str = "custom"
+
+
 class SolveIn(BaseModel):
     # exactly one of prompt OR target_lab is honoured (prompt wins if both)
     prompt: Optional[str] = None
@@ -140,13 +200,24 @@ class SolveIn(BaseModel):
     constraints: Optional[List[Dict[str, Any]]] = None
     knobs: Optional[KnobsIn] = None
 
+    # Dynamic pool inputs (all optional; empty = use default capped JLL).
+    # `pool_subset` is canonical names already known to the server (subset
+    # of the full installed JLL library). `custom_materials` carries
+    # user-uploaded n,k arrays. Combined pool is capped at M_MAX.
+    pool_subset: Optional[List[str]] = None
+    custom_materials: Optional[List[CustomMaterial]] = None
+
+    # Per-request OpenAI key — overrides $OPENAI_API_KEY for this call only.
+    # Never persisted server-side; treated as a sensitive header.
+    openai_api_key: Optional[str] = None
+
 
 # ----------------------------------------------------------------------------
 # App factory
 # ----------------------------------------------------------------------------
 
 def _make_app():
-    from fastapi import Body, FastAPI, HTTPException
+    from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
     from fastapi.staticfiles import StaticFiles
@@ -180,14 +251,87 @@ def _make_app():
             "device": str(_DEVICE) if _DEVICE else "unknown",
             "openai_key_present": bool(os.environ.get("OPENAI_API_KEY")),
             "parse_backend": os.environ.get("INDIGO_PARSE_BACKEND", "openai"),
+            "m_max": M_MAX,
         }
 
     @app.get("/api/pool")
     def pool_listing() -> Dict[str, Any]:
+        """Full uncapped JLL library — the frontend lets the user pick ≤M_MAX."""
+        materials = _FULL_JLL_POOL or []
         return {
             "materials": [
                 {"canonical_name": m.canonical_name, "source": m.source}
-                for m in _POOL
+                for m in materials
+            ],
+            "default_subset": [m.canonical_name for m in (_POOL or [])],
+            "m_max": M_MAX,
+        }
+
+    @app.post("/api/material_from_csv")
+    def material_from_csv(file: "UploadFile" = File(...),
+                          name: str = Form(...)) -> Dict[str, Any]:
+        """Parse a user-uploaded CSV → interpolated MaterialNK on the canonical
+        128-point frequency grid. Reuses src.material_features.load_jll_material
+        so the same parser the training data uses handles the user's CSV.
+
+        See inference/frontend/README.md for the CSV format.
+        """
+        import tempfile
+        from src.material_features import load_jll_material
+
+        name = (name or "").strip()
+        if not name:
+            raise HTTPException(400, "name is required")
+        try:
+            raw = file.file.read()
+        except Exception as exc:
+            raise HTTPException(400, f"could not read upload: {exc}")
+        if not raw:
+            raise HTTPException(400, "uploaded CSV is empty")
+        # `load_jll_material` derives the canonical_name from the filename
+        # stem; honour the user's `name` form field by giving the tmpfile
+        # exactly that stem.
+        with tempfile.TemporaryDirectory() as td:
+            csv_path = Path(td) / f"{name}.csv"
+            csv_path.write_bytes(raw)
+            try:
+                mat = load_jll_material(csv_path)
+            except Exception as exc:
+                raise HTTPException(
+                    400, f"CSV parse failed: {type(exc).__name__}: {exc}. "
+                         f"See /api/csv_format for the expected layout."
+                )
+        return {
+            "canonical_name": mat.name,
+            "n": mat.n.tolist(),
+            "k": mat.k.tolist(),
+            "source": "custom",
+        }
+
+    @app.get("/api/csv_format")
+    def csv_format() -> Dict[str, Any]:
+        """Machine-readable copy of the CSV format guide rendered in the UI."""
+        return {
+            "expected_columns": "wavelength_nm, n, k",
+            "example_rows": [
+                "wavelength_nm,n,k",
+                "300,1.479,0.0",
+                "550,1.469,0.0",
+                "900,1.464,0.0",
+            ],
+            "interpolation": (
+                "Uploaded rows are interpolated onto a canonical 128-point "
+                "grid uniform in FREQUENCY (not wavelength) spanning 300-900 "
+                "nm. Wavelengths outside the file's coverage are clamped to "
+                "the nearest endpoint. The interpolated arrays are exactly "
+                "the format the model was trained against."
+            ),
+            "max_pool_size": M_MAX,
+            "notes": [
+                "First column may be wavelength_nm or just nm. The "
+                "load_jll_material parser is permissive on header names.",
+                "k may be omitted (or all 0) for non-absorbing dielectrics.",
+                "Negative n or k are clamped to a small positive epsilon.",
             ],
         }
 
@@ -213,11 +357,25 @@ def _make_app():
             seed=int(knobs_in.seed),
         )
 
+        # Effective pool: pool_subset (named subset of installed JLL) +
+        # custom_materials (uploaded n,k). If both empty, fall back to the
+        # default pool the server loaded at startup.
+        try:
+            effective_pool = _effective_pool(
+                subset_names=body.pool_subset or [],
+                custom=body.custom_materials or [],
+            )
+        except Exception as exc:
+            raise HTTPException(400, f"pool build failed: {exc}")
+
         # Two input shapes: prompt (LLM) or explicit Lab + optional constraints.
         if body.prompt:
             from inference.src.parse import ParseError, parse_prompt
             try:
-                pr = parse_prompt(body.prompt, pool=_POOL, knobs=knobs)
+                pr = parse_prompt(
+                    body.prompt, pool=effective_pool, knobs=knobs,
+                    api_key=body.openai_api_key,
+                )
             except ParseError as exc:
                 raise HTTPException(400, f"[parse:{exc.gate}] {exc.message}")
             spec = pr.spec
@@ -246,7 +404,7 @@ def _make_app():
 
         try:
             result = solve(
-                model=_MODEL, pool=_POOL, spec=spec,
+                model=_MODEL, pool=effective_pool, spec=spec,
                 model_tag=_MODEL_TAG, model_sha256=_MODEL_SHA,
                 device=_DEVICE,
             )

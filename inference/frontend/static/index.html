@@ -10,19 +10,17 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
-    theme: {
-      extend: {
-        fontFamily: {
-          sans: ['Inter', 'system-ui', 'sans-serif'],
-          mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
-        },
-        colors: {
-          ink:    { 950: '#070912', 900: '#0d1020', 800: '#141727',
-                    700: '#1d2236', 600: '#2b3251', 500: '#444b6e' },
-          accent: { DEFAULT: '#7c5cff', soft: '#a999ff' },
-        },
+    theme: { extend: {
+      fontFamily: {
+        sans: ['Inter','system-ui','sans-serif'],
+        mono: ['JetBrains Mono','ui-monospace','SFMono-Regular','monospace'],
       },
-    },
+      colors: {
+        ink:    { 950:'#070912', 900:'#0d1020', 800:'#141727',
+                  700:'#1d2236', 600:'#2b3251', 500:'#444b6e' },
+        accent: { DEFAULT:'#7c5cff', soft:'#a999ff' },
+      },
+    } },
   }
 </script>
 <link rel="stylesheet" href="/styles.css" />
@@ -30,7 +28,6 @@
 
 <body class="bg-ink-950 text-slate-200 antialiased min-h-screen">
 
-<!-- ambient gradient -->
 <div class="fixed inset-0 -z-10 pointer-events-none">
   <div class="absolute -top-32 -left-32 w-[36rem] h-[36rem] bg-accent/20 rounded-full blur-3xl"></div>
   <div class="absolute top-1/3 right-0 w-[28rem] h-[28rem] bg-cyan-500/10 rounded-full blur-3xl"></div>
@@ -50,9 +47,9 @@
   </div>
 </header>
 
-<main class="container mx-auto px-6 pb-12 grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-6">
+<main class="container mx-auto px-6 pb-12 grid grid-cols-1 lg:grid-cols-[460px_1fr] gap-6">
 
-  <!-- ============================================================ INPUT -->
+  <!-- =================== INPUT =================== -->
   <section class="glass p-6 rounded-2xl">
 
     <!-- mode tabs -->
@@ -67,78 +64,149 @@
       <textarea id="promptInput" rows="4" class="textarea"
         placeholder="A deep red structure with 3-5 layers, no silver"></textarea>
       <p id="promptHint" class="text-xs text-slate-500">
-        Routed through the OpenAI parser. Falls back to mock keywords if no API key.
+        Routed through the OpenAI parser. Falls back to mock keywords if no key.
       </p>
     </div>
 
     <!-- structured tab -->
-    <div data-tab-pane="structured" class="space-y-4 hidden">
-      <div class="grid grid-cols-3 gap-3">
-        <div>
-          <label class="label">L*</label>
-          <input id="labL" type="number" step="0.1" min="0" max="100" value="60" class="input">
-        </div>
-        <div>
-          <label class="label">a*</label>
-          <input id="labA" type="number" step="0.1" min="-128" max="128" value="5" class="input">
-        </div>
-        <div>
-          <label class="label">b*</label>
-          <input id="labB" type="number" step="0.1" min="-128" max="128" value="-8" class="input">
+    <div data-tab-pane="structured" class="space-y-5 hidden">
+
+      <!-- RGB picker — convenient for eyeball cases. Maps to Lab; Lab is the
+           wider gamut, RGB is the subset that displays. -->
+      <div>
+        <label class="label">Pick a color (sRGB)</label>
+        <div class="flex items-center gap-3">
+          <input id="rgbPicker" type="color" value="#80a0b0" class="rgb-picker">
+          <div class="flex-1">
+            <div id="rgbReadout" class="font-mono text-xs text-slate-300">#80a0b0</div>
+            <div id="rgbHint" class="text-[11px] text-slate-500 mt-1">
+              Setting the picker syncs the Lab fields below. Lab is the model's
+              native target; you may also type Lab directly for wide-gamut targets.
+            </div>
+          </div>
         </div>
       </div>
-      <div class="flex items-center gap-3">
-        <div class="label !mb-0">preview</div>
-        <div id="labPreview" class="h-8 w-24 rounded-md ring-1 ring-white/10"></div>
+
+      <!-- Lab inputs -->
+      <div>
+        <label class="label">Or type Lab (model's native target)</label>
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <div class="micro-label">L*</div>
+            <input id="labL" type="number" step="0.1" min="0" max="100" value="60" class="input">
+          </div>
+          <div>
+            <div class="micro-label">a*</div>
+            <input id="labA" type="number" step="0.1" min="-128" max="128" value="5" class="input">
+          </div>
+          <div>
+            <div class="micro-label">b*</div>
+            <input id="labB" type="number" step="0.1" min="-128" max="128" value="-8" class="input">
+          </div>
+        </div>
+        <div class="flex items-center gap-3 mt-2">
+          <div class="micro-label !mb-0">preview</div>
+          <div id="labPreview" class="h-7 w-24 rounded-md ring-1 ring-white/10"></div>
+        </div>
       </div>
-      <details class="text-xs text-slate-400">
-        <summary class="cursor-pointer">add constraints (advanced)</summary>
-        <textarea id="constraintsInput" rows="5" class="textarea mt-2 font-mono"
-          placeholder='[
-  {"kind": "layer_count", "min_layers": 3, "max_layers": 5}
-]'></textarea>
-        <p class="mt-1 text-[10px] text-slate-500">JSON array of constraint dicts (see <code>parse.py</code>).</p>
+
+      <!-- Constraints helper -->
+      <details class="text-xs">
+        <summary class="cursor-pointer text-slate-300 hover:text-white select-none">
+          Constraint cheat-sheet & JSON
+        </summary>
+        <div class="mt-3 space-y-3">
+          <div class="grid grid-cols-2 gap-2">
+            <button class="cs-btn" data-cs='{"kind":"layer_count","min_layers":3,"max_layers":5}'>3-5 layers</button>
+            <button class="cs-btn" data-cs='{"kind":"layer_count","min_layers":1,"max_layers":3}'>≤3 layers</button>
+            <button class="cs-btn" data-cs='{"kind":"thickness_range","min_nm":20,"max_nm":120,"position":null}'>20-120 nm per layer</button>
+            <button class="cs-btn" data-cs='{"kind":"total_thickness","max_total_nm":400,"markovian_decode":true}'>≤400 nm total</button>
+            <button class="cs-btn" data-cs='{"kind":"symmetry","match_thickness":true}'>Symmetric stack</button>
+            <button class="cs-btn cs-btn-need-name" data-cs='{"kind":"layer_identity","position":0,"material_name":"<MAT>"}'>Bottom layer = …</button>
+            <button class="cs-btn cs-btn-need-name" data-cs='{"kind":"allowed_subset","allowed_names":["<MAT>"]}'>Only these materials</button>
+            <button class="cs-btn cs-btn-need-name" data-cs='{"kind":"adjacent_forbidden","forbidden_pairs":[["<MAT>","<MAT>"]]}'>Forbid adjacency</button>
+          </div>
+          <p class="text-[11px] text-slate-500">
+            Click a chip to append its JSON to the box. Edit `&lt;MAT&gt;`
+            placeholders to a canonical material name (see picker below).
+            Eight kinds total — see
+            <code class="text-slate-300">inference/src/constraints.py</code>.
+          </p>
+          <textarea id="constraintsInput" rows="6" class="textarea font-mono"
+            placeholder="[]   // optional — array of constraint dicts"></textarea>
+        </div>
       </details>
     </div>
 
-    <!-- knobs -->
+    <!-- material picker -->
     <details class="mt-6 group">
+      <summary class="cursor-pointer select-none flex items-center justify-between text-sm text-slate-300 hover:text-white">
+        <span class="flex items-center gap-2"><span class="rotate-0 group-open:rotate-90 transition-transform">▸</span> Materials</span>
+        <span id="poolCount" class="font-mono text-xs text-slate-500">…</span>
+      </summary>
+      <div class="mt-3 space-y-2">
+        <div class="flex gap-2 text-xs">
+          <input id="poolSearch" type="text" placeholder="filter…" class="input flex-1 !py-1.5 !text-xs">
+          <button id="poolSelectAll" class="chip">all</button>
+          <button id="poolSelectNone" class="chip">none</button>
+          <button id="poolUploadBtn" class="chip chip-accent">upload CSV ⤴</button>
+        </div>
+        <div id="poolList" class="max-h-56 overflow-y-auto rounded-lg bg-ink-900/60 ring-1 ring-white/5 p-2 space-y-0.5"></div>
+      </div>
+    </details>
+
+    <!-- knobs -->
+    <details class="mt-4 group">
       <summary class="cursor-pointer select-none flex items-center gap-2 text-sm text-slate-300 hover:text-white">
         <span class="rotate-0 group-open:rotate-90 transition-transform">▸</span>
         Advanced settings
       </summary>
       <div class="grid grid-cols-2 gap-3 mt-3 text-sm">
-        <div><label class="label">Ensemble N</label><input id="knobN" type="number" min="10" max="2000" value="500" class="input"></div>
-        <div><label class="label">Top-k</label><input id="knobK" type="number" min="1" max="20" value="5" class="input"></div>
+        <div><label class="label">Ensemble N</label><input id="knobN" type="number" min="10" max="2000" value="200" class="input"></div>
+        <div><label class="label">Top-k</label><input id="knobK" type="number" min="1" max="20" value="3" class="input"></div>
         <div><label class="label">Temperature</label><input id="knobT" type="number" step="0.05" min="0" max="2" value="1.0" class="input"></div>
         <div><label class="label">Tolerance %</label><input id="knobTol" type="number" step="0.5" min="0" max="20" value="5.0" class="input"></div>
         <div><label class="label">Weight λ</label><input id="knobLambda" type="number" step="0.1" min="0" max="10" value="1.0" class="input"></div>
+        <div><label class="label">MC samples</label><input id="knobMc" type="number" min="0" max="128" value="0" class="input"></div>
+        <div><label class="label">Refine iters</label><input id="knobRefine" type="number" min="10" max="500" value="60" class="input"></div>
         <div><label class="label">Seed</label><input id="knobSeed" type="number" value="42" class="input"></div>
+        <div class="col-span-2">
+          <label class="label">OpenAI API key <span class="text-slate-500 normal-case">(stored in browser only)</span></label>
+          <input id="openaiKey" type="password" autocomplete="off" placeholder="sk-… (overrides server env)" class="input font-mono">
+          <p class="text-[11px] text-slate-500 mt-1">Sent only with prompt requests. Not logged.</p>
+        </div>
       </div>
     </details>
 
     <button id="runBtn" class="btn-primary w-full mt-6">
       <span class="btn-label">Generate</span>
+      <span id="elapsedBadge" class="hidden font-mono text-xs opacity-80">0.0s</span>
       <span class="spinner hidden"></span>
     </button>
+
+    <!-- progress strip -->
+    <div id="progressStrip" class="hidden mt-3 space-y-1.5">
+      <div class="flex items-center justify-between text-[11px] text-slate-400">
+        <span id="progressPhase">queued</span>
+        <span id="progressTime" class="font-mono">0.0s</span>
+      </div>
+      <div class="h-1.5 rounded-full bg-ink-900 overflow-hidden">
+        <div id="progressBar" class="h-full bg-gradient-to-r from-accent to-fuchsia-400 transition-[width] duration-200" style="width:0%"></div>
+      </div>
+    </div>
 
     <p id="errorBanner" class="hidden mt-3 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-md px-3 py-2"></p>
   </section>
 
-  <!-- ============================================================ RESULT -->
+  <!-- =================== RESULT =================== -->
   <section id="resultPanel" class="glass p-6 rounded-2xl min-h-[600px]">
-
-    <!-- placeholder -->
     <div id="placeholder" class="h-full flex flex-col items-center justify-center text-center text-slate-500">
       <div class="w-16 h-16 mb-4 rounded-2xl bg-gradient-to-br from-accent/30 to-fuchsia-500/20 grid place-items-center text-3xl">◐</div>
-      <p class="text-sm">Type a prompt or set a Lab target.</p>
-      <p class="text-xs mt-1">INDIGO will return a layered thin-film stack that achieves the color.</p>
+      <p class="text-sm">Type a prompt or set a target color.</p>
+      <p class="text-xs mt-1">INDIGO will return a layered thin-film stack that achieves it.</p>
     </div>
 
-    <!-- result body, populated by app.js -->
     <div id="resultBody" class="hidden space-y-6">
-
-      <!-- top row: swatches + ΔE -->
       <div class="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-6">
         <div class="text-center space-y-2">
           <div class="text-xs uppercase tracking-widest text-slate-400">target</div>
@@ -157,20 +225,17 @@
         </div>
       </div>
 
-      <!-- reflectance chart -->
       <div>
         <div class="text-xs uppercase tracking-widest text-slate-400 mb-2">reflectance spectrum</div>
         <svg id="reflChart" class="w-full h-48" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
       </div>
 
-      <!-- layer diagram -->
       <div>
         <div class="text-xs uppercase tracking-widest text-slate-400 mb-2">layer stack</div>
         <div id="layerBars" class="flex h-12 rounded-lg overflow-hidden ring-1 ring-white/10"></div>
         <div id="layerLegend" class="mt-2 text-xs text-slate-400 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1"></div>
       </div>
 
-      <!-- robustness + summary -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
         <div class="stat"><div class="stat-label">R_l2</div><div id="statR" class="stat-value">—</div></div>
         <div class="stat"><div class="stat-label">J</div><div id="statJ" class="stat-value">—</div></div>
@@ -178,18 +243,15 @@
         <div class="stat"><div class="stat-label">refined</div><div id="statRefined" class="stat-value">—</div></div>
       </div>
 
-      <!-- alternatives -->
       <div>
         <div class="text-xs uppercase tracking-widest text-slate-400 mb-2">alternatives</div>
         <div id="altGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"></div>
       </div>
 
-      <!-- provenance -->
       <details class="text-xs text-slate-500">
         <summary class="cursor-pointer hover:text-slate-300">run details</summary>
         <pre id="provJSON" class="mt-2 p-3 bg-ink-900 rounded-lg overflow-x-auto font-mono text-[11px]"></pre>
       </details>
-
     </div>
   </section>
 </main>
@@ -197,6 +259,58 @@
 <footer class="container mx-auto px-6 pb-6 text-[11px] text-slate-500">
   <span class="font-mono">pure-function boundary: solve(model, pool, spec) → Result</span>
 </footer>
+
+<!-- ============== CSV upload modal ============== -->
+<div id="csvModal" class="modal-shell hidden">
+  <div class="modal glass">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-base font-semibold">Upload custom material CSV</h2>
+      <button id="csvCloseBtn" class="text-slate-400 hover:text-white">✕</button>
+    </div>
+    <p class="text-xs text-slate-400 mb-4">
+      Add a refractive-index spectrum (n, k vs wavelength). The server
+      interpolates onto the canonical 128-point frequency grid used by
+      training and inference.
+    </p>
+
+    <div class="space-y-3 text-sm">
+      <div>
+        <label class="label">Canonical name</label>
+        <input id="csvName" type="text" placeholder="MyOxide-2025" class="input">
+      </div>
+      <div>
+        <label class="label">CSV file</label>
+        <input id="csvFile" type="file" accept=".csv,text/csv" class="input cursor-pointer">
+      </div>
+      <p id="csvError" class="hidden text-xs text-rose-300"></p>
+    </div>
+
+    <details open class="mt-4 text-xs text-slate-400">
+      <summary class="cursor-pointer text-slate-300 hover:text-white">expected format</summary>
+      <pre class="mt-2 p-3 bg-ink-900 rounded-lg overflow-x-auto font-mono text-[11px] text-slate-300">wavelength_nm,n,k
+300,1.479,0.0
+350,1.476,0.0
+400,1.473,0.0
+…
+900,1.464,0.0</pre>
+      <ul class="list-disc list-inside mt-2 space-y-1">
+        <li>Header row required. First column may be <code>wavelength_nm</code> or <code>nm</code>.</li>
+        <li><code>k</code> may be omitted or all-zero for non-absorbing dielectrics.</li>
+        <li>Wavelengths outside your file's coverage are clamped to the nearest endpoint.</li>
+        <li>The server returns the n, k interpolated onto the 128-point canonical grid (uniform in frequency, 300-900 nm).</li>
+        <li>Pool is capped at <span class="font-mono" id="csvMmax">32</span> materials total; deselect a JLL entry if needed.</li>
+      </ul>
+    </details>
+
+    <div class="flex justify-end gap-2 mt-5">
+      <button id="csvCancelBtn" class="chip">cancel</button>
+      <button id="csvSubmitBtn" class="btn-primary !py-2 !px-4">
+        <span class="btn-label">Upload &amp; add to pool</span>
+        <span class="spinner hidden"></span>
+      </button>
+    </div>
+  </div>
+</div>
 
 <script src="/app.js"></script>
 </body>
