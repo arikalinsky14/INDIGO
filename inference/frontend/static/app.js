@@ -394,37 +394,64 @@ async function streamSolve(body, onProgress, onResult, onError) {
   const dec = new TextDecoder('utf-8');
   let buf = '';
   let nEvents = 0;
+  let nChunks = 0;
+  let nFrames = 0;
+  let totalBytes = 0;
+  const counts = { progress: 0, result: 0, error: 0, message: 0, hello: 0 };
+
   const drainFrames = () => {
-    let idx;
-    while ((idx = buf.indexOf('\n\n')) !== -1) {
-      const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
+    // Per SSE spec, frames are separated by a BLANK LINE — i.e. one of
+    // `\n\n`, `\r\n\r\n`, or `\r\r`. Accept all three; otherwise a server
+    // (or proxy) that injects \r\n line endings strands the final frame
+    // in the buffer and the result is silently lost.
+    while (true) {
+      const m = buf.match(/\r\n\r\n|\n\n|\r\r/);
+      if (!m) break;
+      const idx = m.index;
+      const frame = buf.slice(0, idx);
+      buf = buf.slice(idx + m[0].length);
+      nFrames++;
       let event = 'message'; const dataLines = [];
-      frame.split('\n').forEach((line) => {
-        // SSE comments (": …") used for heartbeats — ignore.
-        if (line.startsWith(':')) return;
+      // Split on any line ending, also per SSE spec.
+      frame.split(/\r\n|\n|\r/).forEach((line) => {
+        if (line.startsWith(':')) return;          // SSE comment / heartbeat
         if (line.startsWith('event:')) event = line.slice(6).trim();
         else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
       });
+      counts[event] = (counts[event] || 0) + 1;
       if (dataLines.length === 0) continue;
       let payload; try { payload = JSON.parse(dataLines.join('\n')); }
-      catch (e) { console.warn('SSE: bad JSON', e, dataLines); continue; }
+      catch (e) {
+        console.warn('SSE: bad JSON', e, 'event=', event,
+                     'dataLines[0..200]=', dataLines.join('\n').slice(0, 200));
+        continue;
+      }
       nEvents++;
+      if (event === 'result' || event === 'error') {
+        console.log('SSE: dispatching', event, 'frame');
+      }
       if      (event === 'progress') onProgress(payload);
       else if (event === 'result')   onResult(payload);
       else if (event === 'error')    onError(payload);
     }
   };
+
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
+    nChunks++; totalBytes += value.length;
     buf += dec.decode(value, { stream: true });
     drainFrames();
   }
-  // Flush any trailing decoder state + final frame missing its closing `\n\n`.
   buf += dec.decode();
-  if (buf.length > 0 && !buf.endsWith('\n\n')) buf += '\n\n';
+  // If a final frame is missing its blank-line terminator, force one so the
+  // last result/error event isn't stranded in the buffer.
+  if (buf.length > 0 && !/(\r\n\r\n|\n\n|\r\r)$/.test(buf)) buf += '\n\n';
   drainFrames();
-  console.log(`SSE stream ended after ${nEvents} events`);
+  console.log(`SSE done: chunks=${nChunks} bytes=${totalBytes} `
+            + `frames=${nFrames} events=${nEvents} counts=${JSON.stringify(counts)} `
+            + `bufLeft=${buf.length}`);
+  if (buf.length > 0) console.warn('SSE leftover buffer:', buf.slice(0, 200));
 }
 
 // ============================================================================
