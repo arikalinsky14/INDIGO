@@ -149,6 +149,7 @@ def monte_carlo_robustness(
     K: int = 32,
     seed: int = 0,
     incidence_angle: float = 0.0,
+    on_progress=None,
 ) -> MCRobustness:
     """K independent uniform perturbations; report ΔE percentiles.
 
@@ -185,6 +186,11 @@ def monte_carlo_robustness(
             incidence_angle,
         ))
         samples.append(de)
+        if on_progress is not None:
+            try:
+                on_progress("mc", k + 1, K, {"de": de})
+            except Exception:
+                pass
 
     arr = np.asarray(samples, dtype=np.float64)
     return MCRobustness(

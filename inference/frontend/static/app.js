@@ -257,39 +257,115 @@ function bindCsvModal() {
 
 // ============================================================================
 // Progress strip + elapsed timer
+//
+// Two sources feed the strip:
+//   1) Server-Sent Events from /api/solve_stream — REAL milestones (phase
+//      changes, per-iter ticks during refinement and MC). When they arrive,
+//      `setRealProgress` overrides the simulated bar and pins the phase label.
+//   2) A wall-clock timer animating the bar between milestones so the user
+//      always sees motion, even during a slow JAX call.
 // ============================================================================
-const PHASES = [
-  { until: 0.10, label: 'encoding pool' },
-  { until: 0.35, label: 'sampling ensemble' },
-  { until: 0.70, label: 'simulating candidates' },
-  { until: 0.90, label: 'refining top-k' },
-  { until: 1.00, label: 'finalising' },
-];
 
-let _progressTimer = null, _progressStart = 0, _progressEnd = 0;
+// Real-progress checkpoints. The bar is monotonic; once a higher pct is
+// reached, the timer can only push it further along (up to the next
+// checkpoint). Each entry: stage -> {pctAtStart, pctAtEnd, label}.
+const STAGE_BANDS = {
+  start:                  { start: 0.00, end: 0.05, label: 'encoding pool' },
+  generate:               { start: 0.05, end: 0.18, label: 'sampling ensemble' },
+  generated:              { start: 0.18, end: 0.20, label: 'deduplicating candidates' },
+  select_start:           { start: 0.20, end: 0.22, label: 'simulating candidates' },
+  simulate:               { start: 0.22, end: 0.45, label: 'simulating candidates' },
+  refine_start:           { start: 0.45, end: 0.47, label: 'refining top-k' },
+  refine_candidate_start: { start: 0.47, end: 0.48, label: 'refining candidate' },
+  refine_iter:            { start: 0.47, end: 0.85, label: 'refining candidate' },
+  refine_candidate_end:   { start: 0.85, end: 0.86, label: 'refining candidate' },
+  mc_start:               { start: 0.86, end: 0.87, label: 'Monte-Carlo robustness' },
+  mc:                     { start: 0.87, end: 0.96, label: 'Monte-Carlo robustness' },
+  finalising:             { start: 0.96, end: 0.99, label: 'finalising — re-ranking' },
+  done:                   { start: 1.00, end: 1.00, label: 'done' },
+};
+
+let _progressTimer = null;
+let _progressStart = 0;
+let _progressEnd  = 0;       // estimated wall-clock end (for animation only)
+let _realPct      = 0;       // highest pct reported by the server
+let _realLabel    = '';      // current phase label (from server, if any)
+let _bandMax      = 0.05;    // upper bound the simulated timer may push toward
+let _detailText   = '';      // sub-step text: "iter 12/25 — ΔE 4.71" etc.
 
 function startProgress(estSeconds) {
   _progressStart = performance.now();
   _progressEnd   = _progressStart + estSeconds * 1000;
+  _realPct = 0; _realLabel = ''; _detailText = ''; _bandMax = 0.05;
   $('#progressStrip').classList.remove('hidden');
   $('#errorBanner').classList.add('hidden');
   $('#elapsedBadge').classList.remove('hidden');
+  $('#progressBar').style.width = '0%';
+  $('#progressPhase').textContent = 'queued';
   const tick = () => {
     const now = performance.now();
     const elapsedS = (now - _progressStart) / 1000;
-    // Slow the bar's asymptote as it approaches 95% so the user never sees it hit 100% prematurely.
-    let pct = ((now - _progressStart) / (_progressEnd - _progressStart)) * 100;
-    if (pct >= 95) pct = 95 + (1 - Math.exp(-(elapsedS - estSeconds) / 20)) * 4.9;
+    // Estimated pct from wall clock, slowed near the top.
+    let estPct = ((now - _progressStart) / (_progressEnd - _progressStart));
+    if (estPct >= 0.95) estPct = 0.95 + (1 - Math.exp(-(elapsedS - estSeconds) / 20)) * 0.049;
+    // Real pct + slow drift toward the current band's upper edge.
+    let pct = Math.max(_realPct, Math.min(_bandMax, estPct)) * 100;
     pct = Math.max(0, Math.min(99.5, pct));
     $('#progressBar').style.width = pct.toFixed(1) + '%';
     $('#progressTime').textContent = elapsedS.toFixed(1) + 's';
     $('#elapsedBadge').textContent = elapsedS.toFixed(1) + 's';
-    const phase = PHASES.find((p) => pct / 100 < p.until) || PHASES[PHASES.length - 1];
-    $('#progressPhase').textContent = phase.label;
+    const phaseTxt = _realLabel || 'preparing';
+    $('#progressPhase').textContent = _detailText
+      ? `${phaseTxt} — ${_detailText}` : phaseTxt;
   };
   tick();
   _progressTimer = setInterval(tick, 100);
 }
+
+function setRealProgress(stage, current, total, info) {
+  const band = STAGE_BANDS[stage];
+  if (!band) return;
+  let frac;
+  if (total > 0) {
+    frac = Math.max(0, Math.min(1, current / total));
+  } else {
+    frac = 1.0;
+  }
+  // Map progress into the band [start, end].
+  const pct = band.start + (band.end - band.start) * frac;
+  _realPct = Math.max(_realPct, pct);
+  _bandMax = Math.max(_bandMax, band.end);
+  _realLabel = band.label;
+  _detailText = buildDetail(stage, current, total, info || {});
+}
+
+function buildDetail(stage, current, total, info) {
+  switch (stage) {
+    case 'generate':       return '';
+    case 'generated':      return `${info.unique ?? current} unique`;
+    case 'simulate':       return `${current}/${total}`;
+    case 'refine_candidate_start':
+    case 'refine_candidate_end':
+      return `${current}/${total} candidate${total > 1 ? 's' : ''}`;
+    case 'refine_iter': {
+      const cand = info.candidate, candTotal = info.candidates_total;
+      const candPart = (cand && candTotal && candTotal > 1)
+        ? `cand ${cand}/${candTotal} · ` : '';
+      const dePart = (typeof info.de === 'number')
+        ? ` · ΔE ${info.de.toFixed(2)}` : '';
+      return `${candPart}iter ${current}/${total}${dePart}`;
+    }
+    case 'mc': {
+      const cand = info.candidate, candTotal = info.candidates_total;
+      const candPart = (cand && candTotal && candTotal > 1)
+        ? `cand ${cand}/${candTotal} · ` : '';
+      return `${candPart}draw ${current}/${total}`;
+    }
+    case 'finalising': return 're-ranking + provenance';
+    default: return '';
+  }
+}
+
 function stopProgress(success) {
   if (_progressTimer) { clearInterval(_progressTimer); _progressTimer = null; }
   $('#progressBar').style.width = success ? '100%' : '0%';
@@ -298,6 +374,45 @@ function stopProgress(success) {
     $('#elapsedBadge').classList.add('hidden');
     $('#progressBar').style.width = '0%';
   }, success ? 500 : 0);
+}
+
+// ============================================================================
+// SSE consumer — fetch + ReadableStream (EventSource is GET-only).
+// ============================================================================
+async function streamSolve(body, onProgress, onResult, onError) {
+  const r = await fetch('/api/solve_stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const txt = await r.text();
+    throw new Error(`HTTP ${r.status}: ${txt}`);
+  }
+  if (!r.body) throw new Error('Streaming not supported in this browser.');
+  const reader = r.body.getReader();
+  const dec = new TextDecoder('utf-8');
+  let buf = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let idx;
+    while ((idx = buf.indexOf('\n\n')) !== -1) {
+      const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
+      let event = 'message'; const dataLines = [];
+      frame.split('\n').forEach((line) => {
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+      });
+      if (dataLines.length === 0) continue;
+      let payload; try { payload = JSON.parse(dataLines.join('\n')); }
+      catch { continue; }
+      if      (event === 'progress') onProgress(payload);
+      else if (event === 'result')   onResult(payload);
+      else if (event === 'error')    onError(payload);
+    }
+  }
 }
 
 // ============================================================================
@@ -401,22 +516,32 @@ async function runSolve() {
   btn.disabled = true; spinner.classList.remove('hidden'); lbl.textContent = 'Generating';
   startProgress(estimateSolveSeconds(body.knobs));
 
+  let finished = false; let renderedError = null; let result = null;
   try {
-    const r = await fetch('/api/solve', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) { const txt = await r.text(); throw new Error(`HTTP ${r.status}: ${txt}`); }
-    const result = await r.json();
-    stopProgress(true);
-    renderResult(result);
+    await streamSolve(
+      body,
+      (p) => setRealProgress(p.stage, p.current, p.total, p.info),
+      (r) => { result = r; finished = true; },
+      (e) => { renderedError = e.message || 'solve error'; finished = true; },
+    );
   } catch (e) {
     stopProgress(false);
     console.error(e); err.textContent = e.message; err.classList.remove('hidden');
-  } finally {
     btn.disabled = false; spinner.classList.add('hidden'); lbl.textContent = 'Generate';
+    return;
   }
+  if (renderedError) {
+    stopProgress(false);
+    err.textContent = renderedError; err.classList.remove('hidden');
+  } else if (result) {
+    stopProgress(true);
+    renderResult(result);
+  } else if (!finished) {
+    stopProgress(false);
+    err.textContent = 'Connection closed before a result arrived.';
+    err.classList.remove('hidden');
+  }
+  btn.disabled = false; spinner.classList.add('hidden'); lbl.textContent = 'Generate';
 }
 
 // ============================================================================

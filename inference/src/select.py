@@ -69,6 +69,7 @@ def simulate_and_score(
     target_lab_raw: Tuple[float, float, float],
     knobs: InferenceKnobs,
     incidence_angle: float = 0.0,
+    on_progress=None,
 ) -> List[Candidate]:
     """In-place fill of `achieved_lab`, `reflectance`, `delta_e`, `objective`,
     and `robustness` on every Candidate.
@@ -86,7 +87,9 @@ def simulate_and_score(
     pool_n_jax, pool_k_jax = pad_pool_nk(pool)
     target_jax = jnp.asarray(target_lab_raw, dtype=jnp.float64)
 
-    for cand in candidates:
+    total = len(candidates)
+    report_every = max(1, total // 20)  # ~20 updates over the loop
+    for cand_idx, cand in enumerate(candidates, start=1):
         L = len(cand.slot_indices)
         if L == 0:
             continue  # generate.py already drops these; defensive.
@@ -122,6 +125,14 @@ def simulate_and_score(
             r_for_objective = 0.0
 
         cand.objective = de + knobs.weight_lambda * r_for_objective
+
+        if on_progress is not None and (
+            cand_idx % report_every == 0 or cand_idx == total
+        ):
+            try:
+                on_progress("simulate", cand_idx, total, {})
+            except Exception:
+                pass
 
     return candidates
 
@@ -198,6 +209,7 @@ def select_top_k(
     constraint_set: ConstraintSet,
     knobs: InferenceKnobs,
     incidence_angle: float = 0.0,
+    on_progress=None,
 ) -> Tuple[List[Candidate], dict, List[ConstraintCheck]]:
     """End-to-end selection step: sim + filter + rank + top_k.
 
@@ -209,7 +221,8 @@ def select_top_k(
                          best-scoring candidate; intended for the Result.
     """
     # 1. Simulate and score every unique candidate.
-    simulate_and_score(candidates, pool, target_lab_raw, knobs, incidence_angle)
+    simulate_and_score(candidates, pool, target_lab_raw, knobs, incidence_angle,
+                       on_progress=on_progress)
 
     # 2. Post-hoc filter.
     feasible, drop_counts = filter_feasible(candidates, pool, constraint_set)

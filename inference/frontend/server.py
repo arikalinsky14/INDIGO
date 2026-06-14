@@ -259,7 +259,7 @@ class SolveIn(BaseModel):
 def _make_app():
     from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import JSONResponse
+    from fastapi.responses import JSONResponse, StreamingResponse
     from fastapi.staticfiles import StaticFiles
 
     from inference.src.schema import (
@@ -457,6 +457,142 @@ def _make_app():
         from inference.src.schema import _strip_arrays  # internal but stable
         from dataclasses import asdict
         return JSONResponse(content=_strip_arrays(asdict(result)))
+
+    @app.post("/api/solve_stream")
+    def solve_stream(body: SolveIn = Body(...)) -> StreamingResponse:
+        """Server-Sent Events variant of /api/solve.
+
+        Yields a sequence of `event: progress` frames during the run and a
+        final `event: result` (or `event: error`) frame at the end. Each
+        frame's `data:` payload is a JSON object.
+
+        The pipeline runs in a worker thread; progress callbacks push events
+        into a thread-safe queue that this generator drains in order. The
+        client (app.js) parses SSE with a ReadableStream reader since
+        `EventSource` is GET-only and we want a JSON body.
+        """
+        if _MODEL is None:
+            raise HTTPException(503, "model not loaded")
+
+        # ---- Same body validation as /api/solve. Failures here become a
+        # synchronous HTTPException so the client gets a normal 4xx, not an
+        # SSE error frame, before any streaming starts.
+        knobs_in = body.knobs or KnobsIn()
+        knobs = InferenceKnobs(
+            ensemble_N=int(knobs_in.ensemble_N),
+            temperature=float(knobs_in.temperature),
+            tolerance_pct=float(knobs_in.tolerance_pct),
+            weight_lambda=float(knobs_in.weight_lambda),
+            top_k=int(knobs_in.top_k),
+            refine_top_n=int(knobs_in.refine_top_n),
+            refine_max_iters=int(knobs_in.refine_max_iters),
+            refine_step_size=float(knobs_in.refine_step_size),
+            mc_samples=int(knobs_in.mc_samples),
+            seed=int(knobs_in.seed),
+        )
+        try:
+            effective_pool = _effective_pool(
+                subset_names=body.pool_subset or [],
+                custom=body.custom_materials or [],
+            )
+        except Exception as exc:
+            raise HTTPException(400, f"pool build failed: {exc}")
+
+        if body.prompt:
+            from inference.src.parse import ParseError, parse_prompt
+            try:
+                pr = parse_prompt(
+                    body.prompt, pool=effective_pool, knobs=knobs,
+                    api_key=body.openai_api_key,
+                )
+            except ParseError as exc:
+                raise HTTPException(400, f"[parse:{exc.gate}] {exc.message}")
+            spec = pr.spec
+        elif body.target_lab is not None:
+            from inference.scripts.run_inference import (
+                _build_constraints_from_json,
+            )
+            target = tuple(float(x) for x in body.target_lab)
+            norm_t = normalize_lab(list(target))
+            constraints = []
+            if body.constraints:
+                try:
+                    constraints = _build_constraints_from_json(body.constraints)
+                except Exception as exc:
+                    raise HTTPException(400, f"bad constraints: {exc}")
+            spec = InferenceSpec(
+                target_lab_raw=target,
+                target_lab_normalised=tuple(float(x) for x in norm_t.tolist()),
+                constraints=constraints,
+                enforce_during=[], enforce_post=[],
+                knobs=knobs,
+                parsed_disclaimer="structured input from frontend",
+            )
+        else:
+            raise HTTPException(400, "send either `prompt` or `target_lab`")
+
+        # ---- Streaming setup. The solver runs in a thread; the callback
+        # publishes events on a queue this generator drains.
+        import json
+        import queue
+        import threading
+        from dataclasses import asdict
+        from inference.src.schema import _strip_arrays
+
+        q: "queue.Queue[dict]" = queue.Queue()
+        _DONE = {"__sentinel__": True}
+
+        def _cb(stage, current, total, info):
+            q.put({"type": "progress", "stage": stage,
+                   "current": int(current), "total": int(total),
+                   "info": info or {}})
+
+        def _worker():
+            try:
+                result = solve(
+                    model=_MODEL, pool=effective_pool, spec=spec,
+                    model_tag=_MODEL_TAG, model_sha256=_MODEL_SHA,
+                    device=_DEVICE, on_progress=_cb,
+                )
+                q.put({"type": "result",
+                       "result": _strip_arrays(asdict(result))})
+            except Exception as exc:
+                q.put({"type": "error",
+                       "message": f"{type(exc).__name__}: {exc}"})
+            finally:
+                q.put(_DONE)
+
+        thread = threading.Thread(target=_worker, daemon=True)
+        thread.start()
+
+        def _sse_format(event: str, payload: dict) -> str:
+            return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
+
+        def _gen():
+            # Yield an immediate hello so the browser flushes headers and the
+            # XHR / fetch reader unblocks even before the first real event.
+            yield _sse_format("hello", {"ok": True})
+            while True:
+                msg = q.get()
+                if msg is _DONE:
+                    break
+                t = msg.get("type")
+                if t == "progress":
+                    yield _sse_format("progress", msg)
+                elif t == "result":
+                    yield _sse_format("result", msg["result"])
+                elif t == "error":
+                    yield _sse_format("error", {"message": msg["message"]})
+
+        return StreamingResponse(
+            _gen(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",  # disable proxy buffering
+                "Connection": "keep-alive",
+            },
+        )
 
     # ------------------------------------------------------------------
     # Static UI — mounted LAST so /api/* routes take precedence.

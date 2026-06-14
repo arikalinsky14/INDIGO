@@ -66,11 +66,22 @@ def solve(
     incidence_angle: float = 0.0,
     n_random_restarts: int = 0,
     device: Optional[torch.device] = None,
+    on_progress=None,
 ) -> Result:
     """Run the full inference pipeline. Returns a Result either way:
     success → `chosen` populated; failure → `chosen=None`, `errors[...]`."""
     knobs = spec.knobs
     constraint_set = ConstraintSet(constraints=list(spec.constraints))
+
+    def _emit(stage, current=0, total=0, info=None):
+        if on_progress is None:
+            return
+        try:
+            on_progress(stage, int(current), int(total), info or {})
+        except Exception:
+            pass
+
+    _emit("start", 0, 7, {"phase": "encoding pool"})
 
     pool_fp = pool_fingerprint(pool)
     prov = Provenance.capture(
@@ -79,6 +90,8 @@ def solve(
     )
 
     # 1. Generate.
+    _emit("generate", 0, int(knobs.ensemble_N),
+          {"phase": "sampling ensemble"})
     gen_cfg = GenerationConfig(
         ensemble_N=knobs.ensemble_N,
         temperature=knobs.temperature,
@@ -93,12 +106,17 @@ def solve(
         return _failure_result(
             spec, prov, errors=[f"generate failed: {type(exc).__name__}: {exc}"],
         )
+    _emit("generated", len(candidates), int(knobs.ensemble_N),
+          {"unique": len(candidates)})
 
     # 2. Simulate + score + post-hoc filter + top_k.
+    _emit("select_start", 0, len(candidates),
+          {"phase": "simulating candidates"})
     try:
         top, drop_counts, constraints_report = select_top_k(
             candidates, pool, spec.target_lab_raw, constraint_set, knobs,
             incidence_angle,
+            on_progress=on_progress,
         )
     except FeasibilityError as exc:
         # Failure envelope: chosen=None, drop counts attached so the GUI can
@@ -114,22 +132,41 @@ def solve(
     ens_stats.dropped_per_constraint = drop_counts
 
     # 3. Refine.
+    cap = int(getattr(knobs, "refine_top_n", 0) or len(top))
+    n_to_refine = min(cap, len(top))
+    _emit("refine_start", 0, n_to_refine, {"phase": "refining top-k"})
     refined, _diag = refine_top_k(
         candidates=top, pool=pool, target_lab_raw=spec.target_lab_raw,
         constraint_set=constraint_set, knobs=knobs,
         incidence_angle=incidence_angle, n_random_restarts=n_random_restarts,
+        on_progress=on_progress,
     )
     ens_stats.n_refined = sum(1 for c in refined if c.refined)
 
     # 4. MC robustness on the (refined) top_k. Honest robustness numbers for
     # the report; the gradient version was used as the ranking signal.
     if knobs.tolerance_pct > 0 and knobs.mc_samples > 0:
+        n_mc_cands = len(refined)
+        _emit("mc_start", 0, knobs.mc_samples * n_mc_cands,
+              {"phase": "Monte-Carlo robustness",
+               "candidates_total": n_mc_cands})
         for idx, c in enumerate(refined):
+            def _mc_wrap(stage, current, total, info, _idx=idx):
+                if on_progress is None:
+                    return
+                payload = dict(info or {})
+                payload["candidate"] = _idx + 1
+                payload["candidates_total"] = n_mc_cands
+                try:
+                    on_progress(stage, current, total, payload)
+                except Exception:
+                    pass
             mc = monte_carlo_robustness(
                 pool, c.slot_indices, c.thicknesses_nm,
                 spec.target_lab_raw, knobs.tolerance_pct,
                 K=knobs.mc_samples, seed=knobs.seed + 1000 + idx,
                 incidence_angle=incidence_angle,
+                on_progress=_mc_wrap,
             )
             c.robustness = RobustnessReport(
                 grad_predicted_shift=c.robustness.grad_predicted_shift,
@@ -139,6 +176,7 @@ def solve(
             )
 
     # 5. Re-rank in case refinement changed J ordering.
+    _emit("finalising", 0, 0, {"phase": "finalising"})
     final_ordered = top_k_by_objective(refined, knobs.top_k)
     ens_stats.n_returned = len(final_ordered)
 
@@ -150,6 +188,7 @@ def solve(
             constraints_report=constraints_report,
         )
 
+    _emit("done", 1, 1, {"phase": "done"})
     return Result(
         spec_echo=spec,
         chosen=final_ordered[0],
