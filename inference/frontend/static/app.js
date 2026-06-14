@@ -379,6 +379,12 @@ function stopProgress(success) {
 // ============================================================================
 // SSE consumer — fetch + ReadableStream (EventSource is GET-only).
 // ============================================================================
+
+// Most-recent stream diagnostics; surfaced in the error banner when a solve
+// ends without dispatching a result. Don't trust server logs alone — when
+// the page is opened from another machine the user doesn't see them.
+let _lastSseDiag = null;
+
 async function streamSolve(body, onProgress, onResult, onError) {
   const r = await fetch('/api/solve_stream', {
     method: 'POST',
@@ -393,17 +399,16 @@ async function streamSolve(body, onProgress, onResult, onError) {
   const reader = r.body.getReader();
   const dec = new TextDecoder('utf-8');
   let buf = '';
+  let raw = '';        // append-only copy of every decoded chunk (for diag)
   let nEvents = 0;
   let nChunks = 0;
   let nFrames = 0;
   let totalBytes = 0;
   const counts = { progress: 0, result: 0, error: 0, message: 0, hello: 0 };
+  const parseErrors = [];
+  const seenEventLines = [];          // every `event: …` line we observed
 
   const drainFrames = () => {
-    // Per SSE spec, frames are separated by a BLANK LINE — i.e. one of
-    // `\n\n`, `\r\n\r\n`, or `\r\r`. Accept all three; otherwise a server
-    // (or proxy) that injects \r\n line endings strands the final frame
-    // in the buffer and the result is silently lost.
     while (true) {
       const m = buf.match(/\r\n\r\n|\n\n|\r\r/);
       if (!m) break;
@@ -412,18 +417,22 @@ async function streamSolve(body, onProgress, onResult, onError) {
       buf = buf.slice(idx + m[0].length);
       nFrames++;
       let event = 'message'; const dataLines = [];
-      // Split on any line ending, also per SSE spec.
       frame.split(/\r\n|\n|\r/).forEach((line) => {
-        if (line.startsWith(':')) return;          // SSE comment / heartbeat
-        if (line.startsWith('event:')) event = line.slice(6).trim();
+        if (line.startsWith(':')) return;
+        if (line.startsWith('event:')) {
+          event = line.slice(6).trim();
+          seenEventLines.push(event);
+        }
         else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
       });
       counts[event] = (counts[event] || 0) + 1;
       if (dataLines.length === 0) continue;
-      let payload; try { payload = JSON.parse(dataLines.join('\n')); }
+      let payload;
+      try { payload = JSON.parse(dataLines.join('\n')); }
       catch (e) {
-        console.warn('SSE: bad JSON', e, 'event=', event,
-                     'dataLines[0..200]=', dataLines.join('\n').slice(0, 200));
+        parseErrors.push({ event, err: String(e),
+                           sample: dataLines.join('\n').slice(0, 240) });
+        console.warn('SSE: bad JSON', e, 'event=', event);
         continue;
       }
       nEvents++;
@@ -440,18 +449,26 @@ async function streamSolve(body, onProgress, onResult, onError) {
     const { value, done } = await reader.read();
     if (done) break;
     nChunks++; totalBytes += value.length;
-    buf += dec.decode(value, { stream: true });
+    const piece = dec.decode(value, { stream: true });
+    buf += piece; raw += piece;
     drainFrames();
   }
-  buf += dec.decode();
-  // If a final frame is missing its blank-line terminator, force one so the
-  // last result/error event isn't stranded in the buffer.
+  const tail = dec.decode();
+  buf += tail; raw += tail;
   if (buf.length > 0 && !/(\r\n\r\n|\n\n|\r\r)$/.test(buf)) buf += '\n\n';
   drainFrames();
-  console.log(`SSE done: chunks=${nChunks} bytes=${totalBytes} `
-            + `frames=${nFrames} events=${nEvents} counts=${JSON.stringify(counts)} `
-            + `bufLeft=${buf.length}`);
-  if (buf.length > 0) console.warn('SSE leftover buffer:', buf.slice(0, 200));
+
+  _lastSseDiag = {
+    chunks: nChunks, bytes: totalBytes, frames: nFrames, events: nEvents,
+    counts, parseErrors,
+    seenEventLines,
+    bufLeftLen: buf.length,
+    bufLeftSample: buf.slice(0, 500),
+    rawLen: raw.length,
+    rawTail: raw.slice(-1200),
+    rawContainsResult: raw.includes('event: result'),
+  };
+  console.log('SSE done:', _lastSseDiag);
 }
 
 // ============================================================================
@@ -571,16 +588,86 @@ async function runSolve() {
   }
   if (renderedError) {
     stopProgress(false);
-    err.textContent = renderedError; err.classList.remove('hidden');
+    err.innerHTML = ''; err.appendChild(buildErrorBlock(renderedError));
+    err.classList.remove('hidden');
   } else if (result) {
     stopProgress(true);
     renderResult(result);
   } else if (!finished) {
     stopProgress(false);
-    err.textContent = 'Connection closed before a result arrived.';
+    err.innerHTML = '';
+    err.appendChild(buildErrorBlock(
+      'Connection closed before a result arrived.',
+      _lastSseDiag,
+    ));
     err.classList.remove('hidden');
   }
   btn.disabled = false; spinner.classList.add('hidden'); lbl.textContent = 'Generate';
+}
+
+// ============================================================================
+// Visible error block (with collapsible SSE diagnostics).
+// ============================================================================
+function buildErrorBlock(message, diag) {
+  const wrap = document.createElement('div');
+  const top = document.createElement('div');
+  top.className = 'font-medium';
+  top.textContent = message;
+  wrap.appendChild(top);
+  if (!diag) return wrap;
+
+  const det = document.createElement('details');
+  det.className = 'mt-2 text-[11px] text-slate-300/80';
+  const sum = document.createElement('summary');
+  sum.className = 'cursor-pointer text-slate-400 hover:text-slate-200';
+  sum.textContent = 'SSE diagnostics';
+  det.appendChild(sum);
+
+  const summaryRow = document.createElement('div');
+  summaryRow.className = 'mt-2 font-mono';
+  summaryRow.textContent =
+    `chunks=${diag.chunks} bytes=${diag.bytes} `
+    + `frames=${diag.frames} events=${diag.events} `
+    + `bufLeft=${diag.bufLeftLen} `
+    + `rawContainsResult=${diag.rawContainsResult}`;
+  det.appendChild(summaryRow);
+
+  const countsRow = document.createElement('div');
+  countsRow.className = 'font-mono';
+  countsRow.textContent = 'counts: ' + JSON.stringify(diag.counts);
+  det.appendChild(countsRow);
+
+  const seenRow = document.createElement('div');
+  seenRow.className = 'font-mono';
+  const uniq = [...new Set(diag.seenEventLines)];
+  seenRow.textContent = 'event lines seen: ' + JSON.stringify(uniq);
+  det.appendChild(seenRow);
+
+  if (diag.parseErrors && diag.parseErrors.length) {
+    const pe = document.createElement('pre');
+    pe.className = 'mt-2 whitespace-pre-wrap font-mono text-rose-300';
+    pe.textContent = 'parse errors:\n' +
+      diag.parseErrors.slice(0, 4).map((e, i) =>
+        `[${i}] event=${e.event}\n    err=${e.err}\n    sample=${e.sample}`
+      ).join('\n');
+    det.appendChild(pe);
+  }
+
+  if (diag.bufLeftLen > 0) {
+    const lb = document.createElement('pre');
+    lb.className = 'mt-2 whitespace-pre-wrap font-mono';
+    lb.textContent = 'leftover buffer (first 500 chars):\n' + diag.bufLeftSample;
+    det.appendChild(lb);
+  }
+
+  const rt = document.createElement('pre');
+  rt.className = 'mt-2 whitespace-pre-wrap font-mono opacity-80';
+  rt.textContent = `raw tail (last ${Math.min(1200, diag.rawLen)} chars):\n`
+    + (diag.rawTail || '');
+  det.appendChild(rt);
+
+  wrap.appendChild(det);
+  return wrap;
 }
 
 // ============================================================================
