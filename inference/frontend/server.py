@@ -607,8 +607,12 @@ def _make_app():
             return str(o)
 
         def _sse_format(event: str, payload: dict) -> str:
+            # allow_nan=False raises ValueError if any NaN/Inf slipped past
+            # _strip_arrays — a loud failure now beats another silent client
+            # parse error. The try/except around the yield in _gen() converts
+            # such a failure into an `error` frame on the same stream.
             return (f"event: {event}\n"
-                    f"data: {json.dumps(payload, default=_sse_default)}\n\n")
+                    f"data: {json.dumps(payload, default=_sse_default, allow_nan=False)}\n\n")
 
         def _gen():
             # Yield an immediate hello so the browser flushes headers and the
