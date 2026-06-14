@@ -703,10 +703,53 @@ def _make_app():
 # Entry point
 # ----------------------------------------------------------------------------
 
+def _find_default_checkpoint(repo_root: Path) -> Optional[Path]:
+    """Auto-pick a checkpoint when --checkpoint is omitted.
+
+    Search order, first hit wins:
+      1) $INDIGO_CHECKPOINT env var
+      2) data/checkpoints/<tag>/latest  — most recently modified
+      3) data/checkpoints/<tag>          — most recently modified leaf
+
+    Returns None if nothing valid is found; the caller renders a friendly
+    error instead of crashing inside the loader.
+    """
+    env = os.environ.get("INDIGO_CHECKPOINT")
+    if env:
+        p = Path(env).expanduser().resolve()
+        if (p / "model.pt").is_file():
+            return p
+
+    root = repo_root / "data" / "checkpoints"
+    if not root.is_dir():
+        return None
+
+    # Prefer */latest symlinks/dirs (the canonical convention from training).
+    latests = []
+    for sub in root.iterdir():
+        if not sub.is_dir():
+            continue
+        cand = sub / "latest"
+        if cand.is_dir() and (cand / "model.pt").is_file():
+            latests.append(cand)
+    if latests:
+        latests.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        return latests[0]
+
+    # Fall through: any subdir with a model.pt.
+    others = [sub for sub in root.iterdir()
+              if sub.is_dir() and (sub / "model.pt").is_file()]
+    others.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return others[0] if others else None
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="INDIGO inference web server")
-    p.add_argument("--checkpoint", type=str, required=True,
-                   help="Path to a saved checkpoint dir (data/checkpoints/<tag>/latest)")
+    p.add_argument("--checkpoint", type=str, default=None,
+                   help="Path to a saved checkpoint dir "
+                        "(data/checkpoints/<tag>/latest). "
+                        "If omitted, the most recent data/checkpoints/*/latest "
+                        "in this repo is used; $INDIGO_CHECKPOINT overrides.")
     p.add_argument("--pool-dir", type=str, default=None,
                    help="JLL materials directory (default: installed package)")
     p.add_argument("--host", type=str, default="127.0.0.1",
@@ -715,15 +758,29 @@ def main() -> int:
     p.add_argument("--reload", action="store_true",
                    help="dev-only: uvicorn reload on file change")
     p.add_argument("--cpu", action="store_true",
-                   help="Force CPU for the model forward. Use on viz / "
-                        "non-GPU nodes where CUDA libs are incomplete.")
+                   help="Force CPU for the model forward. The server probes "
+                        "CUDA at startup and falls back to CPU automatically "
+                        "if cuDNN / cuBLAS aren't loadable; --cpu just skips "
+                        "the probe.")
     p.add_argument("--no-prewarm", action="store_true",
                    help="Skip the tiny dummy solve at startup. Saves ~5-30 s "
                         "of cold-start time but makes the first user request "
                         "pay that cost instead.")
     args = p.parse_args()
 
-    _startup(Path(args.checkpoint),
+    if args.checkpoint:
+        ckpt = Path(args.checkpoint)
+    else:
+        ckpt = _find_default_checkpoint(_root)
+        if ckpt is None:
+            print("[server] No checkpoint found.\n"
+                  "        Pass --checkpoint <path>, or place one at "
+                  "data/checkpoints/<tag>/latest/, or set $INDIGO_CHECKPOINT.",
+                  file=sys.stderr)
+            return 2
+        print(f"[server] auto-selected checkpoint: {ckpt}")
+
+    _startup(ckpt,
              Path(args.pool_dir) if args.pool_dir else None,
              force_cpu=args.cpu, prewarm=not args.no_prewarm)
 
