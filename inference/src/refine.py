@@ -347,17 +347,34 @@ def refine_top_k(
     n_random_restarts: int = 0,
 ) -> Tuple[List[Candidate], List[RefineDiagnostics]]:
     """Refine each top-k candidate independently. Returns refined Candidates
-    in the same order and the per-candidate RefineDiagnostics."""
+    in the same order and the per-candidate RefineDiagnostics.
+
+    Honours `knobs.refine_top_n`: when > 0, only the first N candidates get
+    the (expensive) gradient refinement; the remaining `top_k - N` pass
+    through unrefined. The user still sees alternatives, but the slow
+    refinement loop only fires on the most promising candidates.
+    """
     refined: List[Candidate] = []
     diags: List[RefineDiagnostics] = []
+    cap = int(getattr(knobs, "refine_top_n", 0) or len(candidates))
     for idx, c in enumerate(candidates):
-        rc, dd = refine_candidate(
-            c, pool, target_lab_raw, constraint_set, knobs, incidence_angle,
-            n_random_restarts=n_random_restarts,
-            base_seed=knobs.seed + idx,
-        )
-        refined.append(rc)
-        diags.append(dd)
+        if idx < cap:
+            rc, dd = refine_candidate(
+                c, pool, target_lab_raw, constraint_set, knobs, incidence_angle,
+                n_random_restarts=n_random_restarts,
+                base_seed=knobs.seed + idx,
+            )
+            refined.append(rc)
+            diags.append(dd)
+        else:
+            # Pass-through; mark as not refined.
+            refined.append(c)
+            diags.append(RefineDiagnostics(
+                iters=0, delta_e_start=c.delta_e, delta_e_end=c.delta_e,
+                j_start=c.objective, j_end=c.objective,
+                fell_back_to_seed=True,
+                fallback_reason="skipped (refine_top_n cap)",
+            ))
     return refined, diags
 
 
