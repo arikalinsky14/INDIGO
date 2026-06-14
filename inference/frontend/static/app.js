@@ -683,11 +683,25 @@ function deltaELabel(de) {
 const fmt = (x, d=2) => Number(x).toFixed(d);
 const PALETTE = ['#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16','#a855f7','#f97316'];
 
+// Most-recent result + which candidate is currently shown in the main view.
+// idx 0 = chosen, idx 1..N = alternatives. Click on an alt card swaps the
+// main view (swatches / ΔE / reflectance / layers / stats) to that candidate.
+let _currentResult = null;
+let _activeIdx = 0;
+
+function allCandidates(result) {
+  if (!result || !result.chosen) return [];
+  return [result.chosen, ...(result.alternatives || [])];
+}
+
 function renderResult(result) {
   $('#placeholder').classList.add('hidden');
   const body = $('#resultBody');
   body.classList.remove('hidden');
   body.classList.remove('show'); void body.offsetWidth; body.classList.add('show');
+
+  _currentResult = result;
+  _activeIdx = 0;
 
   if (!result.chosen) {
     $('#deltaE').textContent = 'fail';
@@ -696,17 +710,36 @@ function renderResult(result) {
     $('#achievedSwatch').style.backgroundColor = '#1a1c2a';
     return;
   }
-  const c = result.chosen;
-  const tgt = result.spec_echo.target_lab_raw;
+
+  buildAltGrid();
+  renderCandidateView(0);
+
+  $('#provJSON').textContent = JSON.stringify({
+    spec_echo: result.spec_echo,
+    ensemble_stats: result.ensemble_stats,
+    provenance: result.provenance,
+  }, null, 2);
+}
+
+function renderCandidateView(idx) {
+  if (!_currentResult) return;
+  const all = allCandidates(_currentResult);
+  if (idx < 0 || idx >= all.length) return;
+  _activeIdx = idx;
+  const c = all[idx];
+  const tgt = _currentResult.spec_echo.target_lab_raw;
 
   $('#targetSwatch').style.backgroundColor   = labToSrgb(tgt[0], tgt[1], tgt[2]);
   $('#achievedSwatch').style.backgroundColor = labToSrgb(c.achieved_lab[0], c.achieved_lab[1], c.achieved_lab[2]);
   $('#targetLab').textContent   = `L* ${fmt(tgt[0],1)}  a* ${fmt(tgt[1],1)}  b* ${fmt(tgt[2],1)}`;
   $('#achievedLab').textContent = `L* ${fmt(c.achieved_lab[0],1)}  a* ${fmt(c.achieved_lab[1],1)}  b* ${fmt(c.achieved_lab[2],1)}`;
   $('#deltaE').textContent = fmt(c.delta_e, 3);
-  $('#deltaELabel').textContent = deltaELabel(c.delta_e);
+  $('#deltaELabel').textContent = deltaELabel(c.delta_e)
+    + (idx === 0 ? '' : ` · alt #${idx}`);
 
-  drawReflectance(c.reflectance, result.alternatives || []);
+  // The other candidates become the faint background lines in the chart.
+  const others = all.filter((_, i) => i !== idx);
+  drawReflectance(c.reflectance, others);
   drawLayerBars(c.material_names, c.thicknesses_nm);
 
   $('#statR').textContent       = fmt(c.robustness.grad_l2_shift, 3);
@@ -714,24 +747,38 @@ function renderResult(result) {
   $('#statMc').textContent      = c.robustness.mc_samples > 0 ? fmt(c.robustness.mc_p95, 2) : '—';
   $('#statRefined').textContent = c.refined ? 'yes' : 'no';
 
-  const grid = $('#altGrid'); grid.innerHTML = '';
-  (result.alternatives || []).slice(0, 8).forEach((alt) => {
-    const card = document.createElement('div'); card.className = 'alt-card';
-    const sw = document.createElement('div');   sw.className = 'alt-swatch';
-    sw.style.backgroundColor = labToSrgb(alt.achieved_lab[0], alt.achieved_lab[1], alt.achieved_lab[2]);
-    const meta = document.createElement('div'); meta.className = 'alt-meta';
-    meta.innerHTML = `<span class="alt-de">ΔE ${fmt(alt.delta_e, 2)}</span> · ${alt.slot_indices.length}L`;
-    card.appendChild(sw); card.appendChild(meta); grid.appendChild(card);
+  // Highlight the active card (or clear all if showing the chosen).
+  $$('.alt-card').forEach((card) => {
+    const cardIdx = parseInt(card.dataset.idx, 10);
+    card.classList.toggle('active', cardIdx === idx);
   });
-  if (!result.alternatives || result.alternatives.length === 0) {
-    grid.innerHTML = '<div class="text-xs text-slate-500 col-span-full">No alternatives — top_k = 1.</div>';
-  }
+}
 
-  $('#provJSON').textContent = JSON.stringify({
-    spec_echo: result.spec_echo,
-    ensemble_stats: result.ensemble_stats,
-    provenance: result.provenance,
-  }, null, 2);
+function buildAltGrid() {
+  const grid = $('#altGrid'); grid.innerHTML = '';
+  const all = allCandidates(_currentResult);
+  if (all.length <= 1) {
+    grid.innerHTML = '<div class="text-xs text-slate-500 col-span-full">No alternatives — top_k = 1.</div>';
+    return;
+  }
+  // Build a card per candidate: chosen first, then alternatives. Clicking
+  // any card swaps the main view to that candidate.
+  all.slice(0, 9).forEach((cand, idx) => {
+    const card = document.createElement('div');
+    card.className = 'alt-card';
+    card.dataset.idx = String(idx);
+    if (idx === 0) {
+      const pill = document.createElement('span'); pill.className = 'alt-pill';
+      pill.textContent = 'chosen'; card.appendChild(pill);
+    }
+    const sw = document.createElement('div'); sw.className = 'alt-swatch';
+    sw.style.backgroundColor = labToSrgb(cand.achieved_lab[0], cand.achieved_lab[1], cand.achieved_lab[2]);
+    const meta = document.createElement('div'); meta.className = 'alt-meta';
+    meta.innerHTML = `<span class="alt-de">ΔE ${fmt(cand.delta_e, 2)}</span> · ${cand.slot_indices.length}L`;
+    card.appendChild(sw); card.appendChild(meta);
+    card.addEventListener('click', () => renderCandidateView(idx));
+    grid.appendChild(card);
+  });
 }
 
 function drawReflectance(refl, alts) {

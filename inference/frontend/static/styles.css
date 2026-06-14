@@ -89,26 +89,15 @@ html, body { font-family: 'Inter', system-ui, sans-serif; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ΔE big number — gradient-clipped text with hardened cross-browser CSS.
-   Tailwind CDN's JIT sometimes ships only `background-clip: text` without
-   the -webkit prefix, which silently leaves Chrome rendering fully
-   transparent text on top of the dark panel (symptom: the number
-   "disappears" / "is the same colour as the background"). Pin both
-   prefixes here, with a solid-colour @supports fallback. */
+/* ΔE big number — solid bright color. Earlier versions used
+   `bg-clip-text + text-transparent` for a gradient look, but Tailwind
+   CDN's JIT emits the rule without the -webkit prefix that Chrome needs,
+   leaving the text fully transparent on top of the dark panel (symptom:
+   "the number is the same colour as the background"). Solid is reliable. */
 .delta-e {
-  background: linear-gradient(135deg, #8b6cff 0%, #f0abfc 100%);
-  -webkit-background-clip: text;
-          background-clip: text;
-  -webkit-text-fill-color: transparent;
-          color: transparent;
-  text-shadow: 0 0 24px rgba(124, 92, 255, 0.25);
-}
-@supports not ((-webkit-background-clip: text) or (background-clip: text)) {
-  .delta-e {
-    background: none;
-    color: #e2e8f0;
-    -webkit-text-fill-color: #e2e8f0;
-  }
+  color: #c4b5fd;
+  -webkit-text-fill-color: #c4b5fd;
+  text-shadow: 0 0 24px rgba(124, 92, 255, 0.35);
 }
 
 /* Swatches ------------------------------------------------------------- */
@@ -168,13 +157,28 @@ html, body { font-family: 'Inter', system-ui, sans-serif; }
 
 /* Alternatives cards --------------------------------------------------- */
 .alt-card {
+  position: relative;
   background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 10px;
   padding: 8px;
-  transition: border-color 120ms ease, transform 120ms ease;
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
 }
 .alt-card:hover { border-color: rgba(124, 92, 255, 0.4); transform: translateY(-2px); }
+.alt-card.active {
+  border-color: rgba(124, 92, 255, 0.85);
+  background: rgba(124, 92, 255, 0.10);
+  box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.25), 0 6px 24px -8px rgba(124, 92, 255, 0.45);
+}
+.alt-card.active .alt-meta { color: #cbd5e1; }
+.alt-pill {
+  position: absolute; top: 4px; right: 6px;
+  font-size: 9px; padding: 2px 6px; border-radius: 999px;
+  background: rgba(124, 92, 255, 0.25); color: #e9defb;
+  border: 1px solid rgba(124, 92, 255, 0.5);
+  font-family: 'JetBrains Mono', monospace; letter-spacing: 0.04em;
+}
 .alt-swatch { height: 56px; border-radius: 6px; margin-bottom: 6px; border: 1px solid rgba(255, 255, 255, 0.08); }
 .alt-meta { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--label); }
 .alt-de { color: #e2e8f0; }
