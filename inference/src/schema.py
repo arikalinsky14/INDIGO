@@ -334,15 +334,34 @@ def _json_default(o: Any) -> Any:
 
 
 def _strip_arrays(d: Any) -> Any:
-    """Recursively replace numpy arrays with lists for clean JSON output."""
+    """Recursively normalise a dict/list tree for spec-compliant JSON output.
+
+    - numpy arrays / numpy scalars → Python lists / floats / ints
+    - tuples → lists
+    - NaN / +-Inf → None
+
+    The NaN/Inf substitution is the important one: Python's `json.dumps`
+    emits the bare tokens `NaN` / `Infinity` by default (non-spec
+    extension), and JavaScript's `JSON.parse` rejects them. RobustnessReport's
+    `mc_*` fields default to NaN when MC sampling is skipped, so this
+    matters in the default code path, not just edge cases.
+    """
+    import math
     if isinstance(d, dict):
         return {k: _strip_arrays(v) for k, v in d.items()}
-    if isinstance(d, list):
-        return [_strip_arrays(x) for x in d]
-    if isinstance(d, tuple):
+    if isinstance(d, (list, tuple)):
         return [_strip_arrays(x) for x in d]
     if isinstance(d, np.ndarray):
-        return d.tolist()
+        return _strip_arrays(d.tolist())
+    if isinstance(d, float):
+        if math.isnan(d) or math.isinf(d):
+            return None
+        return d
+    if isinstance(d, np.floating):
+        f = float(d)
+        return None if math.isnan(f) or math.isinf(f) else f
+    if isinstance(d, np.integer):
+        return int(d)
     return d
 
 
