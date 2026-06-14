@@ -393,26 +393,38 @@ async function streamSolve(body, onProgress, onResult, onError) {
   const reader = r.body.getReader();
   const dec = new TextDecoder('utf-8');
   let buf = '';
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
+  let nEvents = 0;
+  const drainFrames = () => {
     let idx;
     while ((idx = buf.indexOf('\n\n')) !== -1) {
       const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
       let event = 'message'; const dataLines = [];
       frame.split('\n').forEach((line) => {
+        // SSE comments (": …") used for heartbeats — ignore.
+        if (line.startsWith(':')) return;
         if (line.startsWith('event:')) event = line.slice(6).trim();
         else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
       });
       if (dataLines.length === 0) continue;
       let payload; try { payload = JSON.parse(dataLines.join('\n')); }
-      catch { continue; }
+      catch (e) { console.warn('SSE: bad JSON', e, dataLines); continue; }
+      nEvents++;
       if      (event === 'progress') onProgress(payload);
       else if (event === 'result')   onResult(payload);
       else if (event === 'error')    onError(payload);
     }
+  };
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    drainFrames();
   }
+  // Flush any trailing decoder state + final frame missing its closing `\n\n`.
+  buf += dec.decode();
+  if (buf.length > 0 && !buf.endsWith('\n\n')) buf += '\n\n';
+  drainFrames();
+  console.log(`SSE stream ended after ${nEvents} events`);
 }
 
 // ============================================================================

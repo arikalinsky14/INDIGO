@@ -536,11 +536,16 @@ def _make_app():
         import json
         import queue
         import threading
+        import time as _time
         from dataclasses import asdict
         from inference.src.schema import _strip_arrays, _json_default
 
         q: "queue.Queue[dict]" = queue.Queue()
         _DONE = {"__sentinel__": True}
+        _stream_id = f"{int(_time.time())}-{threading.get_ident()}"
+
+        def _log(msg):
+            print(f"[sse {_stream_id}] {msg}", flush=True)
 
         def _cb(stage, current, total, info):
             q.put({"type": "progress", "stage": stage,
@@ -549,23 +554,34 @@ def _make_app():
 
         def _worker():
             import traceback as _tb
+            _log("worker: starting solve()")
+            t0 = _time.time()
             try:
                 result = solve(
                     model=_MODEL, pool=effective_pool, spec=spec,
                     model_tag=_MODEL_TAG, model_sha256=_MODEL_SHA,
                     device=_DEVICE, on_progress=_cb,
                 )
-                # Serialise INSIDE the try so a numpy/JAX leak surfaces as
-                # an `error` event on the stream instead of a silent close.
-                payload = _strip_arrays(asdict(result))
+                _log(f"worker: solve() returned in {_time.time()-t0:.1f}s; "
+                     f"chosen={result.chosen is not None}")
+                try:
+                    payload = _strip_arrays(asdict(result))
+                except Exception as ser_exc:
+                    _log(f"worker: _strip_arrays raised: "
+                         f"{type(ser_exc).__name__}: {ser_exc}")
+                    _tb.print_exc()
+                    raise
+                _log(f"worker: payload built (keys={list(payload.keys())}); "
+                     f"queuing result")
                 q.put({"type": "result", "result": payload})
+                _log("worker: result queued")
             except Exception as exc:
-                print(f"[server] /api/solve_stream worker raised: "
-                      f"{type(exc).__name__}: {exc}", file=sys.stderr)
+                _log(f"worker raised: {type(exc).__name__}: {exc}")
                 _tb.print_exc()
                 q.put({"type": "error",
                        "message": f"{type(exc).__name__}: {exc}"})
             finally:
+                _log("worker: queuing DONE")
                 q.put(_DONE)
 
         thread = threading.Thread(target=_worker, daemon=True)
@@ -597,30 +613,65 @@ def _make_app():
         def _gen():
             # Yield an immediate hello so the browser flushes headers and the
             # XHR / fetch reader unblocks even before the first real event.
+            _log("gen: yielding hello")
             yield _sse_format("hello", {"ok": True})
+            n_progress = 0
+            heartbeat_every = 5.0
+            last_event_at = _time.time()
             while True:
-                msg = q.get()
+                # Block with a short timeout so we can heartbeat. SSE comments
+                # (lines starting with `:`) keep proxies and dev tools awake
+                # without polluting the event stream.
+                try:
+                    msg = q.get(timeout=heartbeat_every)
+                except queue.Empty:
+                    _log(f"gen: heartbeat (idle "
+                         f"{_time.time()-last_event_at:.1f}s; "
+                         f"worker_alive={thread.is_alive()})")
+                    yield f": heartbeat {int(_time.time())}\n\n"
+                    if not thread.is_alive():
+                        _log("gen: worker died without DONE; emitting error")
+                        yield _sse_format("error",
+                            {"message": "worker thread died silently — see "
+                                        "server logs for traceback"})
+                        break
+                    continue
+                last_event_at = _time.time()
                 if msg is _DONE:
+                    _log(f"gen: got DONE after {n_progress} progress events; "
+                         f"closing stream")
                     break
                 t = msg.get("type")
                 try:
                     if t == "progress":
+                        n_progress += 1
                         yield _sse_format("progress", msg)
                     elif t == "result":
-                        yield _sse_format("result", msg["result"])
+                        _log("gen: yielding result frame")
+                        chunk = _sse_format("result", msg["result"])
+                        _log(f"gen: result frame size={len(chunk)} bytes")
+                        yield chunk
+                        _log("gen: result frame yielded successfully")
                     elif t == "error":
+                        _log(f"gen: yielding error frame "
+                             f"({msg.get('message','')[:80]})")
                         yield _sse_format("error", {"message": msg["message"]})
                 except Exception as ser_exc:
-                    # If serialisation still fails for some unexpected reason,
-                    # surface it to the client instead of dropping the stream.
                     import traceback as _tb
+                    _log(f"gen: yield failed on {t}: "
+                         f"{type(ser_exc).__name__}: {ser_exc}")
+                    _tb.print_exc()
                     err_payload = {
                         "message": f"server SSE serialise failed: "
                                    f"{type(ser_exc).__name__}: {ser_exc}",
                         "trace": _tb.format_exc(),
                     }
-                    yield (f"event: error\n"
-                           f"data: {json.dumps(err_payload)}\n\n")
+                    try:
+                        yield (f"event: error\n"
+                               f"data: {json.dumps(err_payload)}\n\n")
+                    except Exception:
+                        pass
+            _log("gen: returning (stream end)")
 
         return StreamingResponse(
             _gen(),
