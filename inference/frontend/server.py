@@ -130,7 +130,7 @@ def _prewarm_pipeline() -> None:
     the JAX / Python-import cold start. Cuts the user's first wall-clock by
     roughly the cold-start cost (5-30 s depending on the CPU)."""
     import time as _t
-    from inference.src.schema import InferenceSpec
+    from inference.src.schema import InferenceKnobs, InferenceSpec
     from inference.src.solve import solve as _solve
     from src.materials_vocab import normalize_lab
     if not (_MODEL and _POOL):
