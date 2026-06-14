@@ -125,8 +125,44 @@ def _resolve_device(force_cpu: bool) -> "torch.device":
         return torch.device("cpu")
 
 
+def _prewarm_pipeline() -> None:
+    """Run a tiny throwaway solve so the first user-facing solve doesn't pay
+    the JAX / Python-import cold start. Cuts the user's first wall-clock by
+    roughly the cold-start cost (5-30 s depending on the CPU)."""
+    import time as _t
+    from inference.src.schema import InferenceSpec
+    from inference.src.solve import solve as _solve
+    from src.materials_vocab import normalize_lab
+    if not (_MODEL and _POOL):
+        return
+    print("[server] prewarming JAX + pipeline (one tiny dummy solve)…",
+          flush=True)
+    t0 = _t.time()
+    sm_pool = _POOL[: min(4, len(_POOL))]
+    spec = InferenceSpec(
+        target_lab_raw=(50.0, 0.0, 0.0),
+        target_lab_normalised=tuple(float(x)
+                                    for x in normalize_lab([50.0, 0.0, 0.0]).tolist()),
+        constraints=[],
+        enforce_during=[], enforce_post=[],
+        knobs=InferenceKnobs(
+            ensemble_N=8, top_k=1, refine_top_n=1,
+            refine_max_iters=2, tolerance_pct=0.0, mc_samples=0,
+            seed=0,
+        ),
+        parsed_disclaimer="prewarm",
+    )
+    try:
+        _solve(model=_MODEL, pool=sm_pool, spec=spec,
+               model_tag=_MODEL_TAG, model_sha256=_MODEL_SHA, device=_DEVICE)
+        print(f"[server] prewarm done in {_t.time() - t0:.1f}s", flush=True)
+    except Exception as exc:
+        print(f"[server] prewarm skipped: {type(exc).__name__}: {exc}",
+              flush=True)
+
+
 def _startup(checkpoint: Path, pool_dir: Optional[Path],
-             force_cpu: bool = False) -> None:
+             force_cpu: bool = False, prewarm: bool = True) -> None:
     """Load model + pool once. Called from main() before serving."""
     import torch
     from inference.scripts.run_inference import (
@@ -159,6 +195,9 @@ def _startup(checkpoint: Path, pool_dir: Optional[Path],
     print(f"[server] JLL library: {len(full)} materials from {_POOL_ORIGIN}")
     print(f"[server] default pool (M_MAX-capped): {len(_POOL)}")
 
+    if prewarm:
+        _prewarm_pipeline()
+
 
 # ----------------------------------------------------------------------------
 # Request models — MUST live at module scope, not inside _make_app(). Pydantic
@@ -176,6 +215,7 @@ class KnobsIn(BaseModel):
     tolerance_pct: float = 5.0
     weight_lambda: float = 1.0
     top_k: int = 5
+    refine_top_n: int = 0          # 0 = refine all top_k; >0 caps it
     refine_max_iters: int = 100
     refine_step_size: float = 1.0
     mc_samples: int = 32
@@ -351,6 +391,7 @@ def _make_app():
             tolerance_pct=float(knobs_in.tolerance_pct),
             weight_lambda=float(knobs_in.weight_lambda),
             top_k=int(knobs_in.top_k),
+            refine_top_n=int(knobs_in.refine_top_n),
             refine_max_iters=int(knobs_in.refine_max_iters),
             refine_step_size=float(knobs_in.refine_step_size),
             mc_samples=int(knobs_in.mc_samples),
@@ -447,11 +488,15 @@ def main() -> int:
     p.add_argument("--cpu", action="store_true",
                    help="Force CPU for the model forward. Use on viz / "
                         "non-GPU nodes where CUDA libs are incomplete.")
+    p.add_argument("--no-prewarm", action="store_true",
+                   help="Skip the tiny dummy solve at startup. Saves ~5-30 s "
+                        "of cold-start time but makes the first user request "
+                        "pay that cost instead.")
     args = p.parse_args()
 
     _startup(Path(args.checkpoint),
              Path(args.pool_dir) if args.pool_dir else None,
-             force_cpu=args.cpu)
+             force_cpu=args.cpu, prewarm=not args.no_prewarm)
 
     try:
         import uvicorn

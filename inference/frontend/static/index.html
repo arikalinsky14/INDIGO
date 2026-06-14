@@ -157,24 +157,31 @@
 
     <!-- knobs -->
     <details class="mt-4 group">
-      <summary class="cursor-pointer select-none flex items-center gap-2 text-sm text-slate-300 hover:text-white">
-        <span class="rotate-0 group-open:rotate-90 transition-transform">▸</span>
-        Advanced settings
+      <summary class="cursor-pointer select-none flex items-center justify-between text-sm text-slate-300 hover:text-white">
+        <span class="flex items-center gap-2"><span class="rotate-0 group-open:rotate-90 transition-transform">▸</span> Advanced settings</span>
+        <button id="howItWorksBtn" type="button" class="chip chip-accent text-[10px]">how it works ⓘ</button>
       </summary>
       <div class="grid grid-cols-2 gap-3 mt-3 text-sm">
-        <div><label class="label">Ensemble N</label><input id="knobN" type="number" min="10" max="2000" value="200" class="input"></div>
-        <div><label class="label">Top-k</label><input id="knobK" type="number" min="1" max="20" value="3" class="input"></div>
-        <div><label class="label">Temperature</label><input id="knobT" type="number" step="0.05" min="0" max="2" value="1.0" class="input"></div>
-        <div><label class="label">Tolerance %</label><input id="knobTol" type="number" step="0.5" min="0" max="20" value="5.0" class="input"></div>
-        <div><label class="label">Weight λ</label><input id="knobLambda" type="number" step="0.1" min="0" max="10" value="1.0" class="input"></div>
-        <div><label class="label">MC samples</label><input id="knobMc" type="number" min="0" max="128" value="0" class="input"></div>
-        <div><label class="label">Refine iters</label><input id="knobRefine" type="number" min="10" max="500" value="60" class="input"></div>
-        <div><label class="label">Seed</label><input id="knobSeed" type="number" value="42" class="input"></div>
+        <div><label class="label" title="Number of candidate structures the model samples. Larger N = more diversity + better best-of, but per-candidate physics is sequential on CPU.">Ensemble N</label><input id="knobN" type="number" min="10" max="2000" value="150" class="input"></div>
+        <div><label class="label" title="How many candidates we return as alternatives.">Top-k</label><input id="knobK" type="number" min="1" max="20" value="3" class="input"></div>
+        <div><label class="label" title="How many of the top_k actually run gradient refinement. The slowest stage on CPU — keep this small (1 or 2).">Refine top-N</label><input id="knobRefineN" type="number" min="0" max="10" value="1" class="input"></div>
+        <div><label class="label" title="Max Adam iterations per refined candidate. Refinement also early-terminates when ΔE stops moving.">Refine iters</label><input id="knobRefine" type="number" min="0" max="500" value="25" class="input"></div>
+        <div><label class="label" title="Sampling temperature for the ensemble. 1 = trained distribution, &lt; 1 = sharper / more deterministic, &gt; 1 = more diverse.">Temperature</label><input id="knobT" type="number" step="0.05" min="0" max="2" value="1.0" class="input"></div>
+        <div><label class="label" title="Manufacturing tolerance for robustness scoring (percent). 0 disables R_l2 and Monte-Carlo robustness — faster.">Tolerance %</label><input id="knobTol" type="number" step="0.5" min="0" max="20" value="0.0" class="input"></div>
+        <div><label class="label" title="Weight of robustness in J = ΔE + λ·R_l2. Only used if tolerance &gt; 0.">Weight λ</label><input id="knobLambda" type="number" step="0.1" min="0" max="10" value="1.0" class="input"></div>
+        <div><label class="label" title="Monte-Carlo robustness draws on refined top-k. 0 = skipped. Slow.">MC samples</label><input id="knobMc" type="number" min="0" max="128" value="0" class="input"></div>
+        <div><label class="label" title="Base RNG seed. Per-replica seeds derive from it.">Seed</label><input id="knobSeed" type="number" value="42" class="input"></div>
         <div class="col-span-2">
           <label class="label">OpenAI API key <span class="text-slate-500 normal-case">(stored in browser only)</span></label>
           <input id="openaiKey" type="password" autocomplete="off" placeholder="sk-… (overrides server env)" class="input font-mono">
           <p class="text-[11px] text-slate-500 mt-1">Sent only with prompt requests. Not logged.</p>
         </div>
+      </div>
+      <div class="flex items-center gap-2 mt-3 text-xs">
+        <span class="text-slate-400">Presets:</span>
+        <button class="chip preset-btn" data-preset="fast">fast</button>
+        <button class="chip preset-btn" data-preset="balanced">balanced</button>
+        <button class="chip preset-btn" data-preset="best">best</button>
       </div>
     </details>
 
@@ -308,6 +315,102 @@
         <span class="btn-label">Upload &amp; add to pool</span>
         <span class="spinner hidden"></span>
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============== "How it works" modal ============== -->
+<div id="howModal" class="modal-shell hidden">
+  <div class="modal glass" style="max-width: 720px;">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-base font-semibold">How an INDIGO solve works</h2>
+      <button id="howCloseBtn" class="text-slate-400 hover:text-white">✕</button>
+    </div>
+    <p class="text-xs text-slate-400 mb-4">
+      <span class="font-mono">solve(model, pool, spec) → Result</span>. Six
+      stages in order. Hyperparameter callouts are in <span class="text-accent">purple</span>.
+    </p>
+
+    <ol class="space-y-3 text-xs text-slate-300 max-h-[60vh] overflow-y-auto pr-1">
+
+      <li class="phase-row"><span class="phase-num">1</span><div>
+        <div class="phase-title">parse (prompt mode only)</div>
+        <p>If you used the Prompt tab, your text goes through the LLM
+        (<span class="font-mono">parse.py</span>) which emits a structured
+        spec: target Lab + constraint list. Three validation gates
+        (schema / semantic / physical) reject malformed output.</p>
+      </div></li>
+
+      <li class="phase-row"><span class="phase-num">2</span><div>
+        <div class="phase-title">encoding pool</div>
+        <p>The pool of materials (≤ <span class="font-mono">M_MAX = 32</span>)
+        is encoded into the model's slot-token representation. Runs once per
+        request. Negligible cost on the wall-clock.</p>
+      </div></li>
+
+      <li class="phase-row"><span class="phase-num">3</span><div>
+        <div class="phase-title">sampling ensemble — <span class="text-accent">Ensemble N</span>, <span class="text-accent">Temperature</span></div>
+        <p>The model autoregressively decodes <span class="font-mono">N</span>
+        candidate structures in one batched forward, conditioning on the
+        target Lab + pool. Higher <span class="text-accent">N</span> = more
+        diversity; <span class="text-accent">Temperature</span> controls how
+        confidently the model picks each layer. Constraint masks fire here
+        (allowed_subset, layer_count, total_thickness running budget,
+        symmetry, …) so feasibility is by construction.</p>
+      </div></li>
+
+      <li class="phase-row"><span class="phase-num">4</span><div>
+        <div class="phase-title">simulating candidates</div>
+        <p>For every unique candidate after de-duplication, the JLL
+        transfer-matrix physics computes reflectance &amp; achieved Lab,
+        then ΔE_00 vs target. This is the dominant CPU cost — the
+        physics chain is sequential per candidate (a known constraint
+        documented in <span class="font-mono">simulate.py</span>).</p>
+      </div></li>
+
+      <li class="phase-row"><span class="phase-num">5</span><div>
+        <div class="phase-title">selecting top-k — <span class="text-accent">Top-k</span>, <span class="text-accent">Tolerance %</span>, <span class="text-accent">Weight λ</span></div>
+        <p>Candidates are scored by <span class="font-mono">J = ΔE + λ·R_l2</span>
+        where R_l2 is a gradient-based robustness prediction (skipped when
+        <span class="text-accent">Tolerance % = 0</span>). The top
+        <span class="text-accent">Top-k</span> by J are kept as alternatives.</p>
+      </div></li>
+
+      <li class="phase-row"><span class="phase-num">6</span><div>
+        <div class="phase-title">refining top-k — <span class="text-accent">Refine top-N</span>, <span class="text-accent">Refine iters</span></div>
+        <p>Each of the first <span class="text-accent">Refine top-N</span>
+        candidates gets a projected-Adam local search on continuous
+        thickness (within constraint bounds), minimising ΔE. Up to
+        <span class="text-accent">Refine iters</span> steps; terminates
+        early if ΔE plateaus. On CPU this is the slowest single stage —
+        each iter is a forward + grad call through the JLL physics. With
+        <span class="text-accent">Refine top-N = 1</span> and
+        <span class="text-accent">Refine iters = 25</span> you're at the
+        sweet spot for laptop speed; turn both up for production-quality.</p>
+      </div></li>
+
+      <li class="phase-row"><span class="phase-num">7</span><div>
+        <div class="phase-title">finalising — <span class="text-accent">MC samples</span></div>
+        <p>If <span class="text-accent">MC samples &gt; 0</span>, K Monte-Carlo
+        thickness perturbations resample ΔE on each refined candidate to
+        compute p50 / p95 / worst robustness numbers. Then candidates are
+        re-ranked by J (refinement may have shifted them), the chosen pick
+        is wrapped in a <span class="font-mono">Result</span> envelope
+        with provenance, and returned.</p>
+      </div></li>
+    </ol>
+
+    <div class="mt-5 p-3 rounded-lg bg-ink-900/60 ring-1 ring-white/5 text-[11px] text-slate-400">
+      <div class="font-semibold text-slate-200 mb-1">Speed cheat-sheet (CPU laptop):</div>
+      <ul class="list-disc list-inside space-y-0.5">
+        <li><span class="font-mono text-slate-200">N=100</span>, <span class="font-mono text-slate-200">top_k=1</span>, <span class="font-mono text-slate-200">refine_top_n=1</span>, <span class="font-mono text-slate-200">refine_iters=15</span>, <span class="font-mono text-slate-200">tolerance=0</span> ⇒ ~5-10 s, "fast" preset</li>
+        <li><span class="font-mono text-slate-200">N=150</span>, <span class="font-mono text-slate-200">top_k=3</span>, <span class="font-mono text-slate-200">refine_top_n=1</span>, <span class="font-mono text-slate-200">refine_iters=25</span>, <span class="font-mono text-slate-200">tolerance=0</span> ⇒ ~15-25 s, default</li>
+        <li><span class="font-mono text-slate-200">N=500</span>, <span class="font-mono text-slate-200">top_k=5</span>, <span class="font-mono text-slate-200">refine_top_n=3</span>, <span class="font-mono text-slate-200">refine_iters=80</span>, <span class="font-mono text-slate-200">tolerance=5</span>, <span class="font-mono text-slate-200">mc_samples=16</span> ⇒ ~2-5 min, "best" preset</li>
+      </ul>
+    </div>
+
+    <div class="flex justify-end mt-4">
+      <button id="howOkBtn" class="btn-primary !py-2 !px-4"><span class="btn-label">Got it</span></button>
     </div>
   </div>
 </div>

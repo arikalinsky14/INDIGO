@@ -307,6 +307,7 @@ function readKnobs() {
   return {
     ensemble_N:      parseInt($('#knobN').value, 10),
     top_k:           parseInt($('#knobK').value, 10),
+    refine_top_n:    parseInt($('#knobRefineN').value, 10),
     temperature:     parseFloat($('#knobT').value),
     tolerance_pct:   parseFloat($('#knobTol').value),
     weight_lambda:   parseFloat($('#knobLambda').value),
@@ -314,6 +315,31 @@ function readKnobs() {
     refine_max_iters:parseInt($('#knobRefine').value, 10),
     seed:            parseInt($('#knobSeed').value, 10),
   };
+}
+
+const PRESETS = {
+  fast:     { knobN:100, knobK:1, knobRefineN:1, knobRefine:15, knobT:1.0, knobTol:0,  knobLambda:1.0, knobMc:0 },
+  balanced: { knobN:150, knobK:3, knobRefineN:1, knobRefine:25, knobT:1.0, knobTol:0,  knobLambda:1.0, knobMc:0 },
+  best:     { knobN:500, knobK:5, knobRefineN:3, knobRefine:80, knobT:1.0, knobTol:5,  knobLambda:1.0, knobMc:16 },
+};
+function bindPresets() {
+  $$('.preset-btn').forEach((b) => {
+    b.addEventListener('click', () => {
+      const preset = PRESETS[b.dataset.preset]; if (!preset) return;
+      for (const [id, v] of Object.entries(preset)) {
+        const el = $(`#${id}`); if (el) el.value = v;
+      }
+    });
+  });
+}
+
+function bindHowItWorks() {
+  const open = () => $('#howModal').classList.remove('hidden');
+  const close = () => $('#howModal').classList.add('hidden');
+  $('#howItWorksBtn').addEventListener('click', (e) => { e.preventDefault(); open(); });
+  $('#howCloseBtn').addEventListener('click', close);
+  $('#howOkBtn').addEventListener('click', close);
+  $('#howModal').addEventListener('click', (e) => { if (e.target === $('#howModal')) close(); });
 }
 
 function buildBody() {
@@ -349,10 +375,15 @@ function buildBody() {
 }
 
 function estimateSolveSeconds(knobs) {
-  // Crude CPU model: scales mainly with ensemble_N (sequential JLL physics)
-  // and top_k * refine_iters. Tuned from the existing CPU runs we've seen.
+  // Crude CPU model. Ensemble simulation is sequential per candidate;
+  // refinement is per-(refine_top_n × refine_iters). Refinement dominates
+  // when those are non-tiny, so weight it more aggressively than before.
   const base = 4;
-  return base + (knobs.ensemble_N / 50) + (knobs.top_k * knobs.refine_max_iters * 0.015);
+  const refineN = knobs.refine_top_n > 0 ? knobs.refine_top_n : knobs.top_k;
+  return base
+       + (knobs.ensemble_N * 0.04)
+       + (refineN * knobs.refine_max_iters * 0.25)
+       + (knobs.mc_samples * refineN * 0.15);
 }
 
 async function runSolve() {
@@ -532,6 +563,8 @@ document.addEventListener('DOMContentLoaded', () => {
   bindOpenAIKey();
   bindPoolControls();
   bindCsvModal();
+  bindPresets();
+  bindHowItWorks();
   $('#runBtn').addEventListener('click', runSolve);
   loadStatus();
   loadPool();

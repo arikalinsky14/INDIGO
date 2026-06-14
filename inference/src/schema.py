@@ -109,6 +109,12 @@ class InferenceKnobs:
     tolerance_pct: float = 5.0       # relative thickness jitter, e.g. 0.05 ⇒ ±5 %
     weight_lambda: float = 1.0       # color-vs-robustness trade-off in J = ΔE + λ·R
     top_k: int = 5                   # candidates refined and returned
+    # How many of the top_k actually get gradient-refined. 0 means
+    # "refine all top_k". Lower this when wall time is precious — the
+    # remaining top_k-N candidates pass through unrefined so the user
+    # still sees alternatives, but the slow refinement loop only runs on
+    # the most promising candidates.
+    refine_top_n: int = 0
     refine_max_iters: int = 100      # gradient local-search budget per candidate
     refine_step_size: float = 1.0    # nm; initial Adam step
     mc_samples: int = 32             # Monte-Carlo robustness draws on top_k

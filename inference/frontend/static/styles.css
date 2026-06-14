@@ -251,3 +251,29 @@ html, body { font-family: 'Inter', system-ui, sans-serif; }
   padding: 2px 8px;
   border: 1px solid rgba(255,255,255,0.15);
 }
+
+/* "How it works" modal — phase rows */
+.phase-row {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.04);
+}
+.phase-num {
+  width: 22px; height: 22px;
+  border-radius: 999px;
+  display: grid; place-items: center;
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: white;
+  background: linear-gradient(180deg, #8b6cff, #6b4eea);
+  box-shadow: 0 4px 12px -4px rgba(124, 92, 255, 0.5);
+}
+.phase-title {
+  font-weight: 600; color: #e2e8f0; font-size: 12px; margin-bottom: 2px;
+}
+
+.preset-btn:hover { color: white; background: rgba(124, 92, 255, 0.12); border-color: rgba(124, 92, 255, 0.3); }
