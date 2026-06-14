@@ -537,7 +537,7 @@ def _make_app():
         import queue
         import threading
         from dataclasses import asdict
-        from inference.src.schema import _strip_arrays
+        from inference.src.schema import _strip_arrays, _json_default
 
         q: "queue.Queue[dict]" = queue.Queue()
         _DONE = {"__sentinel__": True}
@@ -548,15 +548,21 @@ def _make_app():
                    "info": info or {}})
 
         def _worker():
+            import traceback as _tb
             try:
                 result = solve(
                     model=_MODEL, pool=effective_pool, spec=spec,
                     model_tag=_MODEL_TAG, model_sha256=_MODEL_SHA,
                     device=_DEVICE, on_progress=_cb,
                 )
-                q.put({"type": "result",
-                       "result": _strip_arrays(asdict(result))})
+                # Serialise INSIDE the try so a numpy/JAX leak surfaces as
+                # an `error` event on the stream instead of a silent close.
+                payload = _strip_arrays(asdict(result))
+                q.put({"type": "result", "result": payload})
             except Exception as exc:
+                print(f"[server] /api/solve_stream worker raised: "
+                      f"{type(exc).__name__}: {exc}", file=sys.stderr)
+                _tb.print_exc()
                 q.put({"type": "error",
                        "message": f"{type(exc).__name__}: {exc}"})
             finally:
@@ -565,8 +571,28 @@ def _make_app():
         thread = threading.Thread(target=_worker, daemon=True)
         thread.start()
 
+        def _sse_default(o):
+            # Catches numpy scalars (np.float32), JAX arrays, and any other
+            # exotic leaf the dataclass walker doesn't unwrap. Without this,
+            # json.dumps raises inside the generator and the stream closes
+            # silently — the browser sees "Connection closed before a result
+            # arrived." which is impossible to debug without server logs.
+            try:
+                return _json_default(o)
+            except Exception:
+                pass
+            for attr in ("tolist", "item"):
+                fn = getattr(o, attr, None)
+                if callable(fn):
+                    try:
+                        return fn()
+                    except Exception:
+                        pass
+            return str(o)
+
         def _sse_format(event: str, payload: dict) -> str:
-            return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
+            return (f"event: {event}\n"
+                    f"data: {json.dumps(payload, default=_sse_default)}\n\n")
 
         def _gen():
             # Yield an immediate hello so the browser flushes headers and the
@@ -577,12 +603,24 @@ def _make_app():
                 if msg is _DONE:
                     break
                 t = msg.get("type")
-                if t == "progress":
-                    yield _sse_format("progress", msg)
-                elif t == "result":
-                    yield _sse_format("result", msg["result"])
-                elif t == "error":
-                    yield _sse_format("error", {"message": msg["message"]})
+                try:
+                    if t == "progress":
+                        yield _sse_format("progress", msg)
+                    elif t == "result":
+                        yield _sse_format("result", msg["result"])
+                    elif t == "error":
+                        yield _sse_format("error", {"message": msg["message"]})
+                except Exception as ser_exc:
+                    # If serialisation still fails for some unexpected reason,
+                    # surface it to the client instead of dropping the stream.
+                    import traceback as _tb
+                    err_payload = {
+                        "message": f"server SSE serialise failed: "
+                                   f"{type(ser_exc).__name__}: {ser_exc}",
+                        "trace": _tb.format_exc(),
+                    }
+                    yield (f"event: error\n"
+                           f"data: {json.dumps(err_payload)}\n\n")
 
         return StreamingResponse(
             _gen(),
