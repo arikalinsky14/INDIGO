@@ -189,6 +189,7 @@ def refine_candidate(
     j_regression_tol: float = 1e-4,
     n_random_restarts: int = 0,
     base_seed: int = 0,
+    on_progress=None,
 ) -> Tuple[Candidate, RefineDiagnostics]:
     """Refine one candidate via projected-Adam on ΔE.
 
@@ -240,6 +241,12 @@ def refine_candidate(
             iters_total += 1
             de = _delta_e_of(t, pool_n_jax, pool_k_jax, slots_jax, mask_jax,
                              target_jax, incidence_angle)
+            if on_progress is not None:
+                try:
+                    on_progress("refine_iter", it, int(knobs.refine_max_iters),
+                                {"de": float(de)})
+                except Exception:
+                    pass
             if abs(prev_de - de) < 1e-4:
                 break
             g = _grad_delta_e(t, pool_n_jax, pool_k_jax, slots_jax, mask_jax,
@@ -345,6 +352,7 @@ def refine_top_k(
     knobs: InferenceKnobs,
     incidence_angle: float = 0.0,
     n_random_restarts: int = 0,
+    on_progress=None,
 ) -> Tuple[List[Candidate], List[RefineDiagnostics]]:
     """Refine each top-k candidate independently. Returns refined Candidates
     in the same order and the per-candidate RefineDiagnostics.
@@ -357,15 +365,42 @@ def refine_top_k(
     refined: List[Candidate] = []
     diags: List[RefineDiagnostics] = []
     cap = int(getattr(knobs, "refine_top_n", 0) or len(candidates))
+    n_to_refine = min(cap, len(candidates))
     for idx, c in enumerate(candidates):
         if idx < cap:
+            # Wrap the progress callback so the orchestrator sees a per-iter
+            # callback that already knows WHICH candidate we're refining.
+            def _wrap(stage, current, total, info, _idx=idx):
+                if on_progress is None:
+                    return
+                payload = dict(info or {})
+                payload["candidate"] = _idx + 1
+                payload["candidates_total"] = n_to_refine
+                try:
+                    on_progress(stage, current, total, payload)
+                except Exception:
+                    pass
+            if on_progress is not None:
+                try:
+                    on_progress("refine_candidate_start", idx + 1, n_to_refine,
+                                {"de_seed": float(c.delta_e)})
+                except Exception:
+                    pass
             rc, dd = refine_candidate(
                 c, pool, target_lab_raw, constraint_set, knobs, incidence_angle,
                 n_random_restarts=n_random_restarts,
                 base_seed=knobs.seed + idx,
+                on_progress=_wrap,
             )
             refined.append(rc)
             diags.append(dd)
+            if on_progress is not None:
+                try:
+                    on_progress("refine_candidate_end", idx + 1, n_to_refine,
+                                {"de_end": float(rc.delta_e),
+                                 "fell_back": bool(dd.fell_back_to_seed)})
+                except Exception:
+                    pass
         else:
             # Pass-through; mark as not refined.
             refined.append(c)
