@@ -253,6 +253,39 @@ Picking the right kind matters. Common phrasings:
   - "total stack thickness ≤ N nm" / "thinner than N nm overall"
         ⇒ total_thickness.
 
+Periodic / positional patterns — these need MULTIPLE layer_identity entries,
+one per fixed position. There is no "period" primitive; you must enumerate
+positions explicitly.
+
+  - "every other layer is X" / "alternating X with anything"
+        ⇒ EMIT a layer_identity AT EACH EVEN POSITION (0, 2, 4, 6, 8)
+          binding to X. Do NOT use allowed_subset:[X] — that forces EVERY
+          layer to X, not every other. Also emit a layer_count constraint
+          if the user said anything about how many layers.
+        Example: "alternating ZnO" ⇒
+          [{kind:"layer_identity",position:0,material_name:"ZnO"},
+           {kind:"layer_identity",position:2,material_name:"ZnO"},
+           {kind:"layer_identity",position:4,material_name:"ZnO"},
+           {kind:"layer_identity",position:6,material_name:"ZnO"},
+           {kind:"layer_identity",position:8,material_name:"ZnO"}]
+  - "X then Y then X then Y …" (ABAB stack)
+        ⇒ layer_identity at positions 0,2,4,… = X AND positions 1,3,5,… = Y.
+  - "first and last layer must be X"
+        ⇒ layer_identity at position 0 = X AND layer_identity at position
+          (last_index) = X. You don't know the last index for sure; pin
+          position 0 and ALSO add a symmetry constraint or emit
+          layer_identity at the user-specified positions.
+  - "layers 3 through 6 must be Cr"
+        ⇒ layer_identity at each of 3, 4, 5, 6.
+  - "the middle layer must be X"
+        ⇒ layer_identity at position floor(N/2) where N comes from the
+          layer_count the user requested; default to position 4 if no count
+          was given.
+
+When you enumerate positions, keep them inside [0, 10). If the user implied
+a different total layer count via layer_count.max_layers=K, only enumerate
+positions in [0, K).
+
 Constants you MUST respect:
   - Layer positions are 0-indexed in [0, 10).
   - Layer count max = 10.
