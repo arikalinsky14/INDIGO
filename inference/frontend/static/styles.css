@@ -89,6 +89,28 @@ html, body { font-family: 'Inter', system-ui, sans-serif; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ΔE big number — gradient-clipped text with hardened cross-browser CSS.
+   Tailwind CDN's JIT sometimes ships only `background-clip: text` without
+   the -webkit prefix, which silently leaves Chrome rendering fully
+   transparent text on top of the dark panel (symptom: the number
+   "disappears" / "is the same colour as the background"). Pin both
+   prefixes here, with a solid-colour @supports fallback. */
+.delta-e {
+  background: linear-gradient(135deg, #8b6cff 0%, #f0abfc 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+          color: transparent;
+  text-shadow: 0 0 24px rgba(124, 92, 255, 0.25);
+}
+@supports not ((-webkit-background-clip: text) or (background-clip: text)) {
+  .delta-e {
+    background: none;
+    color: #e2e8f0;
+    -webkit-text-fill-color: #e2e8f0;
+  }
+}
+
 /* Swatches ------------------------------------------------------------- */
 .swatch {
   width: 100%;
