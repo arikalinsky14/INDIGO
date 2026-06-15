@@ -277,11 +277,27 @@ def _find_constraint_subclass(ns: Dict[str, Any]) -> Optional[type]:
     return None
 
 
+_FROZEN_REPAIR_RE = re.compile(r"@dataclass\b(?!\s*\()")
+
+
+def _maybe_repair_frozen(source: str) -> str:
+    """If the LLM wrote `@dataclass` (no args), upgrade to `@dataclass(frozen=True)`.
+
+    The parent Constraint is `@dataclass(frozen=True)`, and Python refuses
+    to let a non-frozen dataclass inherit from a frozen one. The codegen
+    prompt now tells the LLM about this explicitly, but the older
+    `@dataclass` form is the most common LLM slip — repair it
+    transparently rather than surfacing a confusing TypeError.
+    """
+    return _FROZEN_REPAIR_RE.sub("@dataclass(frozen=True)", source)
+
+
 def _compile_source(source: str) -> Tuple[type, Dict[str, Any]]:
     _static_safety_check(source)
+    repaired = _maybe_repair_frozen(source)
     ns = _make_exec_namespace()
     try:
-        compiled = compile(source, "<custom_constraint>", "exec")
+        compiled = compile(repaired, "<custom_constraint>", "exec")
     except SyntaxError as exc:
         raise CustomConstraintError("exec", f"SyntaxError: {exc}",
                                     source=source)
@@ -296,7 +312,7 @@ def _compile_source(source: str) -> Tuple[type, Dict[str, Any]]:
         raise CustomConstraintError(
             "validate",
             "no Constraint subclass found in the source. Define a "
-            "@dataclass subclass of Constraint with a check() method.",
+            "@dataclass(frozen=True) subclass of Constraint with a check() method.",
             source=source,
         )
     return cls, ns
@@ -392,7 +408,7 @@ Available materials in the pool (canonical names — match EXACTLY):
 Output structure (your code must define exactly ONE @dataclass that
 subclasses Constraint):
 
-  @dataclass
+  @dataclass(frozen=True)
   class MyCustomConstraint(Constraint):
       kind: str = "custom"
       params: Dict[str, object] = field(default_factory=dict)
@@ -411,7 +427,10 @@ subclasses Constraint):
 
 Hard rules
 ----------
-- Must be a @dataclass and inherit from Constraint.
+- Must be a @dataclass(frozen=True) and inherit from Constraint. The
+  parent is frozen, so the child MUST also be frozen — `@dataclass`
+  alone (without `frozen=True`) will raise TypeError at class-creation
+  time.
 - check() MUST return a Python bool (True or False).
 - check() MUST be O(layers). No nested loops over the thickness grid.
 - Do NOT raise exceptions for unexpected inputs; return False instead.
@@ -509,7 +528,23 @@ def generate_custom_constraint(
     pool_names = [m.canonical_name for m in pool]
     print(f"[custom] codegen call: model={model}  "
           f"description={description!r}", flush=True)
-    raw = _call_codegen_openai(description, pool_names, api_key, model)
+
+    # Any unexpected exception from the network / SDK / json parsing path
+    # below must become a CustomConstraintError so the parser's outer
+    # except can fall back to standard constraints instead of leaking a
+    # 500. Wrap the whole network section.
+    try:
+        raw = _call_codegen_openai(description, pool_names, api_key, model)
+    except CustomConstraintError:
+        raise
+    except Exception as exc:
+        import traceback as _tb
+        _tb.print_exc()
+        raise CustomConstraintError(
+            "generate",
+            f"codegen call failed: {type(exc).__name__}: {exc}",
+        )
+
     source = _strip_code_fences(raw)
     if not source:
         raise CustomConstraintError("generate", "LLM returned empty code.")
