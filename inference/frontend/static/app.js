@@ -711,6 +711,7 @@ function renderResult(result) {
     return;
   }
 
+  renderCustomConstraintNotice(result);
   buildAltGrid();
   renderCandidateView(0);
 
@@ -719,6 +720,118 @@ function renderResult(result) {
     ensemble_stats: result.ensemble_stats,
     provenance: result.provenance,
   }, null, 2);
+}
+
+// ============================================================================
+// Custom-constraint disclosure
+//
+// The parser fires an extra LLM call when the 8 standard constraint kinds
+// can't express the user's request, generates Python source, runs it in a
+// sandbox, and attaches the result to spec_echo.constraints[*]. The full
+// source code is in the Result envelope, but we don't want users to have to
+// dig through the Details JSON to see it — surface it as the FIRST thing in
+// the result panel whenever it happens.
+// ============================================================================
+function renderCustomConstraintNotice(result) {
+  const host = $('#customConstraintNotice');
+  if (!host) return;
+  host.innerHTML = '';
+
+  const constraints = (result.spec_echo && result.spec_echo.constraints) || [];
+  const customs = constraints.filter(
+    (c) => (c.kind === 'custom') || (typeof c.source_code === 'string' && c.source_code.length > 0)
+  );
+
+  // Also surface the "requested but SKIPPED" case from the disclaimer so
+  // users see when the parser TRIED to write code but bailed out (gate
+  // rejection, frozen-dataclass repair miss, etc.).
+  const disclaimer = (result.spec_echo && result.spec_echo.parsed_disclaimer) || '';
+  const skippedMatch = disclaimer.match(
+    /CUSTOM CONSTRAINT REQUESTED BUT SKIPPED[^\n]*/
+  );
+
+  if (customs.length === 0 && !skippedMatch) {
+    host.classList.add('hidden');
+    return;
+  }
+  host.classList.remove('hidden');
+
+  customs.forEach((c) => host.appendChild(buildCustomConstraintCard(c)));
+  if (skippedMatch) {
+    host.appendChild(buildCustomConstraintSkipped(skippedMatch[0]));
+  }
+}
+
+function buildCustomConstraintCard(c) {
+  const box = document.createElement('div');
+  box.className = 'cc-notice';
+
+  const header = document.createElement('div');
+  header.className = 'cc-header';
+  header.innerHTML = '<span class="cc-warn">⚠</span>'
+    + '<span>LLM-authored constraint code ran on this request</span>';
+  box.appendChild(header);
+
+  const grid = document.createElement('div');
+  grid.className = 'cc-row';
+
+  const addRow = (label, value, valueClass) => {
+    const l = document.createElement('div');
+    l.className = 'cc-label'; l.textContent = label;
+    const v = document.createElement('div');
+    v.className = 'cc-value' + (valueClass ? ' ' + valueClass : '');
+    v.textContent = value;
+    grid.appendChild(l); grid.appendChild(v);
+  };
+
+  addRow('request',    c.description || '—', 'cc-desc');
+  addRow('class name', c.class_name || c.params?.class_name || '—');
+  addRow('kind',       c.kind || 'custom');
+  addRow('source',     `${(c.source_code || '').length} chars (sandboxed exec)`);
+  box.appendChild(grid);
+
+  const det = document.createElement('details');
+  det.className = 'cc-code';
+  const sum = document.createElement('summary');
+  sum.textContent = 'show generated Python';
+  const pre = document.createElement('pre');
+  pre.textContent = c.source_code || '(no source captured)';
+  det.appendChild(sum); det.appendChild(pre);
+  box.appendChild(det);
+
+  return box;
+}
+
+function buildCustomConstraintSkipped(messageLine) {
+  const box = document.createElement('div');
+  box.className = 'cc-notice cc-skipped';
+
+  const header = document.createElement('div');
+  header.className = 'cc-header';
+  header.innerHTML = '<span class="cc-warn">⚠</span>'
+    + '<span>LLM tried to author custom code, but it was rejected</span>';
+  box.appendChild(header);
+
+  const grid = document.createElement('div');
+  grid.className = 'cc-row';
+  const l = document.createElement('div');
+  l.className = 'cc-label'; l.textContent = 'reason';
+  const v = document.createElement('div');
+  v.className = 'cc-value'; v.textContent = messageLine;
+  grid.appendChild(l); grid.appendChild(v);
+  box.appendChild(grid);
+
+  const tail = document.createElement('div');
+  tail.className = 'cc-row';
+  const tl = document.createElement('div');
+  tl.className = 'cc-label'; tl.textContent = 'fallback';
+  const tv = document.createElement('div');
+  tv.className = 'cc-value cc-desc';
+  tv.textContent = 'Solve continued with the 8 standard constraint kinds the first LLM call produced.';
+  tail.appendChild(tl); tail.appendChild(tv);
+  box.appendChild(tail);
+
+  return box;
 }
 
 function renderCandidateView(idx) {

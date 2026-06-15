@@ -787,16 +787,30 @@ def parse_prompt(
                 api_key=api_key, model=model,
             )
             constraints.append(custom)
-            disclaimer = (disclaimer
-                          + f"\n\n[custom constraint generated: "
-                            f"{custom.class_name}]").strip()
+            # Loud, unambiguous note in the disclaimer. The frontend ALSO
+            # surfaces this in a dedicated banner + source-code drawer, but
+            # keep the disclaimer self-contained so anyone reading the spec
+            # JSON sees what happened without the UI.
+            disclaimer = (
+                disclaimer
+                + "\n\n⚠ CUSTOM CONSTRAINT CODE GENERATED — the LLM wrote "
+                  "and sandboxed Python for this request because no built-in "
+                  "constraint kind expressed it.\n"
+                + f"  request:    {custom_req}\n"
+                + f"  class name: {custom.class_name}\n"
+                + "  source:     see spec_echo.constraints[*].source_code "
+                  "(or the Custom Constraints panel in the UI)."
+            ).strip()
         except CustomConstraintError as exc:
             # Expected failure path — fall back to the standard constraints
             # the first call produced, surface the gate + message.
             print(f"[parse] custom constraint failed: {exc}", flush=True)
-            tail = f"\n\n[custom constraint skipped — {exc.gate}: {exc.message}]"
+            tail = ("\n\n⚠ CUSTOM CONSTRAINT REQUESTED BUT SKIPPED — "
+                    f"codegen gate `{exc.gate}` rejected the request: "
+                    f"{exc.message}")
             if exc.source:
-                tail += f"\n\nGenerated source (first 800 chars):\n{exc.source[:800]}"
+                tail += (f"\n  Generated source (first 800 chars):\n"
+                         f"{exc.source[:800]}")
             disclaimer = (disclaimer + tail).strip()
         except Exception as exc:
             # Belt-and-suspenders. If anything escapes the
@@ -807,9 +821,11 @@ def parse_prompt(
             print(f"[parse] custom constraint UNEXPECTED failure: "
                   f"{type(exc).__name__}: {exc}", flush=True)
             _tb.print_exc()
-            disclaimer = (disclaimer
-                          + f"\n\n[custom constraint skipped — "
-                            f"unexpected {type(exc).__name__}: {exc}]").strip()
+            disclaimer = (
+                disclaimer
+                + "\n\n⚠ CUSTOM CONSTRAINT REQUESTED BUT SKIPPED — "
+                  f"unexpected {type(exc).__name__}: {exc}"
+            ).strip()
 
     spec = InferenceSpec(
         target_lab_raw=target_raw,

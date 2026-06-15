@@ -303,3 +303,87 @@ html, body { font-family: 'Inter', system-ui, sans-serif; }
 }
 
 .preset-btn:hover { color: white; background: rgba(124, 92, 255, 0.12); border-color: rgba(124, 92, 255, 0.3); }
+
+/* Custom-constraint disclosure (LLM-authored Python). Amber-tinged so
+   the user notices when the parser fired the sandbox-codegen path. */
+.cc-notice {
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: linear-gradient(180deg,
+                              rgba(245, 158, 11, 0.08) 0%,
+                              rgba(245, 158, 11, 0.03) 100%);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: #fde68a;
+}
+.cc-header {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: #fcd34d;
+}
+.cc-header .cc-warn {
+  font-size: 14px;
+  filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.6));
+}
+.cc-row {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 6px 12px;
+  font-size: 12px;
+  color: #e5e7eb;
+}
+.cc-row .cc-label {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.cc-row .cc-value {
+  font-family: 'JetBrains Mono', monospace;
+  color: #f3f4f6;
+  word-break: break-word;
+}
+.cc-desc { color: #fef3c7; font-style: italic; }
+.cc-code {
+  margin-top: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 8px;
+  background: rgba(7, 9, 18, 0.7);
+  padding: 0;
+}
+.cc-code > summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: #fbbf24;
+  padding: 8px 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  list-style: none;
+}
+.cc-code > summary::before {
+  content: '▶'; display: inline-block; margin-right: 6px;
+  transition: transform 120ms ease;
+}
+.cc-code[open] > summary::before { transform: rotate(90deg); }
+.cc-code > pre {
+  margin: 0;
+  padding: 10px 14px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Skipped-codegen variant — same shape, red tint instead of amber. */
+.cc-notice.cc-skipped {
+  border-color: rgba(244, 63, 94, 0.45);
+  background: linear-gradient(180deg,
+                              rgba(244, 63, 94, 0.08) 0%,
+                              rgba(244, 63, 94, 0.03) 100%);
+  color: #fecaca;
+}
+.cc-notice.cc-skipped .cc-header { color: #fda4af; }
