@@ -114,15 +114,24 @@ def _resolve_builtin(name: str) -> Any:
 
 
 _SAFE_BUILTIN_NAMES = (
+    # Class-statement plumbing. Without __build_class__, no `class X(...):`
+    # statement works at all — Python compiles `class …` to a call to this
+    # builtin internally. Same for __name__ (every class needs a module
+    # name) and the meta-class helpers super / type / staticmethod /
+    # classmethod / property that the dataclass decorator can touch.
+    "__build_class__", "__name__",
+    "super", "staticmethod", "classmethod", "property",
+    # Core type constructors + introspection
     "abs", "all", "any", "bool", "callable", "dict", "divmod",
     "enumerate", "filter", "float", "frozenset", "int", "isinstance",
     "issubclass", "iter", "len", "list", "map", "max", "min", "next",
     "print", "range", "repr", "reversed", "round", "set", "slice", "sorted",
-    "str", "sum", "tuple", "type", "zip",
+    "str", "sum", "tuple", "type", "zip", "hash", "id", "format", "ord", "chr",
     "True", "False", "None",
     # Exception types — the LLM should not raise, but if it does we'd
     # rather see a Python exception than an opaque NameError.
-    "Exception", "ValueError", "TypeError",
+    "Exception", "ValueError", "TypeError", "AttributeError", "KeyError",
+    "IndexError",
 )
 
 _SAFE_BUILTINS = {n: _resolve_builtin(n) for n in _SAFE_BUILTIN_NAMES}
@@ -144,6 +153,10 @@ def _make_exec_namespace() -> Dict[str, Any]:
     """Pre-populated namespace for the LLM's code."""
     return {
         "__builtins__": dict(_SAFE_BUILTINS),
+        # Class-statement metadata. Python's compiler emits a reference to
+        # the module's __name__ when defining a class; if it's missing the
+        # @dataclass decorator raises during class creation.
+        "__name__": "indigo_custom_constraint",
         # Required ABC + dataclass helpers (the LLM can't `import` them).
         "Constraint": Constraint,
         "dataclass": dataclass,

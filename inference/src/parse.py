@@ -736,6 +736,7 @@ def parse_prompt(
     backend: Optional[str] = None,
     model: Optional[str] = None,
     api_key: Optional[str] = None,
+    allow_custom_constraints: bool = False,
 ) -> ParseResult:
     """Free-text prompt + pool → validated InferenceSpec.
 
@@ -777,6 +778,20 @@ def parse_prompt(
     # both); the custom one is appended on top.
     custom_req = spec_dict.get("custom_constraint_request") or ""
     custom_req = custom_req.strip() if isinstance(custom_req, str) else ""
+    if custom_req and not allow_custom_constraints:
+        # The first-call LLM tried to use the escape hatch, but the caller
+        # has codegen turned off. Surface this in the disclaimer rather
+        # than silently dropping the request — the user should know that
+        # we COULD have written code but didn't, and the standard
+        # constraints from the first call are still in effect.
+        disclaimer = (
+            disclaimer
+            + "\n\n⚠ CUSTOM CONSTRAINT REQUESTED BUT SKIPPED — "
+              "code generation is disabled for this request "
+              "(toggle 'allow custom constraint code' in Advanced settings).\n"
+            + f"  request was: {custom_req}"
+        ).strip()
+        custom_req = ""  # short-circuit the codegen block below
     if custom_req and backend == "openai":
         from inference.src.custom_constraint import (
             CustomConstraintError, generate_custom_constraint,

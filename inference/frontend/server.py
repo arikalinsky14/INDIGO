@@ -251,6 +251,13 @@ class SolveIn(BaseModel):
     # Never persisted server-side; treated as a sensitive header.
     openai_api_key: Optional[str] = None
 
+    # Opt-in toggle for the LLM-authored custom-constraint codegen path.
+    # Defaults to False so the standard 8 kinds + periodic-pattern
+    # expansion handle the request (no second OpenAI call, no sandboxed
+    # exec). Users who want the escape hatch flip the Advanced-panel
+    # checkbox.
+    allow_custom_constraints: bool = False
+
 
 # ----------------------------------------------------------------------------
 # App factory
@@ -416,6 +423,7 @@ def _make_app():
                 pr = parse_prompt(
                     body.prompt, pool=effective_pool, knobs=knobs,
                     api_key=body.openai_api_key,
+                    allow_custom_constraints=body.allow_custom_constraints,
                 )
             except ParseError as exc:
                 raise HTTPException(400, f"[parse:{exc.gate}] {exc.message}")
@@ -518,6 +526,7 @@ def _make_app():
                 pr = parse_prompt(
                     body.prompt, pool=effective_pool, knobs=knobs,
                     api_key=body.openai_api_key,
+                    allow_custom_constraints=body.allow_custom_constraints,
                 )
             except ParseError as exc:
                 raise HTTPException(400, f"[parse:{exc.gate}] {exc.message}")

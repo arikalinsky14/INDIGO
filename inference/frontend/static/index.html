@@ -176,6 +176,25 @@
           <input id="openaiKey" type="password" autocomplete="off" placeholder="sk-… (overrides server env)" class="input font-mono">
           <p class="text-[11px] text-slate-500 mt-1">Sent only with prompt requests. Not logged.</p>
         </div>
+        <div class="col-span-2 mt-1">
+          <label class="flex items-start gap-2 cursor-pointer select-none">
+            <input id="knobAllowCustom" type="checkbox"
+                   class="mt-0.5 accent-amber-400"
+                   style="accent-color:#f59e0b">
+            <span class="block">
+              <span class="text-xs font-semibold text-amber-300">
+                Allow LLM-authored custom constraints
+              </span>
+              <span class="block text-[11px] text-slate-500 mt-0.5">
+                When ON, the parser may make a SECOND OpenAI call to generate sandboxed
+                Python for constraints the 8 built-in kinds can't express (e.g.
+                "monotonically increasing thicknesses"). The generated source is
+                shown prominently in the result panel. OFF by default; the model
+                will report any such requests in the disclaimer instead of running them.
+              </span>
+            </span>
+          </label>
+        </div>
       </div>
       <div class="flex items-center gap-2 mt-3 text-xs">
         <span class="text-slate-400">Presets:</span>
