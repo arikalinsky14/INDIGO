@@ -214,6 +214,11 @@
     </div>
 
     <div id="resultBody" class="hidden space-y-6">
+      <!-- Custom-constraint disclosure. Hidden unless the LLM authored
+           sandboxed Python for this request; then it's the first thing in
+           the result panel (above swatches) so the user can't miss it. -->
+      <div id="customConstraintNotice" class="hidden"></div>
+
       <div class="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-6">
         <div class="text-center space-y-2">
           <div class="text-xs uppercase tracking-widest text-slate-400">target</div>
