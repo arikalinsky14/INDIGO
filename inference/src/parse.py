@@ -276,11 +276,11 @@ positions explicitly.
           layer to X, not every other. Also emit a layer_count constraint
           if the user said anything about how many layers.
         Example: "alternating ZnO" ⇒
-          [{kind:"layer_identity",position:0,material_name:"ZnO"},
-           {kind:"layer_identity",position:2,material_name:"ZnO"},
-           {kind:"layer_identity",position:4,material_name:"ZnO"},
-           {kind:"layer_identity",position:6,material_name:"ZnO"},
-           {kind:"layer_identity",position:8,material_name:"ZnO"}]
+          [{{kind:"layer_identity",position:0,material_name:"ZnO"}},
+           {{kind:"layer_identity",position:2,material_name:"ZnO"}},
+           {{kind:"layer_identity",position:4,material_name:"ZnO"}},
+           {{kind:"layer_identity",position:6,material_name:"ZnO"}},
+           {{kind:"layer_identity",position:8,material_name:"ZnO"}}]
   - "X then Y then X then Y …" (ABAB stack)
         ⇒ layer_identity at positions 0,2,4,… = X AND positions 1,3,5,… = Y.
   - "first and last layer must be X"
