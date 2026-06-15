@@ -629,12 +629,16 @@ def _make_app():
             return str(o)
 
         def _sse_format(event: str, payload: dict) -> str:
-            # allow_nan=False raises ValueError if any NaN/Inf slipped past
-            # _strip_arrays — a loud failure now beats another silent client
-            # parse error. The try/except around the yield in _gen() converts
-            # such a failure into an `error` frame on the same stream.
+            # _strip_arrays sanitises NaN/Inf -> None, numpy scalars ->
+            # Python, ndarrays -> lists. Applied to EVERY frame so progress
+            # events (which can carry NaN `de` values from JAX physics on
+            # bad seed structures) survive the encoder.
+            # allow_nan=False is the tripwire: if any NaN/Inf still leaks
+            # through _strip_arrays, fail loudly here (the per-yield
+            # try/except in _gen converts that to an `error` frame).
+            clean = _strip_arrays(payload)
             return (f"event: {event}\n"
-                    f"data: {json.dumps(payload, default=_sse_default, allow_nan=False)}\n\n")
+                    f"data: {json.dumps(clean, default=_sse_default, allow_nan=False)}\n\n")
 
         def _gen():
             # Yield an immediate hello so the browser flushes headers and the
