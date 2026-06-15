@@ -1,0 +1,25 @@
+# Top-level lockfile used by the Docker image (Hugging Face Spaces, etc.).
+# Pinned loosely — major versions only — because the source of truth for
+# what works is the CRC training env this was developed against.
+#
+# The frontend-only req-list lives at inference/frontend/requirements.txt
+# and assumes torch/jax/jaxlayerlumos are already present (that's the case
+# on the CRC env). This list is the strict superset that bootstraps a
+# clean container from scratch.
+
+# --- Web layer ---
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.0
+python-multipart>=0.0.7
+
+# --- Numerical / ML stack ---
+numpy>=1.26,<2.0
+torch>=2.1,<2.6
+jax>=0.4.25,<0.5
+jaxlib>=0.4.25,<0.5
+jaxlayerlumos
+
+# --- LLM parser backend (optional at runtime; users can paste their key in
+# the UI even without this if they keep INDIGO_PARSE_BACKEND=mock for dev).
+openai>=1.0

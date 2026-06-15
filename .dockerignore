@@ -1,0 +1,46 @@
+# Keep the build context lean.
+# Anything excluded here is NOT copied into the image, which speeds up
+# `docker build` and `git push huggingface main` (Spaces builds remotely).
+#
+# IMPORTANT: don't exclude data/checkpoints — the chosen checkpoint MUST
+# survive into the image (Spaces serve it directly; no runtime download).
+
+.git
+.gitignore
+.gitattributes
+.github
+.vscode
+.idea
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+.DS_Store
+*.swp
+*.swo
+
+# Build / debug artefacts
+*.log
+job-outputs
+outputs
+**/outputs
+
+# Training data — NOT part of inference
+data/datasets
+data/train
+data/test
+data/raw
+create_dataset/data_prompts
+
+# SLURM scripts are CRC-specific, useless on Spaces
+slurms
+
+# Notebooks / large media
+*.ipynb
+*.zip
+*.tar
+*.tar.gz
+*.pdf
+*.mp4
