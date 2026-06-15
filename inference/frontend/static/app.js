@@ -517,6 +517,7 @@ function buildBody() {
   const activeTab = $('.tab-active').dataset.tab;
   const knobs = readKnobs();
   const openai_api_key = ($('#openaiKey').value || LS.get('openai_api_key') || '').trim() || undefined;
+  const allow_custom_constraints = !!$('#knobAllowCustom').checked;
 
   // Pool: subset of JLL by canonical name + any custom materials currently selected
   const jllNames = new Set(MATERIAL_LIST.map((m) => m.canonical_name));
@@ -529,7 +530,8 @@ function buildBody() {
   if (activeTab === 'prompt') {
     const prompt = $('#promptInput').value.trim();
     if (!prompt) throw new Error('Prompt is empty.');
-    return { prompt, knobs, pool_subset, custom_materials, openai_api_key };
+    return { prompt, knobs, pool_subset, custom_materials, openai_api_key,
+             allow_custom_constraints };
   }
   const L = parseFloat($('#labL').value);
   const a = parseFloat($('#labA').value);
@@ -542,7 +544,8 @@ function buildBody() {
     catch (e) { throw new Error('Constraints JSON invalid: ' + e.message); }
     if (!Array.isArray(constraints)) throw new Error('Constraints must be a JSON array.');
   }
-  return { target_lab: [L,a,b], constraints, knobs, pool_subset, custom_materials };
+  return { target_lab: [L,a,b], constraints, knobs, pool_subset, custom_materials,
+           allow_custom_constraints };
 }
 
 function estimateSolveSeconds(knobs) {
@@ -967,11 +970,22 @@ function bindOpenAIKey() {
   });
 }
 
+function bindAllowCustomConstraints() {
+  // Default OFF — only the user can opt in to LLM-authored sandboxed code.
+  const cb = $('#knobAllowCustom');
+  if (!cb) return;
+  cb.checked = !!LS.get('allow_custom_constraints', false);
+  cb.addEventListener('change', () => {
+    LS.set('allow_custom_constraints', !!cb.checked);
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   bindTabs();
   bindColorInputs();
   bindConstraintChips();
   bindOpenAIKey();
+  bindAllowCustomConstraints();
   bindPoolControls();
   bindCsvModal();
   bindPresets();
