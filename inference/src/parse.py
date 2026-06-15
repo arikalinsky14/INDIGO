@@ -99,7 +99,8 @@ def _response_json_schema() -> Dict[str, Any]:
         "schema": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["target_lab", "constraints", "disclaimer"],
+            "required": ["target_lab", "constraints", "disclaimer",
+                         "custom_constraint_request"],
             "properties": {
                 "target_lab": {
                     "type": "array",
@@ -114,6 +115,18 @@ def _response_json_schema() -> Dict[str, Any]:
                                    "the request is underspecified — let the "
                                    "model search the full space.",
                     "items": _constraint_schema(),
+                },
+                "custom_constraint_request": {
+                    "type": ["string", "null"],
+                    "description": "ESCAPE HATCH — fill in ONLY when the "
+                                   "user's request truly cannot be expressed "
+                                   "by the 8 supported constraint kinds "
+                                   "(even after expanding patterns like "
+                                   "'every other X' into multiple "
+                                   "layer_identity entries). When non-null, "
+                                   "a SECOND LLM call will generate sandboxed "
+                                   "Python code for this constraint. Keep "
+                                   "this null for >95% of requests.",
                 },
                 "disclaimer": {
                     "type": "string",
@@ -298,6 +311,43 @@ If the user describes an impossible request (e.g. "emits light", a Lab value
 outside the achievable gamut), still output your best-effort Lab target and
 flag the concern in the disclaimer — the downstream pipeline will report
 its actual achievable ΔE.
+
+The ESCAPE HATCH: `custom_constraint_request`
+---------------------------------------------
+Keep this `null` for the OVERWHELMING majority of requests. The 8 existing
+kinds + the periodic-pattern expansion above cover essentially everything
+real users ask for.
+
+ONLY populate `custom_constraint_request` with a short natural-language
+description (1-3 sentences, plain English) when you have CONFIRMED that
+no combination of the 8 standard kinds + position enumeration can
+express what the user asked for. Examples of genuinely escape-hatch-only
+requests:
+
+  - "the sum of the THICKNESSES of all silver layers must not exceed 80 nm"
+        (not a per-layer thickness range; not a total thickness; not
+         allowed_subset — it's a conditional sum.)
+  - "at least one of the layers must have thickness within 5 nm of 100 nm"
+        (existence claim across the stack.)
+  - "the cumulative thickness of TiO2 layers must equal the cumulative
+     thickness of SiO2 layers"
+        (parity between two material groups.)
+
+When you DO populate it:
+  - You may STILL also include any standard constraints in the `constraints`
+    array — the custom one is added on top of them, not instead of them.
+    Push as much as you can into the standard kinds.
+  - Be MAXIMALLY EXPLICIT in the description. Name the materials by their
+    canonical names. Quantify everything. Say what should pass and what
+    should fail. The code-generation pass has only your description to
+    work from.
+  - In your `disclaimer`, ALWAYS mention that a custom constraint was
+    requested and briefly say what it enforces, so the user sees that a
+    second model call is happening.
+
+If the user's request can be approximated reasonably by an existing
+constraint, prefer the approximation and mention the trade-off in the
+disclaimer — `custom_constraint_request` is a last resort.
 
 Output JSON conforming to the schema. Do not output prose."""
 
@@ -720,6 +770,33 @@ def parse_prompt(
 
     constraints = _build_constraints(spec_dict)
     disclaimer = str(spec_dict.get("disclaimer") or "")
+
+    # ---- Optional second call: LLM-authored custom constraint --------------
+    # Triggered only when the first-call response populated the escape-hatch
+    # field. The standard constraints stay (the LLM is encouraged to include
+    # both); the custom one is appended on top.
+    custom_req = spec_dict.get("custom_constraint_request") or ""
+    custom_req = custom_req.strip() if isinstance(custom_req, str) else ""
+    if custom_req and backend == "openai":
+        from inference.src.custom_constraint import (
+            CustomConstraintError, generate_custom_constraint,
+        )
+        try:
+            custom = generate_custom_constraint(
+                description=custom_req, pool=pool,
+                api_key=api_key, model=model,
+            )
+            constraints.append(custom)
+            disclaimer = (disclaimer
+                          + f"\n\n[custom constraint generated: "
+                            f"{custom.class_name}]").strip()
+        except CustomConstraintError as exc:
+            # Don't kill the request — fall back to the standard constraints
+            # the first call produced, and tell the user in the disclaimer.
+            print(f"[parse] custom constraint failed: {exc}", flush=True)
+            disclaimer = (disclaimer
+                          + f"\n\n[custom constraint skipped — "
+                            f"{exc.gate}: {exc.message}]").strip()
 
     spec = InferenceSpec(
         target_lab_raw=target_raw,
