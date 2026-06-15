@@ -419,6 +419,14 @@ def _make_app():
                 )
             except ParseError as exc:
                 raise HTTPException(400, f"[parse:{exc.gate}] {exc.message}")
+            except Exception as exc:
+                import traceback as _tb
+                _tb.print_exc()
+                raise HTTPException(
+                    500,
+                    f"parse failed: {type(exc).__name__}: {exc}\n"
+                    f"(see server logs for traceback)",
+                )
             spec = pr.spec
         elif body.target_lab is not None:
             from inference.scripts.run_inference import (
@@ -450,7 +458,13 @@ def _make_app():
                 device=_DEVICE,
             )
         except Exception as exc:
-            raise HTTPException(500, f"solve failed: {type(exc).__name__}: {exc}")
+            import traceback as _tb
+            _tb.print_exc()
+            raise HTTPException(
+                500,
+                f"solve failed: {type(exc).__name__}: {exc}\n"
+                f"(see server logs for traceback)",
+            )
 
         # Return the same envelope the JSON file persists. The UI knows this
         # shape — see static/app.js.
@@ -507,6 +521,14 @@ def _make_app():
                 )
             except ParseError as exc:
                 raise HTTPException(400, f"[parse:{exc.gate}] {exc.message}")
+            except Exception as exc:
+                import traceback as _tb
+                _tb.print_exc()
+                raise HTTPException(
+                    500,
+                    f"parse failed: {type(exc).__name__}: {exc}\n"
+                    f"(see server logs for traceback)",
+                )
             spec = pr.spec
         elif body.target_lab is not None:
             from inference.scripts.run_inference import (

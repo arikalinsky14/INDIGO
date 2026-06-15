@@ -791,12 +791,25 @@ def parse_prompt(
                           + f"\n\n[custom constraint generated: "
                             f"{custom.class_name}]").strip()
         except CustomConstraintError as exc:
-            # Don't kill the request — fall back to the standard constraints
-            # the first call produced, and tell the user in the disclaimer.
+            # Expected failure path — fall back to the standard constraints
+            # the first call produced, surface the gate + message.
             print(f"[parse] custom constraint failed: {exc}", flush=True)
+            tail = f"\n\n[custom constraint skipped — {exc.gate}: {exc.message}]"
+            if exc.source:
+                tail += f"\n\nGenerated source (first 800 chars):\n{exc.source[:800]}"
+            disclaimer = (disclaimer + tail).strip()
+        except Exception as exc:
+            # Belt-and-suspenders. If anything escapes the
+            # CustomConstraintError wrapping (it shouldn't — codegen now
+            # converts everything), surface it loudly here rather than
+            # 500ing the whole request.
+            import traceback as _tb
+            print(f"[parse] custom constraint UNEXPECTED failure: "
+                  f"{type(exc).__name__}: {exc}", flush=True)
+            _tb.print_exc()
             disclaimer = (disclaimer
                           + f"\n\n[custom constraint skipped — "
-                            f"{exc.gate}: {exc.message}]").strip()
+                            f"unexpected {type(exc).__name__}: {exc}]").strip()
 
     spec = InferenceSpec(
         target_lab_raw=target_raw,
