@@ -174,7 +174,10 @@ def materialnk_validation_disabled() -> Iterator[None]:
 
 
 def _parse_jll_csv(path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Parse a JaxLayerLumos CSV with stacked `wl,n` and optional `wl,k` blocks.
+    """Parse a JaxLayerLumos CSV.
+
+    Supports both the stacked two-column JLL layout (`wl,n` followed by an
+    optional `wl,k` block) and a single three-column table (`wl,n,k`).
 
     Returns
     -------
@@ -192,24 +195,51 @@ def _parse_jll_csv(path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.n
     wl_k: List[float] = []
     val_k: List[float] = []
 
-    section: Optional[str] = None  # 'n', 'k', or None
+    section: Optional[str] = None  # 'n', 'k', 'n_k', or None
     with open(path, "r") as f:
         for raw_line in f:
             line = raw_line.strip()
             if not line:
                 continue
-            if line == "wl,n":
+            parts = [p.strip() for p in line.split(",")]
+            header = [p.lower() for p in parts]
+            if header in (["wl", "n"], ["wavelength", "n"], ["wavelength_um", "n"]):
                 section = "n"
                 continue
-            if line == "wl,k":
+            if header in (["wl", "k"], ["wavelength", "k"], ["wavelength_um", "k"]):
                 section = "k"
                 continue
+            if (
+                len(header) == 3
+                and header[0] in ("wl", "wavelength", "wavelength_um")
+                and header[1:] == ["n", "k"]
+            ):
+                section = "n_k"
+                continue
             # Data row.
-            parts = line.split(",")
+            if len(parts) == 3 and section == "n_k":
+                try:
+                    wl_um = float(parts[0])
+                    n_value = float(parts[1])
+                    k_value = float(parts[2])
+                except ValueError as exc:
+                    if any(c.isalpha() for c in line):
+                        continue
+                    raise ValueError(f"Bad row in {path}: {line!r}") from exc
+                wl_n.append(wl_um)
+                val_n.append(n_value)
+                wl_k.append(wl_um)
+                val_k.append(k_value)
+                continue
             if len(parts) != 2:
                 raise ValueError(f"Bad row in {path}: {line!r}")
-            wl_um = float(parts[0])
-            value = float(parts[1])
+            try:
+                wl_um = float(parts[0])
+                value = float(parts[1])
+            except ValueError as exc:
+                if any(c.isalpha() for c in line):
+                    continue
+                raise ValueError(f"Bad row in {path}: {line!r}") from exc
             if section == "n":
                 wl_n.append(wl_um)
                 val_n.append(value)

@@ -164,6 +164,9 @@ def _prewarm_pipeline() -> None:
 def _startup(checkpoint: Path, pool_dir: Optional[Path],
              force_cpu: bool = False, prewarm: bool = True) -> None:
     """Load model + pool once. Called from main() before serving."""
+    from importlib import metadata
+
+    import jaxlayerlumos
     import torch
     from inference.scripts.run_inference import (
         cap_pool_at_m_max, default_jll_materials_dir, load_pool_from_jll,
@@ -177,6 +180,13 @@ def _startup(checkpoint: Path, pool_dir: Optional[Path],
 
     _DEVICE = _resolve_device(force_cpu)
     print(f"[server] device: {_DEVICE}")
+    jll_version = getattr(jaxlayerlumos, "__version__", None)
+    if jll_version is None:
+        try:
+            jll_version = metadata.version("jaxlayerlumos")
+        except metadata.PackageNotFoundError:
+            jll_version = "unknown"
+    print(f"[server] jaxlayerlumos version: {jll_version}")
 
     print(f"[server] loading model from {checkpoint}")
     _MODEL, _MODEL_CONFIG, _MODEL_SHA = load_inference_model(

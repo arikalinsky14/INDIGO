@@ -18,7 +18,7 @@ numpy>=1.26,<2.0
 torch>=2.1,<2.6
 jax>=0.4.25,<0.5
 jaxlib>=0.4.25,<0.5
-jaxlayerlumos
+jaxlayerlumos==0.3.3
 
 # --- LLM parser backend (optional at runtime; users can paste their key in
 # the UI even without this if they keep INDIGO_PARSE_BACKEND=mock for dev).
