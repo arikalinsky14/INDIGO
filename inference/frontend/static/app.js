@@ -130,63 +130,154 @@ function bindConstraintChips() {
 // ============================================================================
 // Material picker
 // ============================================================================
-let MATERIAL_LIST = [];           // [{canonical_name, source}]
+let MATERIAL_LIST = [];           // [{canonical_name, source, display_name}]
+let POOL_GROUPS = {};             // element prefix -> [canonical names]
 const SELECTED   = new Set();     // selected canonical_name set
 const CUSTOM     = new Map();     // canonical_name -> {n,k,source}
+const EXPANDED   = new Set();     // element prefixes whose variants are visible
 
 async function loadPool() {
   const r = await fetch('/api/pool'); if (!r.ok) return;
   const data = await r.json();
   MATERIAL_LIST = data.materials || [];
+  POOL_GROUPS = data.groups || {};
   _MMAX = data.m_max || _MMAX;
-  // Server's default subset becomes our initial selection unless localStorage has one.
+  // Server now returns a deduped default (one variant per element prefix);
+  // prefer it over the all-variants default unless the user already saved
+  // their own selection.
   const stored = LS.get('pool_subset', null);
-  const initial = stored ?? (data.default_subset || MATERIAL_LIST.slice(0, _MMAX).map((m) => m.canonical_name));
+  const initial = stored ?? (data.deduped_default || data.default_subset ||
+                            MATERIAL_LIST.slice(0, _MMAX).map((m) => m.canonical_name));
   SELECTED.clear(); initial.forEach((n) => SELECTED.add(n));
   renderPool();
+}
+
+// Pick which canonical name represents the group when collapsed. Prefer
+// a currently-selected variant (so toggling stays consistent), otherwise
+// the first one the server listed for the prefix.
+function _groupRepresentative(prefix) {
+  const variants = POOL_GROUPS[prefix] || [];
+  return variants.find((v) => SELECTED.has(v)) || variants[0] || prefix;
+}
+
+function _selectedInGroup(prefix) {
+  return (POOL_GROUPS[prefix] || []).filter((v) => SELECTED.has(v));
 }
 
 function renderPool() {
   const filter = ($('#poolSearch').value || '').toLowerCase();
   const list = $('#poolList'); list.innerHTML = '';
 
-  const allMats = [
-    ...[...CUSTOM.values()].map((m) => ({ ...m, custom: true })),
-    ...MATERIAL_LIST,
-  ];
+  // Custom uploads stay one-per-row; they don't go through dedup.
+  [...CUSTOM.values()].forEach((m) => {
+    if (filter && !m.canonical_name.toLowerCase().includes(filter)) return;
+    list.appendChild(_buildPoolRow({ ...m, custom: true }, /*indent=*/false));
+  });
 
-  allMats
-    .filter((m) => !filter || m.canonical_name.toLowerCase().includes(filter))
-    .forEach((m) => {
-      const row = document.createElement('label');
-      row.className = 'pool-row';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = SELECTED.has(m.canonical_name);
-      cb.addEventListener('change', () => {
-        if (cb.checked) {
-          if (SELECTED.size >= _MMAX) {
-            cb.checked = false;
-            flashError(`Pool capped at ${_MMAX}. Deselect another first.`);
-            return;
-          }
-          SELECTED.add(m.canonical_name);
-        } else {
-          SELECTED.delete(m.canonical_name);
-        }
-        LS.set('pool_subset', [...SELECTED]);
-        updatePoolCount();
+  // JLL: one row per element prefix; expand to show variants.
+  const prefixes = Object.keys(POOL_GROUPS).sort();
+  prefixes.forEach((prefix) => {
+    const variants = POOL_GROUPS[prefix];
+    const filterHit = !filter
+      || prefix.toLowerCase().includes(filter)
+      || variants.some((v) => v.toLowerCase().includes(filter));
+    if (!filterHit) return;
+    list.appendChild(_buildGroupRow(prefix, variants));
+    if (EXPANDED.has(prefix) || filter) {
+      variants.forEach((canonical) => {
+        const m = MATERIAL_LIST.find((x) => x.canonical_name === canonical)
+                || { canonical_name: canonical, source: 'jaxlayerlumos' };
+        list.appendChild(_buildPoolRow(m, /*indent=*/true));
       });
-      const label = document.createElement('span');
-      label.className = 'truncate';
-      label.textContent = m.canonical_name;
-      const badge = document.createElement('span');
-      badge.className = 'pool-badge';
-      badge.textContent = m.custom ? 'custom' : (m.source === 'jaxlayerlumos' ? 'JLL' : m.source);
-      row.appendChild(cb); row.appendChild(label); row.appendChild(badge);
-      list.appendChild(row);
-    });
+    }
+  });
+
   updatePoolCount();
+}
+
+function _buildGroupRow(prefix, variants) {
+  const row = document.createElement('div');
+  row.className = 'pool-row pool-row-group';
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  const inGroup = _selectedInGroup(prefix);
+  cb.checked = inGroup.length > 0;
+  cb.indeterminate = inGroup.length > 0 && inGroup.length < variants.length;
+  cb.addEventListener('change', (e) => {
+    e.stopPropagation();
+    if (cb.checked) {
+      // Add the representative variant only — keep the M_MAX budget tight.
+      const pick = _groupRepresentative(prefix);
+      if (!SELECTED.has(pick)) {
+        if (SELECTED.size >= _MMAX) {
+          cb.checked = false;
+          flashError(`Pool capped at ${_MMAX}. Deselect another first.`);
+          return;
+        }
+        SELECTED.add(pick);
+      }
+    } else {
+      // Remove every selected variant in this group.
+      variants.forEach((v) => SELECTED.delete(v));
+    }
+    LS.set('pool_subset', [...SELECTED]);
+    renderPool();
+  });
+
+  const label = document.createElement('span');
+  label.className = 'truncate flex items-center gap-2 cursor-pointer';
+  label.innerHTML = `<span class="font-semibold">${prefix}</span>`
+    + (variants.length > 1
+       ? `<span class="text-[10px] text-slate-500">+${variants.length - 1} variant${variants.length > 2 ? 's' : ''}</span>`
+       : '');
+  // Click the label (not the checkbox) to expand variants.
+  label.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (variants.length <= 1) return;
+    if (EXPANDED.has(prefix)) EXPANDED.delete(prefix);
+    else EXPANDED.add(prefix);
+    renderPool();
+  });
+
+  const badge = document.createElement('span');
+  badge.className = 'pool-badge';
+  badge.textContent = variants.length > 1
+    ? (EXPANDED.has(prefix) ? '▼' : '▶')
+    : 'JLL';
+
+  row.appendChild(cb); row.appendChild(label); row.appendChild(badge);
+  return row;
+}
+
+function _buildPoolRow(m, indent) {
+  const row = document.createElement('label');
+  row.className = 'pool-row' + (indent ? ' pool-row-variant' : '');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = SELECTED.has(m.canonical_name);
+  cb.addEventListener('change', () => {
+    if (cb.checked) {
+      if (SELECTED.size >= _MMAX) {
+        cb.checked = false;
+        flashError(`Pool capped at ${_MMAX}. Deselect another first.`);
+        return;
+      }
+      SELECTED.add(m.canonical_name);
+    } else {
+      SELECTED.delete(m.canonical_name);
+    }
+    LS.set('pool_subset', [...SELECTED]);
+    renderPool();
+  });
+  const label = document.createElement('span');
+  label.className = 'truncate';
+  label.textContent = m.canonical_name;
+  const badge = document.createElement('span');
+  badge.className = 'pool-badge';
+  badge.textContent = m.custom ? 'custom'
+                     : (m.source === 'jaxlayerlumos' ? 'JLL' : (m.source || 'JLL'));
+  row.appendChild(cb); row.appendChild(label); row.appendChild(badge);
+  return row;
 }
 
 function updatePoolCount() {
@@ -197,9 +288,15 @@ function updatePoolCount() {
 function bindPoolControls() {
   $('#poolSearch').addEventListener('input', renderPool);
   $('#poolSelectAll').addEventListener('click', () => {
+    // Pick one variant per element group so we don't waste M_MAX on
+    // near-duplicate spectra. Custom uploads still go in as-is.
     SELECTED.clear();
-    const allNames = [...CUSTOM.keys(), ...MATERIAL_LIST.map((m) => m.canonical_name)];
-    for (const n of allNames) { if (SELECTED.size >= _MMAX) break; SELECTED.add(n); }
+    const picks = [...CUSTOM.keys()];
+    Object.keys(POOL_GROUPS).sort().forEach((prefix) => {
+      const variants = POOL_GROUPS[prefix] || [];
+      if (variants.length) picks.push(variants[0]);
+    });
+    for (const n of picks) { if (SELECTED.size >= _MMAX) break; SELECTED.add(n); }
     LS.set('pool_subset', [...SELECTED]); renderPool();
   });
   $('#poolSelectNone').addEventListener('click', () => {
