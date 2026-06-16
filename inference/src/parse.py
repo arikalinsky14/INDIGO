@@ -650,20 +650,23 @@ DEFAULT_EXCLUDED_PREFIXES: Tuple[str, ...] = ("Air", "Vacuum", "Water")
 def _element_prefix(canonical: str) -> str:
     """Group key for a JLL canonical name.
 
-    Strategy: take the first dash/underscore/space-delimited segment, then
-    try to peel a phase prefix (0–4 leading characters) and match what's
-    left against a known-element table — case-insensitively, so both
-    `aSi-Pierce-1972` and `asi-pierce-1972` collapse to `Si`.
+    Strategy: take the first dash/underscore/space-delimited segment,
+    then peel an optional phase prefix (0–4 leading lowercase characters)
+    and match what's left against a known-element table case-insensitively.
+    The phase prefix is KEPT in the group key — amorphous and crystalline
+    Si have meaningfully different n,k spectra, so 'aSi' and 'cSi' are
+    different groups, NOT two variants of 'Si'.
 
     Examples (output → input):
       'Ag'   ← 'Ag-Rakic-LD-1998'
       'Ag'   ← 'Ag'
       'SiO2' ← 'SiO2-Zarei-2024'
-      'Si'   ← 'aSi-Pierce-1972'
-      'Si'   ← 'asi-pierce-1972'   (all-lowercase canonical)
-      'Si'   ← 'cSi'
-      'Si'   ← 'ncSi-Foo-2010'
-      'CdSe' ← 'CdSe-Adachi-1989'  (compound; phase strip does not apply)
+      'aSi'  ← 'aSi-Pierce-1972'
+      'aSi'  ← 'asi-pierce-1972'   (all-lowercase canonical normalised)
+      'cSi'  ← 'cSi'
+      'ncSi' ← 'ncSi-Foo-2010'
+      'Si'   ← 'Si-Schinke-2015'   (no phase prefix → just 'Si')
+      'CdSe' ← 'CdSe-Adachi-1989'  (compound; phase peel doesn't apply)
       'GaAs' ← 'gaas-vurgaftman-2001'
 
     Falls back to the regex behaviour (and finally the raw string) if the
@@ -675,10 +678,9 @@ def _element_prefix(canonical: str) -> str:
     if not head:
         return canonical
     head_lower = head.lower()
-    # Try every phase-strip length from 0 (no strip) upward, longest
-    # known element first; the first hit wins. Lowest strip_n wins so
-    # we never strip into a compound: for 'cdse' the strip_n=0/el_len=4
-    # match (whole word) fires before any strip_n=2/el_len=2 would.
+    # Try every phase-prefix length from 0 (no prefix) upward, longest
+    # known element first; lowest strip_n wins so compounds like 'cdse'
+    # match the WHOLE word before any individual atom inside them would.
     for strip_n in range(0, min(5, len(head_lower))):
         tail = head_lower[strip_n:]
         if not tail:
@@ -688,8 +690,12 @@ def _element_prefix(canonical: str) -> str:
                 continue
             cand = tail[:el_len]
             if cand in _KNOWN_PREFIXES_LOWER:
-                return _KNOWN_PREFIXES_LOWER[cand]
-    # Standard uppercase-start fallback
+                element = _KNOWN_PREFIXES_LOWER[cand]
+                phase = head_lower[:strip_n]
+                # Keep the phase prefix attached so 'aSi' / 'cSi' / 'ncSi'
+                # stay distinct from each other and from plain 'Si'.
+                return f"{phase}{element}" if phase else element
+    # Standard uppercase-start fallback (e.g. 'BK7' if not in the table)
     m = _PREFIX_RE.match(head)
     if m:
         return m.group(1)
