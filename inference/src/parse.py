@@ -617,12 +617,28 @@ _CATEGORY_PREFIXES: Dict[str, Tuple[str, ...]] = {
 }
 
 _PREFIX_RE = re.compile(r"^([A-Z][a-zA-Z0-9]*)(?:[-_/ ]|$)")
-# Phase / structure prefixes used in optics nomenclature: amorphous (`a`),
-# crystalline (`c`), polycrystalline (`p`), nano-crystalline (`nc`),
-# micro-crystalline (`mc`), monocrystalline (`mono`). 1–4 lowercase letters
-# immediately followed by an uppercase symbol. Compounds (CdSe, GaAs, InP)
-# always start with an uppercase letter, so this strip never touches them.
-_PHASE_PREFIX_RE = re.compile(r"^[a-z]{1,4}(?=[A-Z])")
+_FIRST_SEGMENT_RE = re.compile(r"[-_/ ]")
+
+# Canonical capitalisations of element symbols and common compounds that
+# appear in the JLL pool. Lookup is lower-cased so the same table handles
+# `Ag`, `ag`, `aSi`, `asi`, `cSi`, `csi`, `SiO2`, `sio2`, etc. Keep this
+# in sync with _COMMON_ALIASES + _CATEGORY_PREFIXES — the values here are
+# what the picker groups on and what the LLM is told are valid prefixes.
+_KNOWN_PREFIXES_LOWER: Dict[str, str] = {
+    # Elemental metals
+    "ag": "Ag", "au": "Au", "al": "Al", "cu": "Cu", "fe": "Fe",
+    "ti": "Ti", "cr": "Cr", "ni": "Ni", "pt": "Pt", "pd": "Pd",
+    "w":  "W",  "mo": "Mo", "ta": "Ta", "pb": "Pb", "sn": "Sn",
+    "zn": "Zn", "mg": "Mg", "co": "Co", "mn": "Mn",
+    # Semiconductors / single-atom dielectrics
+    "si": "Si", "ge": "Ge", "c":  "C",  "b":  "B",
+    # Compounds
+    "sio2": "SiO2", "tio2": "TiO2", "al2o3": "Al2O3", "zno": "ZnO",
+    "mgo":  "MgO",  "wo3":  "WO3",  "ta2o5": "Ta2O5", "hfo2": "HfO2",
+    "mgf2": "MgF2", "si3n4": "Si3N4", "ito":  "ITO",  "bk7":  "BK7",
+    "gaas": "GaAs", "inp":  "InP",  "gan":  "GaN",   "gap":  "GaP",
+    "cdse": "CdSe", "cds":  "CdS",
+}
 
 # Materials to keep visible in the picker but EXCLUDE from the recommended
 # default selection. Air / Vacuum / Water aren't really part of a thin-film
@@ -632,17 +648,52 @@ DEFAULT_EXCLUDED_PREFIXES: Tuple[str, ...] = ("Air", "Vacuum", "Water")
 
 
 def _element_prefix(canonical: str) -> str:
-    """For 'Ag-Rakic-LD-1998' → 'Ag'; for 'SiO2-Zarei-2024' → 'SiO2';
-    for 'aSi-Pierce-1972' → 'Si' (the 'a' phase prefix is stripped so
-    amorphous + crystalline variants live in one group).
+    """Group key for a JLL canonical name.
 
-    Falls back to the whole string if no prefix is extractable.
+    Strategy: take the first dash/underscore/space-delimited segment, then
+    try to peel a phase prefix (0–4 leading characters) and match what's
+    left against a known-element table — case-insensitively, so both
+    `aSi-Pierce-1972` and `asi-pierce-1972` collapse to `Si`.
+
+    Examples (output → input):
+      'Ag'   ← 'Ag-Rakic-LD-1998'
+      'Ag'   ← 'Ag'
+      'SiO2' ← 'SiO2-Zarei-2024'
+      'Si'   ← 'aSi-Pierce-1972'
+      'Si'   ← 'asi-pierce-1972'   (all-lowercase canonical)
+      'Si'   ← 'cSi'
+      'Si'   ← 'ncSi-Foo-2010'
+      'CdSe' ← 'CdSe-Adachi-1989'  (compound; phase strip does not apply)
+      'GaAs' ← 'gaas-vurgaftman-2001'
+
+    Falls back to the regex behaviour (and finally the raw string) if the
+    name doesn't match anything in the known-element table.
     """
     if not isinstance(canonical, str) or not canonical:
         return ""
-    stripped = _PHASE_PREFIX_RE.sub("", canonical)
-    m = _PREFIX_RE.match(stripped)
-    return m.group(1) if m else canonical
+    head = _FIRST_SEGMENT_RE.split(canonical.strip(), maxsplit=1)[0]
+    if not head:
+        return canonical
+    head_lower = head.lower()
+    # Try every phase-strip length from 0 (no strip) upward, longest
+    # known element first; the first hit wins. Lowest strip_n wins so
+    # we never strip into a compound: for 'cdse' the strip_n=0/el_len=4
+    # match (whole word) fires before any strip_n=2/el_len=2 would.
+    for strip_n in range(0, min(5, len(head_lower))):
+        tail = head_lower[strip_n:]
+        if not tail:
+            break
+        for el_len in (4, 3, 2, 1):
+            if len(tail) != el_len:
+                continue
+            cand = tail[:el_len]
+            if cand in _KNOWN_PREFIXES_LOWER:
+                return _KNOWN_PREFIXES_LOWER[cand]
+    # Standard uppercase-start fallback
+    m = _PREFIX_RE.match(head)
+    if m:
+        return m.group(1)
+    return head
 
 
 def _build_pool_alias_tables(pool_names: List[str]
