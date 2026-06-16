@@ -327,9 +327,12 @@ Picking the right kind matters. Common phrasings:
 
 Periodic / positional patterns — these need MULTIPLE layer_identity entries,
 one per fixed position. There is no "period" primitive; you must enumerate
-positions explicitly.
+positions explicitly. The expansion below applies ONLY when the user names
+ONE SPECIFIC material per position. For "any from a category" see the
+"category-positional" subsection below.
 
-  - "every other layer is X" / "alternating X with anything"
+  - "every other layer is X" / "alternating X with anything" (X = SPECIFIC
+     material like 'ZnO', 'Ag', 'SiO2'):
         ⇒ EMIT a layer_identity AT EACH EVEN POSITION (0, 2, 4, 6, 8)
           binding to X. Do NOT use allowed_subset:[X] — that forces EVERY
           layer to X, not every other. Also emit a layer_count constraint
@@ -340,19 +343,44 @@ positions explicitly.
            {{kind:"layer_identity",position:4,material_name:"ZnO"}},
            {{kind:"layer_identity",position:6,material_name:"ZnO"}},
            {{kind:"layer_identity",position:8,material_name:"ZnO"}}]
-  - "X then Y then X then Y …" (ABAB stack)
+  - "X then Y then X then Y …" (ABAB stack, X and Y both SPECIFIC):
         ⇒ layer_identity at positions 0,2,4,… = X AND positions 1,3,5,… = Y.
-  - "first and last layer must be X"
+  - "first and last layer must be X" (X SPECIFIC):
         ⇒ layer_identity at position 0 = X AND layer_identity at position
-          (last_index) = X. You don't know the last index for sure; pin
-          position 0 and ALSO add a symmetry constraint or emit
-          layer_identity at the user-specified positions.
-  - "layers 3 through 6 must be Cr"
+          (last_index) = X.
+  - "layers 3 through 6 must be Cr":
         ⇒ layer_identity at each of 3, 4, 5, 6.
-  - "the middle layer must be X"
-        ⇒ layer_identity at position floor(N/2) where N comes from the
-          layer_count the user requested; default to position 4 if no count
-          was given.
+  - "the middle layer must be X" (X SPECIFIC):
+        ⇒ layer_identity at position floor(N/2).
+
+Category-positional patterns (PRESERVED FREEDOM at each position):
+  When the user says a CATEGORY at certain positions ("metal", "oxide",
+  "dielectric", "noble metal", "semiconductor") instead of a specific
+  material name, you CANNOT use layer_identity — that pins one material.
+  You also CANNOT use allowed_subset:[<every metal>], that's GLOBAL and
+  forces EVERY layer to be a metal, not just even positions.
+
+  Use the ESCAPE HATCH (`custom_constraint_request`). The description
+  must enumerate BOTH the positions and the canonical material names
+  from the pool that satisfy the category, so the codegen pass has
+  everything it needs without re-deriving the category list. Example:
+
+  USER: "every other layer is a metal"
+  Pool's metals (from the categories table above): "Ag-Rakic-LD-1998",
+                                                    "Au-Johnson-1972",
+                                                    "Cu-Lemarchand-2013",
+                                                    "Al-Rakic-LD-1998"
+  WRONG: layer_identity at position 0 = "Ag-Rakic-LD-1998" only — pins one
+         metal, loses the category freedom and only constrains layer 0.
+  WRONG: allowed_subset = [all 4 metals] — forces ALL positions to be
+         metal, not just even ones.
+  RIGHT: custom_constraint_request:
+         "Each layer at an EVEN position (0, 2, 4, 6, 8) must use one of
+          these canonical names: 'Ag-Rakic-LD-1998', 'Au-Johnson-1972',
+          'Cu-Lemarchand-2013', 'Al-Rakic-LD-1998'. Layers at odd positions
+          (1, 3, 5, 7) may use any material in the pool. The check should
+          accept structures shorter than 10 layers as long as every
+          present even-indexed layer satisfies the rule."
 
 When you enumerate positions, keep them inside [0, 10). If the user implied
 a different total layer count via layer_count.max_layers=K, only enumerate
