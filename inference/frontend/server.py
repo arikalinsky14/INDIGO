@@ -303,33 +303,49 @@ def _make_app():
 
     @app.get("/api/pool")
     def pool_listing() -> Dict[str, Any]:
-        """Full uncapped JLL library — the frontend lets the user pick ≤M_MAX."""
+        """Full uncapped JLL library — the frontend lets the user pick ≤M_MAX.
+
+        Best-effort: tries to compute an element-prefix grouping so the
+        picker can collapse near-duplicates. If anything in that path
+        raises (stale parse.py, missing helper, etc.), we still return
+        the flat materials list and let the frontend's own grouping
+        fallback take over — the picker must never serve a blank list
+        just because the dedup pipeline hiccuped.
+        """
         materials = _FULL_JLL_POOL or []
-        # Group by element prefix so the picker can show one row per
-        # actual material with a "+ N variants" affordance instead of
-        # 5 near-duplicate rows for "Ag-Rakic-LD-1998",
-        # "Ag-Johnson-1972", etc. The differences between variants are
-        # measurement-source spectra differences; the picker still lets
-        # the user expand and pick a specific variant if needed.
-        from inference.src.parse import _element_prefix
         groups: Dict[str, List[str]] = {}
-        for m in materials:
-            groups.setdefault(_element_prefix(m.canonical_name), []).append(
-                m.canonical_name
-            )
-        # Build a deduplicated default: one variant per element prefix,
-        # preferring the recommended variant the server's M_MAX cap chose
-        # at startup so we don't drift from the trained pool.
-        startup_pool = {m.canonical_name for m in (_POOL or [])}
-        def _pick_one(variants: List[str]) -> str:
-            preferred = [v for v in variants if v in startup_pool]
-            return (preferred or variants)[0]
-        deduped_default = [_pick_one(v) for v in groups.values()]
-        deduped_default = deduped_default[:M_MAX]
+        deduped_default: List[str] = []
+        display_for: Dict[str, str] = {}
+        try:
+            from inference.src.parse import _element_prefix
+            for m in materials:
+                p = _element_prefix(m.canonical_name) or m.canonical_name
+                groups.setdefault(p, []).append(m.canonical_name)
+                display_for[m.canonical_name] = p
+            startup_pool = {m.canonical_name for m in (_POOL or [])}
+            def _pick_one(variants: List[str]) -> str:
+                preferred = [v for v in variants if v in startup_pool]
+                return (preferred or variants)[0]
+            deduped_default = [_pick_one(v) for v in groups.values()][:M_MAX]
+        except Exception as exc:  # noqa: BLE001
+            import traceback as _tb
+            print(f"[server] /api/pool: grouping failed "
+                  f"({type(exc).__name__}: {exc}); returning flat list",
+                  flush=True)
+            _tb.print_exc()
+            groups = {}
+            deduped_default = [m.canonical_name for m in materials[:M_MAX]]
+            display_for = {m.canonical_name: m.canonical_name for m in materials}
+
+        print(f"[server] /api/pool: {len(materials)} materials, "
+              f"{len(groups)} groups, {len(deduped_default)} deduped_default",
+              flush=True)
+
         return {
             "materials": [
                 {"canonical_name": m.canonical_name, "source": m.source,
-                 "display_name": _element_prefix(m.canonical_name)}
+                 "display_name": display_for.get(m.canonical_name,
+                                                 m.canonical_name)}
                 for m in materials
             ],
             "groups": {prefix: vs for prefix, vs in sorted(groups.items())},
