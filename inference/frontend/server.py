@@ -317,7 +317,9 @@ def _make_app():
         deduped_default: List[str] = []
         display_for: Dict[str, str] = {}
         try:
-            from inference.src.parse import _element_prefix
+            from inference.src.parse import (
+                DEFAULT_EXCLUDED_PREFIXES, _element_prefix,
+            )
             for m in materials:
                 p = _element_prefix(m.canonical_name) or m.canonical_name
                 groups.setdefault(p, []).append(m.canonical_name)
@@ -326,7 +328,13 @@ def _make_app():
             def _pick_one(variants: List[str]) -> str:
                 preferred = [v for v in variants if v in startup_pool]
                 return (preferred or variants)[0]
-            deduped_default = [_pick_one(v) for v in groups.values()][:M_MAX]
+            # Exclude non-material prefixes (Air, Vacuum, Water) from the
+            # recommended default. They stay visible in the picker but
+            # shouldn't burn a default M_MAX slot.
+            deduped_default = [
+                _pick_one(v) for prefix, v in groups.items()
+                if prefix not in DEFAULT_EXCLUDED_PREFIXES
+            ][:M_MAX]
         except Exception as exc:  # noqa: BLE001
             import traceback as _tb
             print(f"[server] /api/pool: grouping failed "

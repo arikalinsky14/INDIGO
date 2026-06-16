@@ -617,16 +617,31 @@ _CATEGORY_PREFIXES: Dict[str, Tuple[str, ...]] = {
 }
 
 _PREFIX_RE = re.compile(r"^([A-Z][a-zA-Z0-9]*)(?:[-_/ ]|$)")
+# Phase / structure prefixes used in optics nomenclature: amorphous (`a`),
+# crystalline (`c`), polycrystalline (`p`), nano-crystalline (`nc`),
+# micro-crystalline (`mc`), monocrystalline (`mono`). 1–4 lowercase letters
+# immediately followed by an uppercase symbol. Compounds (CdSe, GaAs, InP)
+# always start with an uppercase letter, so this strip never touches them.
+_PHASE_PREFIX_RE = re.compile(r"^[a-z]{1,4}(?=[A-Z])")
+
+# Materials to keep visible in the picker but EXCLUDE from the recommended
+# default selection. Air / Vacuum / Water aren't really part of a thin-film
+# stack; including them in the default burned a slot the user almost
+# certainly didn't want.
+DEFAULT_EXCLUDED_PREFIXES: Tuple[str, ...] = ("Air", "Vacuum", "Water")
 
 
 def _element_prefix(canonical: str) -> str:
-    """For 'Ag-Rakic-LD-1998' → 'Ag'; for 'SiO2-Zarei-2024' → 'SiO2'.
+    """For 'Ag-Rakic-LD-1998' → 'Ag'; for 'SiO2-Zarei-2024' → 'SiO2';
+    for 'aSi-Pierce-1972' → 'Si' (the 'a' phase prefix is stripped so
+    amorphous + crystalline variants live in one group).
 
     Falls back to the whole string if no prefix is extractable.
     """
     if not isinstance(canonical, str) or not canonical:
         return ""
-    m = _PREFIX_RE.match(canonical)
+    stripped = _PHASE_PREFIX_RE.sub("", canonical)
+    m = _PREFIX_RE.match(stripped)
     return m.group(1) if m else canonical
 
 

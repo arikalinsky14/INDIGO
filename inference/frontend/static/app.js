@@ -132,6 +132,7 @@ function bindConstraintChips() {
 // ============================================================================
 let MATERIAL_LIST = [];           // [{canonical_name, source, display_name}]
 let POOL_GROUPS = {};             // element prefix -> [canonical names]
+let DEDUPED_DEFAULT = [];         // server's recommended default subset
 const SELECTED   = new Set();     // selected canonical_name set
 const CUSTOM     = new Map();     // canonical_name -> {n,k,source}
 const EXPANDED   = new Set();     // element prefixes whose variants are visible
@@ -169,9 +170,11 @@ async function loadPool() {
   POOL_GROUPS = (data.groups && Object.keys(data.groups).length)
               ? data.groups
               : _groupsFromMaterialList(MATERIAL_LIST);
+  DEDUPED_DEFAULT = data.deduped_default || [];
   _MMAX = data.m_max || _MMAX;
   console.log('loadPool:', MATERIAL_LIST.length, 'materials,',
-              Object.keys(POOL_GROUPS).length, 'groups');
+              Object.keys(POOL_GROUPS).length, 'groups,',
+              DEDUPED_DEFAULT.length, 'deduped_default');
   // Initial selection: localStorage > server-supplied deduped default >
   // server's M_MAX-capped default > naive "first M_MAX".
   const stored = LS.get('pool_subset', null);
@@ -358,6 +361,22 @@ function bindPoolControls() {
   });
   $('#poolSelectNone').addEventListener('click', () => {
     SELECTED.clear(); LS.set('pool_subset', []); renderPool();
+  });
+  $('#poolSelectReset').addEventListener('click', () => {
+    // Snap back to the server's recommended default — one variant per
+    // element group, with non-material prefixes (Air, Vacuum, …)
+    // excluded. Useful for users with a stale localStorage selection
+    // from before the grouping change.
+    if (!DEDUPED_DEFAULT.length) {
+      flashError('Server did not return a recommended default.');
+      return;
+    }
+    SELECTED.clear();
+    DEDUPED_DEFAULT.forEach((n) => {
+      if (SELECTED.size < _MMAX) SELECTED.add(n);
+    });
+    LS.set('pool_subset', [...SELECTED]);
+    renderPool();
   });
   $('#poolUploadBtn').addEventListener('click', () => openCsvModal());
 }
