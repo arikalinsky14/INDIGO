@@ -136,18 +136,49 @@ const SELECTED   = new Set();     // selected canonical_name set
 const CUSTOM     = new Map();     // canonical_name -> {n,k,source}
 const EXPANDED   = new Set();     // element prefixes whose variants are visible
 
+// Mirror parse.py:_element_prefix. Used as a fallback when the running
+// server is older than the deploy that added /api/pool.groups — keeps the
+// picker functional through a half-deployed restart cycle.
+function _clientElementPrefix(canonical) {
+  if (typeof canonical !== 'string' || !canonical) return '';
+  const m = canonical.match(/^([A-Z][a-zA-Z0-9]*)(?:[-_/ ]|$)/);
+  return m ? m[1] : canonical;
+}
+
+function _groupsFromMaterialList(list) {
+  const out = {};
+  list.forEach((m) => {
+    const p = m.display_name || _clientElementPrefix(m.canonical_name) || m.canonical_name;
+    if (!out[p]) out[p] = [];
+    out[p].push(m.canonical_name);
+  });
+  return out;
+}
+
 async function loadPool() {
-  const r = await fetch('/api/pool'); if (!r.ok) return;
+  const r = await fetch('/api/pool');
+  if (!r.ok) {
+    console.error('loadPool: /api/pool returned', r.status);
+    return;
+  }
   const data = await r.json();
   MATERIAL_LIST = data.materials || [];
-  POOL_GROUPS = data.groups || {};
+  // Prefer the server-supplied grouping (newer server); fall back to a
+  // client-side prefix extraction so the picker still works against an
+  // older server build or a misbehaving JSON.
+  POOL_GROUPS = (data.groups && Object.keys(data.groups).length)
+              ? data.groups
+              : _groupsFromMaterialList(MATERIAL_LIST);
   _MMAX = data.m_max || _MMAX;
-  // Server now returns a deduped default (one variant per element prefix);
-  // prefer it over the all-variants default unless the user already saved
-  // their own selection.
+  console.log('loadPool:', MATERIAL_LIST.length, 'materials,',
+              Object.keys(POOL_GROUPS).length, 'groups');
+  // Initial selection: localStorage > server-supplied deduped default >
+  // server's M_MAX-capped default > naive "first M_MAX".
   const stored = LS.get('pool_subset', null);
-  const initial = stored ?? (data.deduped_default || data.default_subset ||
-                            MATERIAL_LIST.slice(0, _MMAX).map((m) => m.canonical_name));
+  const initial = stored
+    ?? (data.deduped_default && data.deduped_default.length ? data.deduped_default
+        : (data.default_subset && data.default_subset.length ? data.default_subset
+           : MATERIAL_LIST.slice(0, _MMAX).map((m) => m.canonical_name)));
   SELECTED.clear(); initial.forEach((n) => SELECTED.add(n));
   renderPool();
 }
@@ -174,10 +205,27 @@ function renderPool() {
     list.appendChild(_buildPoolRow({ ...m, custom: true }, /*indent=*/false));
   });
 
-  // JLL: one row per element prefix; expand to show variants.
   const prefixes = Object.keys(POOL_GROUPS).sort();
+
+  // Last-resort fallback: if grouping yielded nothing but MATERIAL_LIST
+  // has rows, just render the flat list so the user can still pick. Hit
+  // this when /api/pool failed to deserialise or returned an unexpected
+  // shape; the picker should never silently show zero rows when there's
+  // data to show.
+  if (prefixes.length === 0 && MATERIAL_LIST.length > 0) {
+    console.warn('renderPool: groups empty but MATERIAL_LIST has',
+                 MATERIAL_LIST.length, 'entries — flat fallback');
+    MATERIAL_LIST.forEach((m) => {
+      if (filter && !m.canonical_name.toLowerCase().includes(filter)) return;
+      list.appendChild(_buildPoolRow(m, /*indent=*/false));
+    });
+    updatePoolCount();
+    return;
+  }
+
+  // Grouped view.
   prefixes.forEach((prefix) => {
-    const variants = POOL_GROUPS[prefix];
+    const variants = POOL_GROUPS[prefix] || [];
     const filterHit = !filter
       || prefix.toLowerCase().includes(filter)
       || variants.some((v) => v.toLowerCase().includes(filter));
@@ -191,6 +239,15 @@ function renderPool() {
       });
     }
   });
+
+  if (list.children.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'text-xs text-slate-500 px-2 py-3';
+    empty.textContent = MATERIAL_LIST.length === 0
+      ? 'No materials returned by the server. Restart the server, or check /api/pool.'
+      : 'No materials match your filter.';
+    list.appendChild(empty);
+  }
 
   updatePoolCount();
 }
