@@ -761,7 +761,7 @@ function renderCustomConstraintNotice(result) {
 
   customs.forEach((c) => host.appendChild(buildCustomConstraintCard(c)));
   if (skippedMatch) {
-    host.appendChild(buildCustomConstraintSkipped(skippedMatch[0]));
+    host.appendChild(buildCustomConstraintSkipped(skippedMatch[0], disclaimer));
   }
 }
 
@@ -805,7 +805,7 @@ function buildCustomConstraintCard(c) {
   return box;
 }
 
-function buildCustomConstraintSkipped(messageLine) {
+function buildCustomConstraintSkipped(messageLine, fullDisclaimer) {
   const box = document.createElement('div');
   box.className = 'cc-notice cc-skipped';
 
@@ -833,6 +833,25 @@ function buildCustomConstraintSkipped(messageLine) {
   tv.textContent = 'Solve continued with the 8 standard constraint kinds the first LLM call produced.';
   tail.appendChild(tl); tail.appendChild(tv);
   box.appendChild(tail);
+
+  // parse.py appends the generated source to the disclaimer when codegen
+  // fails. Pull it out and render it in a disclosure so the user can see
+  // exactly what the LLM produced (and we can debug sandbox issues).
+  if (fullDisclaimer) {
+    const srcMatch = fullDisclaimer.match(
+      /Generated source \(first \d+ chars\):\s*\n([\s\S]+?)(?:\n\n|$)/
+    );
+    if (srcMatch && srcMatch[1]) {
+      const det = document.createElement('details');
+      det.className = 'cc-code';
+      const sum = document.createElement('summary');
+      sum.textContent = 'show generated Python (rejected)';
+      const pre = document.createElement('pre');
+      pre.textContent = srcMatch[1].trim();
+      det.appendChild(sum); det.appendChild(pre);
+      box.appendChild(det);
+    }
+  }
 
   return box;
 }

@@ -57,6 +57,7 @@ import os
 import re
 import sys
 import threading
+import types
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -149,6 +150,18 @@ _FORBIDDEN_SUBSTRINGS = (
 )
 
 
+# Stub module for the sandbox. The @dataclass decorator resolves
+# annotations through `sys.modules[cls.__module__].__dict__` (for forward
+# refs / typing.get_type_hints fall-throughs). If the module name isn't
+# registered, sys.modules returns None and we crash with
+#   AttributeError: 'NoneType' object has no attribute '__dict__'
+# during class creation. Register an empty stub once at import time so
+# every sandbox class has a real module to live under.
+_SANDBOX_MODULE_NAME = "indigo_custom_constraint_sandbox"
+if _SANDBOX_MODULE_NAME not in sys.modules:
+    sys.modules[_SANDBOX_MODULE_NAME] = types.ModuleType(_SANDBOX_MODULE_NAME)
+
+
 def _make_exec_namespace() -> Dict[str, Any]:
     """Pre-populated namespace for the LLM's code."""
     return {
@@ -156,7 +169,7 @@ def _make_exec_namespace() -> Dict[str, Any]:
         # Class-statement metadata. Python's compiler emits a reference to
         # the module's __name__ when defining a class; if it's missing the
         # @dataclass decorator raises during class creation.
-        "__name__": "indigo_custom_constraint",
+        "__name__": _SANDBOX_MODULE_NAME,
         # Required ABC + dataclass helpers (the LLM can't `import` them).
         "Constraint": Constraint,
         "dataclass": dataclass,
@@ -309,13 +322,25 @@ def _compile_source(source: str) -> Tuple[type, Dict[str, Any]]:
     _static_safety_check(source)
     repaired = _maybe_repair_frozen(source)
     ns = _make_exec_namespace()
+    # Mirror the namespace into the stub module's __dict__ so any tool
+    # that walks `sys.modules[cls.__module__].__dict__` (the @dataclass
+    # decorator's annotation resolver does this for forward refs) sees the
+    # same names the exec sees. Cleared on each call so leftover state
+    # from a previous custom constraint can't leak in.
+    sandbox_mod = sys.modules[_SANDBOX_MODULE_NAME]
+    sandbox_mod.__dict__.clear()
+    sandbox_mod.__dict__.update(ns)
     try:
         compiled = compile(repaired, "<custom_constraint>", "exec")
     except SyntaxError as exc:
         raise CustomConstraintError("exec", f"SyntaxError: {exc}",
                                     source=source)
     try:
-        exec(compiled, ns)
+        # exec into the stub module's __dict__ directly (it already
+        # contains the prepared namespace). This makes the class's
+        # __module__ resolve to the stub module without any extra hop.
+        exec(compiled, sandbox_mod.__dict__)
+        ns = sandbox_mod.__dict__
     except Exception as exc:
         raise CustomConstraintError(
             "exec", f"{type(exc).__name__}: {exc}", source=source,
