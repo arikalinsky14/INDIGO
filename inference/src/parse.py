@@ -314,40 +314,61 @@ its actual achievable ΔE.
 
 The ESCAPE HATCH: `custom_constraint_request`
 ---------------------------------------------
-Keep this `null` for the OVERWHELMING majority of requests. The 8 existing
-kinds + the periodic-pattern expansion above cover essentially everything
-real users ask for.
+Use this field whenever the user's request describes a RELATIONSHIP
+between layers (ordering, comparison, sum, count, parity, ratio, etc.)
+that the 8 standard kinds cannot ACTUALLY enforce. The standard kinds
+are independent per-layer or per-pair guards; they have no way to
+express "layer i compared to layer i-1" or "the sum across some subset".
 
-ONLY populate `custom_constraint_request` with a short natural-language
-description (1-3 sentences, plain English) when you have CONFIRMED that
-no combination of the 8 standard kinds + position enumeration can
-express what the user asked for. Examples of genuinely escape-hatch-only
-requests:
+A FAKE APPROXIMATION IS WORSE THAN AN ESCAPE HATCH. The thing to avoid:
+inventing a sequence of per-position `thickness_range` (or per-position
+`layer_identity`, etc.) that LOOKS like it captures the intent but
+doesn't. Concrete example of what NOT to do:
 
+  USER: "monotonically decreasing thicknesses"
+  WRONG: emit thickness_range at position 0 max=200, position 1 max=195,
+         position 2 max=190, …  This only caps each layer below a fixed
+         number — it allows [195, 100, 50, 10, …] which is monotonic, but
+         ALSO allows [195, 30, 180, 10, 175, …] which is not. The
+         constraint is not actually enforced.
+  RIGHT: populate `custom_constraint_request` with:
+         "Each layer's thickness must be strictly less than the previous
+          layer's thickness (monotonically decreasing nm)."
+
+Requests that should ALWAYS go through the escape hatch:
+  - "monotonically increasing / decreasing thicknesses"
+  - "thicknesses must alternate above and below 50 nm"
   - "the sum of the THICKNESSES of all silver layers must not exceed 80 nm"
-        (not a per-layer thickness range; not a total thickness; not
-         allowed_subset — it's a conditional sum.)
   - "at least one of the layers must have thickness within 5 nm of 100 nm"
-        (existence claim across the stack.)
   - "the cumulative thickness of TiO2 layers must equal the cumulative
      thickness of SiO2 layers"
-        (parity between two material groups.)
+  - "the ratio of total Ag thickness to total SiO2 thickness must be ≤ 0.3"
+  - "no two layers may have the same thickness"
+  - "the stack must contain exactly 2 silver layers"
+  - "thicknesses must be in a geometric / arithmetic progression"
+  - "the number of TiO2 layers must equal the number of SiO2 layers"
+  - any other "exists / forall / sum / count / compare across layers"
+    statement.
 
-When you DO populate it:
-  - You may STILL also include any standard constraints in the `constraints`
-    array — the custom one is added on top of them, not instead of them.
-    Push as much as you can into the standard kinds.
-  - Be MAXIMALLY EXPLICIT in the description. Name the materials by their
-    canonical names. Quantify everything. Say what should pass and what
-    should fail. The code-generation pass has only your description to
-    work from.
+Requests that should NOT trigger the escape hatch — the standard kinds
+genuinely express them:
+  - "no silver" → allowed_subset (everything except Ag)
+  - "between 3 and 5 layers" → layer_count
+  - "layer 0 must be SiO2" → layer_identity
+  - "every other layer is ZnO" → multiple layer_identity (the periodic
+    pattern expansion above)
+  - "no layer thicker than 80 nm" → thickness_range with position=null
+  - "Ag must come before Au" → ordering_before
+  - "symmetric stack" → symmetry
+  - "total stack ≤ 500 nm" → total_thickness
+
+When you populate `custom_constraint_request`:
+  - You may ALSO include any standard constraints that genuinely apply
+    in the `constraints` array — they stack with the custom one.
+  - Be MAXIMALLY EXPLICIT. Name the materials by their canonical names.
+    Quantify everything. Say what should pass and what should fail.
   - In your `disclaimer`, ALWAYS mention that a custom constraint was
-    requested and briefly say what it enforces, so the user sees that a
-    second model call is happening.
-
-If the user's request can be approximated reasonably by an existing
-constraint, prefer the approximation and mention the trade-off in the
-disclaimer — `custom_constraint_request` is a last resort.
+    requested so the user sees that a second model call is happening.
 
 Output JSON conforming to the schema. Do not output prose."""
 
