@@ -305,12 +305,36 @@ def _make_app():
     def pool_listing() -> Dict[str, Any]:
         """Full uncapped JLL library — the frontend lets the user pick ≤M_MAX."""
         materials = _FULL_JLL_POOL or []
+        # Group by element prefix so the picker can show one row per
+        # actual material with a "+ N variants" affordance instead of
+        # 5 near-duplicate rows for "Ag-Rakic-LD-1998",
+        # "Ag-Johnson-1972", etc. The differences between variants are
+        # measurement-source spectra differences; the picker still lets
+        # the user expand and pick a specific variant if needed.
+        from inference.src.parse import _element_prefix
+        groups: Dict[str, List[str]] = {}
+        for m in materials:
+            groups.setdefault(_element_prefix(m.canonical_name), []).append(
+                m.canonical_name
+            )
+        # Build a deduplicated default: one variant per element prefix,
+        # preferring the recommended variant the server's M_MAX cap chose
+        # at startup so we don't drift from the trained pool.
+        startup_pool = {m.canonical_name for m in (_POOL or [])}
+        def _pick_one(variants: List[str]) -> str:
+            preferred = [v for v in variants if v in startup_pool]
+            return (preferred or variants)[0]
+        deduped_default = [_pick_one(v) for v in groups.values()]
+        deduped_default = deduped_default[:M_MAX]
         return {
             "materials": [
-                {"canonical_name": m.canonical_name, "source": m.source}
+                {"canonical_name": m.canonical_name, "source": m.source,
+                 "display_name": _element_prefix(m.canonical_name)}
                 for m in materials
             ],
+            "groups": {prefix: vs for prefix, vs in sorted(groups.items())},
             "default_subset": [m.canonical_name for m in (_POOL or [])],
+            "deduped_default": deduped_default,
             "m_max": M_MAX,
         }
 

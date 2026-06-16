@@ -201,6 +201,43 @@ def _system_prompt(pool_names: List[str]) -> str:
     """Concise system prompt. Lists the 8 constraint kinds and the pool, with
     explicit guidance on the underspecified case."""
     names_str = ", ".join(pool_names)
+    by_element, common_aliases, categories = _build_pool_alias_tables(pool_names)
+
+    # Per-element list: "Ag → Ag-Rakic-LD-1998 (+1 variant), Au → Au-...".
+    element_lines = []
+    for prefix in sorted(by_element.keys()):
+        variants = by_element[prefix]
+        head = variants[0]
+        extra = f"  (+{len(variants) - 1} variant{'s' if len(variants) > 2 else ''})" if len(variants) > 1 else ""
+        element_lines.append(f"    {prefix:<6} → {head}{extra}")
+    element_block = "\n".join(element_lines) if element_lines else "    (none)"
+
+    # Common-alias lines, only for aliases that resolve in THIS pool.
+    if common_aliases:
+        # Collapse multiple aliases pointing at the same element into one line.
+        inv: Dict[str, List[str]] = {}
+        for alias, prefix in common_aliases.items():
+            inv.setdefault(prefix, []).append(alias)
+        alias_lines = [
+            f"    {' / '.join(sorted(set(aliases)))} → {by_element[prefix][0]}"
+            for prefix, aliases in sorted(inv.items())
+        ]
+        alias_block = "\n".join(alias_lines)
+    else:
+        alias_block = "    (none for this pool)"
+
+    # Category lines, only for categories with at least one pool member.
+    if categories:
+        cat_lines = []
+        for cat in sorted(categories.keys()):
+            members = categories[cat]
+            sample = ", ".join(members[:6])
+            tail = f", … ({len(members)} total)" if len(members) > 6 else ""
+            cat_lines.append(f"    {cat}: {sample}{tail}")
+        cat_block = "\n".join(cat_lines)
+    else:
+        cat_block = "    (none for this pool)"
+
     return f"""You translate natural-language requests for thin-film optical design into
 a structured spec. The user describes a color they want and any structural
 constraints; you decide:
@@ -215,8 +252,29 @@ constraints; you decide:
 
   3. A short disclaimer (≤ 2 sentences) summarising how you read the prompt.
 
-Available materials (canonical names — use EXACTLY as written):
+Available materials in this pool — USE EXACT CANONICAL NAMES from the
+"canonical" column. The element prefix (Ag, SiO2, …) is for the resolver
+table only; the constraint JSON must contain the full canonical form.
+
+  element prefix → first canonical variant in pool
+{element_block}
+
+Full canonical list (use these strings EXACTLY in constraints):
   {names_str}
+
+Common-name aliases (the resolver maps these to the canonical first
+variant; you may use either form, but PREFER the canonical):
+{alias_block}
+
+Material categories (use the listed canonical names when the user says
+the category, e.g. "every other layer is a metal" → emit layer_identity
+constraints picking one canonical name from "metals"):
+{cat_block}
+
+If the user names a material that is NOT in the pool AND is NOT in the
+aliases above, leave it out and note it in the disclaimer — DO NOT
+hallucinate a similar-looking name. Never invent material names that
+don't appear in either the canonical list or the alias table.
 
 Constraint kinds (use only these `kind` values):
   - allowed_subset      params: allowed_names: [str, ...]
@@ -305,8 +363,6 @@ Constants you MUST respect:
   - Thicknesses are integers in nm, multiples of 5, in [5, 200].
   - Material names MUST be from the list above; do NOT abbreviate or alias.
 
-If the user names a material that is NOT in the list, leave the constraint
-out and note it in the disclaimer.
 If the user describes an impossible request (e.g. "emits light", a Lab value
 outside the achievable gamut), still output your best-effort Lab target and
 flag the concern in the disclaimer — the downstream pipeline will report
@@ -501,6 +557,184 @@ def _call_mock(prompt: str, pool_names: List[str]) -> Dict[str, Any]:
         "constraints": [],
         "disclaimer": "MOCK backend (no LLM call). Routed on keywords only.",
     }
+
+
+# ----------------------------------------------------------------------------
+# Material alias + category resolution
+#
+# JLL canonical names look like "Ag-Rakic-LD-1998" or "SiO2-Zarei-2024".
+# Users say "silver", "aluminium", "metal", or just "Ag" — the LLM, even
+# given the pool list, occasionally trips on this. Map common spellings
+# to an ELEMENT PREFIX, then look up the prefix in the pool to find the
+# canonical name with the variant suffix attached. Categories ("metals",
+# "oxides", etc.) expand to the union of every pool entry with a matching
+# prefix.
+# ----------------------------------------------------------------------------
+
+_COMMON_ALIASES: Dict[str, str] = {
+    "silver": "Ag",       "ag": "Ag",
+    "gold": "Au",         "au": "Au",
+    "aluminium": "Al",    "aluminum": "Al",   "al": "Al",
+    "copper": "Cu",       "cu": "Cu",
+    "iron": "Fe",         "fe": "Fe",
+    "titanium": "Ti",     "ti": "Ti",
+    "chromium": "Cr",     "chrome": "Cr",     "cr": "Cr",
+    "nickel": "Ni",       "ni": "Ni",
+    "platinum": "Pt",     "pt": "Pt",
+    "palladium": "Pd",    "pd": "Pd",
+    "tungsten": "W",      "w": "W",
+    "molybdenum": "Mo",   "mo": "Mo",
+    "tantalum": "Ta",     "ta": "Ta",
+    "tin": "Sn",          "sn": "Sn",
+    "lead": "Pb",         "pb": "Pb",
+    "zinc": "Zn",         "zn": "Zn",
+    "silicon": "Si",      "si": "Si",
+    "germanium": "Ge",    "ge": "Ge",
+    "carbon": "C",        "graphite": "C",    "diamond": "C",
+    "silica": "SiO2",     "silicon dioxide": "SiO2",   "sio2": "SiO2",
+    "titania": "TiO2",    "titanium dioxide": "TiO2",  "tio2": "TiO2",
+    "alumina": "Al2O3",   "aluminium oxide": "Al2O3",  "aluminum oxide": "Al2O3",
+    "al2o3": "Al2O3",
+    "zinc oxide": "ZnO",  "zno": "ZnO",
+    "magnesium fluoride": "MgF2",                       "mgf2": "MgF2",
+    "silicon nitride": "Si3N4",                         "si3n4": "Si3N4",
+    "tungsten oxide": "WO3",                            "wo3": "WO3",
+    "tantalum oxide": "Ta2O5", "ta2o5": "Ta2O5",
+    "hafnium oxide": "HfO2",   "hfo2": "HfO2",
+    "ito": "ITO",         "indium tin oxide": "ITO",
+}
+
+_CATEGORY_PREFIXES: Dict[str, Tuple[str, ...]] = {
+    "metals":         ("Ag", "Au", "Al", "Cu", "Fe", "Ti", "Cr", "Ni",
+                       "Pt", "Pd", "W", "Mo", "Ta", "Pb", "Sn", "Zn"),
+    "noble metals":   ("Ag", "Au", "Pt", "Pd"),
+    "oxides":         ("SiO2", "TiO2", "Al2O3", "ZnO", "MgO", "WO3",
+                       "Ta2O5", "HfO2", "ITO"),
+    "dielectrics":    ("SiO2", "TiO2", "Al2O3", "ZnO", "MgF2", "BK7",
+                       "Si3N4"),
+    "semiconductors": ("Si", "Ge", "GaAs", "InP", "GaN", "GaP", "ITO"),
+}
+
+_PREFIX_RE = re.compile(r"^([A-Z][a-zA-Z0-9]*)(?:[-_/ ]|$)")
+
+
+def _element_prefix(canonical: str) -> str:
+    """For 'Ag-Rakic-LD-1998' → 'Ag'; for 'SiO2-Zarei-2024' → 'SiO2'.
+
+    Falls back to the whole string if no prefix is extractable.
+    """
+    if not isinstance(canonical, str) or not canonical:
+        return ""
+    m = _PREFIX_RE.match(canonical)
+    return m.group(1) if m else canonical
+
+
+def _build_pool_alias_tables(pool_names: List[str]
+                             ) -> Tuple[Dict[str, List[str]],
+                                        Dict[str, str],
+                                        Dict[str, List[str]]]:
+    """Build (by_element, common_aliases_in_pool, categories_in_pool)."""
+    by_element: Dict[str, List[str]] = {}
+    for name in pool_names:
+        by_element.setdefault(_element_prefix(name), []).append(name)
+
+    common_aliases: Dict[str, str] = {
+        alias: prefix
+        for alias, prefix in _COMMON_ALIASES.items()
+        if prefix in by_element
+    }
+
+    categories: Dict[str, List[str]] = {}
+    for cat, prefixes in _CATEGORY_PREFIXES.items():
+        members: List[str] = []
+        for p in prefixes:
+            members.extend(by_element.get(p, []))
+        if members:
+            categories[cat] = sorted(members)
+
+    return by_element, common_aliases, categories
+
+
+def _resolve_alias(raw: str, by_element: Dict[str, List[str]],
+                   common_aliases: Dict[str, str]) -> Optional[str]:
+    """Best-effort canonical-name lookup for an arbitrary user spelling.
+    Returns None if no plausible match exists in the pool."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    cand = raw.strip()
+    # Strip stray punctuation the LLM sometimes leaks: "Ag},{" etc.
+    cand = re.sub(r'[^\w\-\s]', "", cand).strip()
+    if not cand:
+        return None
+    if any(cand == n for variants in by_element.values() for n in variants):
+        return cand
+    if cand in by_element:
+        return by_element[cand][0]
+    prefix = common_aliases.get(cand.lower())
+    if prefix and prefix in by_element:
+        return by_element[prefix][0]
+    for prefix, variants in by_element.items():
+        if prefix.lower() == cand.lower():
+            return variants[0]
+    return None
+
+
+def _rewrite_aliases(spec_dict: Dict[str, Any], pool: List[MaterialEntry]
+                     ) -> List[Tuple[str, str]]:
+    """In-place rewrite of every material name in `spec_dict` to a
+    canonical pool name when an alias is recognised. Also handles:
+
+      - comma-joined strings ("Ag,Au,Cu") inside allowed_names → split.
+      - leaked JSON punctuation ("Ag},{") → stripped by _resolve_alias.
+
+    Returns a list of (original, resolved) substitutions for the
+    disclaimer.
+    """
+    pool_names = [m.canonical_name for m in pool]
+    by_element, common_aliases, _ = _build_pool_alias_tables(pool_names)
+    rewrites: List[Tuple[str, str]] = []
+
+    def resolve_one(raw: Any) -> Any:
+        if not isinstance(raw, str):
+            return raw
+        out = _resolve_alias(raw, by_element, common_aliases)
+        if out is None:
+            return raw
+        if out != raw:
+            rewrites.append((raw, out))
+        return out
+
+    def expand_list(lst: Any) -> Any:
+        if not isinstance(lst, list):
+            return lst
+        out = []
+        for v in lst:
+            if isinstance(v, str) and "," in v:
+                for piece in v.split(","):
+                    p = piece.strip()
+                    if p:
+                        out.append(resolve_one(p))
+            else:
+                out.append(resolve_one(v))
+        return out
+
+    for c in spec_dict.get("constraints") or []:
+        for key in ("material_name", "name_a", "name_b"):
+            if isinstance(c.get(key), str):
+                c[key] = resolve_one(c[key])
+        if isinstance(c.get("allowed_names"), list):
+            c["allowed_names"] = expand_list(c["allowed_names"])
+        if isinstance(c.get("forbidden_pairs"), list):
+            new_pairs = []
+            for pair in c["forbidden_pairs"]:
+                if isinstance(pair, list) and len(pair) == 2:
+                    new_pairs.append([resolve_one(pair[0]),
+                                      resolve_one(pair[1])])
+                else:
+                    new_pairs.append(pair)
+            c["forbidden_pairs"] = new_pairs
+
+    return rewrites
 
 
 # ----------------------------------------------------------------------------
@@ -783,7 +1017,14 @@ def parse_prompt(
     else:
         raise ParseError("backend", f"unknown backend {backend!r}")
 
-    # Gate 1 was the response_format. Gates 2 + 3:
+    # Gate 1 was the response_format. Before the semantic gate, give the
+    # LLM the benefit of the doubt on material naming: rewrite any common
+    # aliases ("aluminium", "silver", or even bare element prefixes) to
+    # the canonical pool name, and split comma-joined / punctuation-leaked
+    # strings the LLM occasionally emits. Substitutions are echoed in the
+    # disclaimer so the user can audit what we changed.
+    alias_rewrites = _rewrite_aliases(spec_dict, pool)
+
     _validate_semantic(spec_dict, pool)
     _validate_physical(spec_dict)
 
@@ -792,6 +1033,23 @@ def parse_prompt(
 
     constraints = _build_constraints(spec_dict)
     disclaimer = str(spec_dict.get("disclaimer") or "")
+
+    # Surface any material-name rewrites we performed so the user can see
+    # that "aluminium" became "Al-Rakic-LD-1998" before the model saw it.
+    if alias_rewrites:
+        seen = set()
+        lines = []
+        for orig, resolved in alias_rewrites:
+            key = (orig, resolved)
+            if key in seen:
+                continue
+            seen.add(key)
+            lines.append(f"  '{orig}' → '{resolved}'")
+        disclaimer = (
+            disclaimer
+            + "\n\n[material name aliases resolved by the parser]:\n"
+            + "\n".join(lines)
+        ).strip()
 
     # ---- Optional second call: LLM-authored custom constraint --------------
     # Triggered only when the first-call response populated the escape-hatch

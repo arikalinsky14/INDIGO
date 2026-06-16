@@ -246,6 +246,10 @@ html, body { font-family: 'Inter', system-ui, sans-serif; }
   transition: background-color 100ms ease;
 }
 .pool-row:hover { background: rgba(124,92,255,0.06); }
+.pool-row-group { background: rgba(124, 92, 255, 0.04); }
+.pool-row-group:hover { background: rgba(124, 92, 255, 0.10); }
+.pool-row-variant { padding-left: 24px; font-size: 11px; color: rgba(226, 232, 240, 0.75); }
+.pool-row-variant .pool-badge { opacity: 0.6; }
 .pool-row input[type="checkbox"] {
   accent-color: #7c5cff; width: 14px; height: 14px;
 }
