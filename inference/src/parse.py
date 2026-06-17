@@ -325,18 +325,56 @@ Picking the right kind matters. Common phrasings:
   - "total stack thickness ≤ N nm" / "thinner than N nm overall"
         ⇒ total_thickness.
 
-Periodic / positional patterns — these need MULTIPLE layer_identity entries,
-one per fixed position. There is no "period" primitive; you must enumerate
-positions explicitly. The expansion below applies ONLY when the user names
-ONE SPECIFIC material per position. For "any from a category" see the
-"category-positional" subsection below.
+Periodic / positional patterns
+==============================
+
+STEP 1 — CHECK FIRST: did the user name a CATEGORY or a SPECIFIC material?
+A category is any class noun where MULTIPLE pool entries qualify:
+  metal / metals / metallic         oxide / oxides
+  dielectric / dielectrics          high-index / high index
+  low-index / low index             absorber / absorbers
+  conductor / conductive            semiconductor / semiconductors
+  noble metal / noble metals        photonic crystal materials
+  transparent dielectric            "any metal" / "any oxide" / etc.
+
+If the user named a CATEGORY at one or more positions, you MUST use
+`custom_constraint_request`. The standard 8 kinds CANNOT express
+"position P must be from <category>". DO NOT pin a single canonical
+metal at each position — that throws away the category freedom and is
+wrong even if the structure happens to come out colourful.
+
+  USER: "every other layer is a metal"
+  Pool's metals (see the categories table): "Ag-Rakic-LD-1998",
+                                              "Au-Johnson-1972",
+                                              "Cu-Lemarchand-2013",
+                                              "Al-Rakic-LD-1998"
+  WRONG: five layer_identity entries at 0/2/4/6/8 all pointing at "Ag" —
+         this is the most common mistake. The user said "a metal", not
+         "Ag". Each even position should be free to be ANY of the four.
+  WRONG: five layer_identity at 0/2/4/6/8 = "Ag" AND five at 1/3/5/7/9 =
+         "Al" — same mistake, double bad: now both halves are pinned.
+  WRONG: allowed_subset = [Ag, Au, Cu, Al] — global, forces ALL
+         positions to be metals, not just even ones.
+  RIGHT: emit custom_constraint_request with a description like:
+         "Each layer at an EVEN position (0, 2, 4, 6, 8) must use one
+          of these canonical names: 'Ag-Rakic-LD-1998', 'Au-Johnson-1972',
+          'Cu-Lemarchand-2013', 'Al-Rakic-LD-1998'. Layers at odd
+          positions (1, 3, 5, 7, 9) may use any material in the pool.
+          Accept structures shorter than 10 layers; only check positions
+          that exist."
+
+  Similarly for "photonic crystal" / "alternating high/low index":
+    "Even positions must be from <enumerated high-index list>; odd
+     positions must be from <enumerated low-index list>; ≥ 4 layers."
+
+STEP 2 — only if the user named a SPECIFIC material per position do
+you fall through to the layer_identity expansion:
 
   - "every other layer is X" / "alternating X with anything" (X = SPECIFIC
-     material like 'ZnO', 'Ag', 'SiO2'):
+     material like 'ZnO', 'Ag-Rakic-LD-1998', 'SiO2-Zarei-2024'):
         ⇒ EMIT a layer_identity AT EACH EVEN POSITION (0, 2, 4, 6, 8)
           binding to X. Do NOT use allowed_subset:[X] — that forces EVERY
-          layer to X, not every other. Also emit a layer_count constraint
-          if the user said anything about how many layers.
+          layer to X, not every other.
         Example: "alternating ZnO" ⇒
           [{{kind:"layer_identity",position:0,material_name:"ZnO"}},
            {{kind:"layer_identity",position:2,material_name:"ZnO"}},
@@ -348,39 +386,10 @@ ONE SPECIFIC material per position. For "any from a category" see the
   - "first and last layer must be X" (X SPECIFIC):
         ⇒ layer_identity at position 0 = X AND layer_identity at position
           (last_index) = X.
-  - "layers 3 through 6 must be Cr":
+  - "layers 3 through 6 must be Cr-Lemarchand-2013":
         ⇒ layer_identity at each of 3, 4, 5, 6.
   - "the middle layer must be X" (X SPECIFIC):
         ⇒ layer_identity at position floor(N/2).
-
-Category-positional patterns (PRESERVED FREEDOM at each position):
-  When the user says a CATEGORY at certain positions ("metal", "oxide",
-  "dielectric", "noble metal", "semiconductor") instead of a specific
-  material name, you CANNOT use layer_identity — that pins one material.
-  You also CANNOT use allowed_subset:[<every metal>], that's GLOBAL and
-  forces EVERY layer to be a metal, not just even positions.
-
-  Use the ESCAPE HATCH (`custom_constraint_request`). The description
-  must enumerate BOTH the positions and the canonical material names
-  from the pool that satisfy the category, so the codegen pass has
-  everything it needs without re-deriving the category list. Example:
-
-  USER: "every other layer is a metal"
-  Pool's metals (from the categories table above): "Ag-Rakic-LD-1998",
-                                                    "Au-Johnson-1972",
-                                                    "Cu-Lemarchand-2013",
-                                                    "Al-Rakic-LD-1998"
-  WRONG: layer_identity at position 0 = "Ag-Rakic-LD-1998" only — pins one
-         metal, loses the category freedom and only constrains layer 0.
-  WRONG: allowed_subset = [all 4 metals] — forces ALL positions to be
-         metal, not just even ones.
-  RIGHT: custom_constraint_request:
-         "Each layer at an EVEN position (0, 2, 4, 6, 8) must use one of
-          these canonical names: 'Ag-Rakic-LD-1998', 'Au-Johnson-1972',
-          'Cu-Lemarchand-2013', 'Al-Rakic-LD-1998'. Layers at odd positions
-          (1, 3, 5, 7) may use any material in the pool. The check should
-          accept structures shorter than 10 layers as long as every
-          present even-indexed layer satisfies the rule."
 
 When you enumerate positions, keep them inside [0, 10). If the user implied
 a different total layer count via layer_count.max_layers=K, only enumerate
@@ -421,6 +430,17 @@ doesn't. Concrete example of what NOT to do:
           layer's thickness (monotonically decreasing nm)."
 
 Requests that should ALWAYS go through the escape hatch:
+  - CATEGORY-POSITIONAL requests (most common one users send):
+      "every other layer is a metal"
+      "alternating dielectrics / oxides / absorbers"
+      "first and last must be a noble metal"
+      "all odd layers must be high-index"
+      "make it a photonic crystal" (means: alternating high / low index)
+      ⇒ The standard layer_identity kind pins ONE specific material per
+        position; categories preserve freedom across multiple materials,
+        which only a custom check can express. Enumerate the canonical
+        names from the category table in the description so the codegen
+        pass has the list embedded.
   - "monotonically increasing / decreasing thicknesses"
   - "thicknesses must alternate above and below 50 nm"
   - "the sum of the THICKNESSES of all silver layers must not exceed 80 nm"
@@ -639,9 +659,27 @@ _CATEGORY_PREFIXES: Dict[str, Tuple[str, ...]] = {
     "noble metals":   ("Ag", "Au", "Pt", "Pd"),
     "oxides":         ("SiO2", "TiO2", "Al2O3", "ZnO", "MgO", "WO3",
                        "Ta2O5", "HfO2", "ITO"),
+    # Common synonyms in optics / structural coloration literature so the
+    # LLM recognises the same physical class under different vocabularies.
     "dielectrics":    ("SiO2", "TiO2", "Al2O3", "ZnO", "MgF2", "BK7",
-                       "Si3N4"),
+                       "Si3N4", "HfO2", "Ta2O5"),
+    "transparent dielectrics": ("SiO2", "Al2O3", "MgF2", "BK7"),
+    "high-index":     ("TiO2", "ZnO", "Si3N4", "GaP", "Si", "Ge", "HfO2",
+                       "Ta2O5"),
+    "high index":     ("TiO2", "ZnO", "Si3N4", "GaP", "Si", "Ge", "HfO2",
+                       "Ta2O5"),
+    "low-index":      ("SiO2", "MgF2", "Al2O3"),
+    "low index":      ("SiO2", "MgF2", "Al2O3"),
+    "absorbers":      ("Ag", "Au", "Al", "Cu", "Cr", "Ni", "Fe", "Ti",
+                       "Si", "Ge"),
+    "conductors":     ("Ag", "Au", "Al", "Cu", "Cr", "Ni", "Fe", "Ti",
+                       "Pt", "Pd", "ITO"),
     "semiconductors": ("Si", "Ge", "GaAs", "InP", "GaN", "GaP", "ITO"),
+    # "Photonic crystal" in a thin-film context means an alternating
+    # high/low-index dielectric stack — the union covers both halves so
+    # the LLM has something to reference.
+    "photonic crystal materials": ("SiO2", "TiO2", "Al2O3", "ZnO",
+                                   "MgF2", "Si3N4", "HfO2", "Ta2O5"),
 }
 
 _PREFIX_RE = re.compile(r"^([A-Z][a-zA-Z0-9]*)(?:[-_/ ]|$)")
