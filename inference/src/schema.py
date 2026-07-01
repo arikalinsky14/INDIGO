@@ -116,7 +116,11 @@ class InferenceKnobs:
     # the most promising candidates.
     refine_top_n: int = 0
     refine_max_iters: int = 100      # gradient local-search budget per candidate
-    refine_step_size: float = 1.0    # nm; initial Adam step
+    refine_step_size: float = 1.0    # nm; Adam initial step (ignored when
+                                     # refine_optimizer='dog' — DoG picks
+                                     # its own effective step from history).
+    refine_optimizer: str = "dog"    # 'dog' (parameter-free, default) or
+                                     # 'adam' (fixed LR, kept for A/B).
     mc_samples: int = 32             # Monte-Carlo robustness draws on top_k
     seed: int = 42                   # base RNG seed (deterministic decoding)
 

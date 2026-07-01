@@ -218,6 +218,7 @@ class KnobsIn(BaseModel):
     refine_top_n: int = 0          # 0 = refine all top_k; >0 caps it
     refine_max_iters: int = 100
     refine_step_size: float = 1.0
+    refine_optimizer: str = "dog"          # 'dog' (default) or 'adam'
     mc_samples: int = 32
     seed: int = 42
 
@@ -449,6 +450,7 @@ def _make_app():
             refine_top_n=int(knobs_in.refine_top_n),
             refine_max_iters=int(knobs_in.refine_max_iters),
             refine_step_size=float(knobs_in.refine_step_size),
+            refine_optimizer=str(knobs_in.refine_optimizer or "dog"),
             mc_samples=int(knobs_in.mc_samples),
             seed=int(knobs_in.seed),
         )
@@ -557,6 +559,7 @@ def _make_app():
             refine_top_n=int(knobs_in.refine_top_n),
             refine_max_iters=int(knobs_in.refine_max_iters),
             refine_step_size=float(knobs_in.refine_step_size),
+            refine_optimizer=str(knobs_in.refine_optimizer or "dog"),
             mc_samples=int(knobs_in.mc_samples),
             seed=int(knobs_in.seed),
         )
