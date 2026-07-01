@@ -169,6 +169,13 @@ PRESETS: Dict[str, Dict[str, Any]] = {
     "best":     dict(ensemble_N=500, top_k=5, refine_top_n=3,
                      refine_max_iters=80, tolerance_pct=5.0,
                      weight_lambda=1.0, mc_samples=16, temperature=1.0),
+    # Push the model to its limits for the definitive gamut number. Wall
+    # cost per target on L40s: ensemble sim ~60 s, refine 3×120 iters
+    # ~90 s, MC 32×5 draws ~20 s → ~2-3 min per target. Full 28-target
+    # sweep at OPTIMIZER=both ≈ 2-3 hours.
+    "max":      dict(ensemble_N=1000, top_k=5, refine_top_n=3,
+                     refine_max_iters=120, tolerance_pct=5.0,
+                     weight_lambda=1.0, mc_samples=32, temperature=0.9),
 }
 
 
@@ -275,6 +282,198 @@ def _summarise(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 # ----------------------------------------------------------------------------
+# Swatch grid (matplotlib) — one PNG summarising the run
+# ----------------------------------------------------------------------------
+
+def _is_in_srgb_gamut(lab: Tuple[float, float, float]) -> bool:
+    """True iff the Lab colour has a representative in sRGB without
+    clipping. Standalone probe because `lab_to_srgb_int` clips silently
+    and never tells the caller — but the swatch's dashed-border marker
+    for out-of-gamut targets needs to know.
+    """
+    L, a, b = lab
+    fy = (L + 16.0) / 116.0
+    fx = a / 500.0 + fy
+    fz = fy - b / 200.0
+    d = 6.0 / 29.0
+    finv = lambda t: t ** 3 if t > d else 3.0 * d * d * (t - 4.0 / 29.0)
+    Xn, Yn, Zn = 0.95047, 1.0, 1.08883
+    X, Y, Z = Xn * finv(fx), Yn * finv(fy), Zn * finv(fz)
+    rl =  3.2404542 * X + -1.5371385 * Y + -0.4985314 * Z
+    gl = -0.9692660 * X +  1.8760108 * Y +  0.0415560 * Z
+    bl =  0.0556434 * X + -0.2040259 * Y +  1.0572252 * Z
+    return (0.0 <= rl <= 1.0) and (0.0 <= gl <= 1.0) and (0.0 <= bl <= 1.0)
+
+
+def _readable_ink(rgb01: Tuple[float, float, float]) -> str:
+    """Pick black or white text to sit on top of a swatch of colour `rgb01`.
+    Uses the WCAG relative-luminance approximation."""
+    r, g, b = rgb01
+    lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return "#0b1120" if lum > 0.5 else "#f8fafc"
+
+
+def _draw_swatch_grid(run: Dict[str, Any], out_path: Path, header: str) -> None:
+    """Write a PNG showing target vs achieved swatches per battery.
+
+    Layout: five rows (one per battery), each row a horizontal strip of
+    (target | achieved) pairs. ΔE_00 printed on the achieved swatch;
+    out-of-gamut targets get a dashed outline and are counted in the
+    footer disclaimer. Fails silently (returns None) if matplotlib
+    isn't importable — the JSON is the source of truth.
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Rectangle
+        # Reuse the existing Lab→sRGB converter used by the single-result
+        # renderer so the swatch colours here match what a user sees on
+        # inference/src/visualize.py output (same clipping semantics, same
+        # sRGB primaries — no risk of drift).
+        from inference.src.visualize import _lab_to_mpl_rgb
+    except Exception as exc:
+        print(f"[gamut_eval] matplotlib not available; skipping swatch "
+              f"({type(exc).__name__}: {exc})", file=sys.stderr)
+        return
+
+    batteries = run.get("batteries", {})
+    if not batteries:
+        return
+
+    # ---- layout constants (points; figure sized in inches at dpi=100) --
+    SWATCH_H = 1.0
+    SWATCH_W = 1.0
+    PAIR_GAP = 0.06
+    INTER_PAIR = 0.35
+    ROW_H = 1.9
+    ROW_TITLE_W = 2.4
+    HEADER_H = 0.9
+    FOOTER_H = 0.7
+    MARGIN = 0.35
+
+    battery_names = list(batteries.keys())
+    max_pairs = max(len(batteries[b]["per_target"]) for b in battery_names)
+    row_width = ROW_TITLE_W + max_pairs * (
+        2 * SWATCH_W + PAIR_GAP + INTER_PAIR
+    )
+    total_w = row_width + 2 * MARGIN
+    total_h = HEADER_H + len(battery_names) * ROW_H + FOOTER_H + 2 * MARGIN
+
+    fig = plt.figure(figsize=(total_w, total_h), dpi=120)
+    ax = fig.add_axes((0, 0, 1, 1))
+    ax.set_xlim(0, total_w)
+    ax.set_ylim(0, total_h)
+    ax.set_axis_off()
+    fig.patch.set_facecolor("#0b1120")
+    ax.set_facecolor("#0b1120")
+
+    # ---- header --------------------------------------------------------
+    ax.text(MARGIN, total_h - MARGIN - 0.2, header,
+            color="#f8fafc", fontsize=13, weight="bold",
+            va="top", ha="left", family="DejaVu Sans")
+
+    # ---- rows ----------------------------------------------------------
+    out_of_gamut = 0
+    y_top = total_h - MARGIN - HEADER_H
+    for row_idx, bname in enumerate(battery_names):
+        y = y_top - (row_idx + 1) * ROW_H + 0.15
+        # Battery label + summary
+        stats = batteries[bname]["stats"]
+        median_de = stats.get("median_de")
+        worst_de = stats.get("worst_de")
+        stats_str = "no data" if median_de is None else (
+            f"median ΔE {median_de:.1f}   worst {worst_de:.1f}"
+        )
+        ax.text(MARGIN + 0.15, y + SWATCH_H + 0.35, bname,
+                color="#e2e8f0", fontsize=11, weight="bold",
+                va="bottom", ha="left")
+        ax.text(MARGIN + 0.15, y + SWATCH_H + 0.05, stats_str,
+                color="#94a3b8", fontsize=8.5, va="bottom", ha="left",
+                family="DejaVu Sans Mono")
+
+        for i, tgt in enumerate(batteries[bname]["per_target"]):
+            x = MARGIN + ROW_TITLE_W + i * (2 * SWATCH_W + PAIR_GAP + INTER_PAIR)
+            tgt_lab = tuple(tgt["target_lab"])
+            achieved_lab = tgt.get("achieved_lab")
+            de = tgt.get("delta_e")
+
+            tgt_rgb = _lab_to_mpl_rgb(tgt_lab)
+            tgt_in_gamut = _is_in_srgb_gamut(tgt_lab)
+            if not tgt_in_gamut:
+                out_of_gamut += 1
+
+            # Target swatch — dashed amber border if out-of-gamut so the
+            # user knows the on-screen colour is clipped and doesn't
+            # represent the true chroma.
+            tgt_rect = Rectangle(
+                (x, y), SWATCH_W, SWATCH_H,
+                facecolor=tgt_rgb,
+                edgecolor="#f59e0b" if not tgt_in_gamut else "#1e293b",
+                linewidth=1.5 if not tgt_in_gamut else 0.8,
+                linestyle="--" if not tgt_in_gamut else "-",
+            )
+            ax.add_patch(tgt_rect)
+
+            # Achieved swatch (grey if solve failed).
+            if achieved_lab is not None:
+                ach_rgb = _lab_to_mpl_rgb(tuple(achieved_lab))
+            else:
+                ach_rgb = (0.13, 0.16, 0.22)
+            ach_rect = Rectangle(
+                (x + SWATCH_W + PAIR_GAP, y), SWATCH_W, SWATCH_H,
+                facecolor=ach_rgb,
+                edgecolor="#1e293b", linewidth=0.8,
+            )
+            ax.add_patch(ach_rect)
+
+            # ΔE overlaid on the achieved swatch.
+            de_text = "fail" if de is None else f"ΔE {de:.1f}"
+            ax.text(
+                x + SWATCH_W + PAIR_GAP + SWATCH_W / 2.0,
+                y + SWATCH_H / 2.0,
+                de_text,
+                color=_readable_ink(ach_rgb),
+                fontsize=9, ha="center", va="center",
+                family="DejaVu Sans Mono",
+            )
+
+            # Lab caption under the pair
+            L, a, bl = tgt_lab
+            ax.text(
+                x + SWATCH_W + PAIR_GAP / 2.0,
+                y - 0.10,
+                f"L {L:.0f}  a {a:+.0f}  b {bl:+.0f}",
+                color="#64748b", fontsize=7.2,
+                ha="center", va="top",
+                family="DejaVu Sans Mono",
+            )
+
+    # ---- footer + disclaimer ------------------------------------------
+    ax.text(
+        MARGIN, 0.55,
+        f"Legend: [target | achieved] pair per column; ΔE_00 overlaid on "
+        f"the achieved swatch. Dashed amber border marks out-of-gamut "
+        f"targets ({out_of_gamut} total).",
+        color="#94a3b8", fontsize=8.5, va="bottom", ha="left",
+    )
+    ax.text(
+        MARGIN, 0.18,
+        "Disclaimer: Lab extremes (chromatic_corners, high-|a|/|b| sweeps) "
+        "often lie OUTSIDE the sRGB display gamut. The rendered swatch is "
+        "clipped to the nearest displayable colour and may not match the "
+        "true target chroma. ΔE_00 is computed in Lab and is unaffected.",
+        color="#94a3b8", fontsize=8.5, va="bottom", ha="left",
+    )
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(str(out_path), facecolor=fig.get_facecolor(),
+                bbox_inches=None, pad_inches=0)
+    plt.close(fig)
+    print(f"[gamut_eval] wrote {out_path}", flush=True)
+
+
+# ----------------------------------------------------------------------------
 # Orchestration
 # ----------------------------------------------------------------------------
 
@@ -317,7 +516,7 @@ def main() -> int:
                    help="Checkpoint dir (data/checkpoints/<tag>/latest).")
     p.add_argument("--pool-dir", type=str, default=None,
                    help="JLL materials dir. Defaults to installed package.")
-    p.add_argument("--preset", choices=("fast", "balanced", "best"),
+    p.add_argument("--preset", choices=tuple(PRESETS.keys()),
                    default="balanced")
     p.add_argument("--optimizer", choices=("dog", "adam", "both"),
                    default="dog",
@@ -325,6 +524,10 @@ def main() -> int:
                         "twice for a side-by-side A/B in the output JSON.")
     p.add_argument("--output", required=True, type=str,
                    help="Where to write the aggregated JSON report.")
+    p.add_argument("--swatch", action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="Also write a companion PNG next to --output "
+                        "with a target-vs-achieved swatch grid.")
     p.add_argument("--seed", type=int, default=42,
                    help="Base seed. Per-battery per-index seeds derive from it.")
     p.add_argument("--cpu", action="store_true",
@@ -390,6 +593,27 @@ def main() -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(result_root, indent=2))
     print(f"[gamut_eval] wrote {out_path}", flush=True)
+
+    if args.swatch:
+        png_path = out_path.with_suffix(".png")
+        header = (f"gamut_eval  ·  {tag[:60]}"
+                  f"{'…' if len(tag) > 60 else ''}"
+                  f"  ·  preset={args.preset}"
+                  f"  ·  optimizer={args.optimizer}")
+        if args.optimizer == "both":
+            # Two grids stacked (dog above adam) would double the height,
+            # so emit one PNG per optimizer with a suffix.
+            for opt in ("dog", "adam"):
+                sub_path = out_path.with_name(
+                    out_path.stem + f".{opt}"
+                ).with_suffix(".png")
+                _draw_swatch_grid(
+                    result_root["ab_comparison"][opt], sub_path,
+                    header.replace(f"optimizer={args.optimizer}",
+                                   f"optimizer={opt}"),
+                )
+        else:
+            _draw_swatch_grid(result_root, png_path, header)
 
     # Human-readable summary at the bottom.
     def _print_overall(label: str, run: Dict[str, Any]) -> None:

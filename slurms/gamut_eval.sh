@@ -11,7 +11,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 
-#SBATCH --time=02:00:00
+#SBATCH --time=04:00:00
 #SBATCH --qos=short
 #SBATCH --mail-user=ajk245@pitt.edu
 #SBATCH --mail-type=END,FAIL
@@ -34,13 +34,12 @@
 # Per battery: median / mean / p95 / worst ΔE + pass rates at ΔE < {1, 2, 5, 10}.
 # Aggregated JSON written under --output; stable enough for CI regression.
 #
-# Time budget (balanced preset, 28 targets total):
-#   - Per-target solve: ~15-25 s on L40s (dominant cost is sequential JLL
-#     physics for refine + score).
-#   - OPTIMIZER=dog   → ~28 × 20 s ≈ 10 min.
-#   - OPTIMIZER=adam  → same.
-#   - OPTIMIZER=both  → ~2× because every target runs twice.
-# The 02:00:00 wall is padding for cold module loads / bigger presets.
+# Time budget (28 targets total):
+#   fast      ~5  s / target → ~3 min single, ~6 min both.
+#   balanced  ~20 s / target → ~10 min single, ~20 min both.
+#   best      ~90 s / target → ~45 min single, ~90 min both.
+#   max       ~180 s / target → ~90 min single, ~3 h both.
+# The 04:00:00 wall covers the max/both combination with cold-load pad.
 # ============================================================================
 
 set -euo pipefail
@@ -109,8 +108,8 @@ if [[ -z "${CHECKPOINT}" ]]; then
   exit 2
 fi
 case "${PRESET}" in
-  fast|balanced|best) ;;
-  *) echo "[ERROR] PRESET must be one of fast/balanced/best (got ${PRESET})" >&2; exit 2 ;;
+  fast|balanced|best|max) ;;
+  *) echo "[ERROR] PRESET must be one of fast/balanced/best/max (got ${PRESET})" >&2; exit 2 ;;
 esac
 case "${OPTIMIZER}" in
   dog|adam|both) ;;
@@ -221,8 +220,12 @@ exit ${EXIT_CODE}
 # Quick smoke test with the fast preset (~5 min):
 #   CHECKPOINT=<ckpt> PRESET=fast sbatch slurms/gamut_eval.sh
 #
-# High-quality reference number for a release (~30-60 min):
+# High-quality reference number for a release (~1.5 h):
 #   CHECKPOINT=<ckpt> PRESET=best OPTIMIZER=both \
+#     sbatch slurms/gamut_eval.sh
+#
+# Absolute-limit run — push the model as hard as we ship it (~3 h):
+#   CHECKPOINT=<ckpt> PRESET=max OPTIMIZER=both \
 #     sbatch slurms/gamut_eval.sh
 #
 # Custom pool + named output:
