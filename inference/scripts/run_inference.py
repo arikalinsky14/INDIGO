@@ -283,6 +283,11 @@ def main() -> int:
                    help="Robustness weight in J = ΔE + λ·R_l2")
     p.add_argument("--top-k", type=int, default=5)
     p.add_argument("--refine-iters", type=int, default=100)
+    p.add_argument("--refine-optimizer", type=str, choices=("dog", "adam"),
+                   default="dog",
+                   help="Refinement descent rule. 'dog' (default): "
+                        "parameter-free Distance-over-Gradients. 'adam': "
+                        "fixed --refine-step LR (kept for A/B benchmarking).")
     p.add_argument("--refine-step", type=float, default=1.0,
                    help="Adam initial step size (nm)")
     p.add_argument("--mc-samples", type=int, default=32)
@@ -319,6 +324,7 @@ def main() -> int:
         top_k=args.top_k,
         refine_max_iters=args.refine_iters,
         refine_step_size=args.refine_step,
+        refine_optimizer=args.refine_optimizer,
         mc_samples=args.mc_samples,
         seed=args.seed,
     )
