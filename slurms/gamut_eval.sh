@@ -11,7 +11,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 
-#SBATCH --time=04:00:00
+#SBATCH --time=24:00:00
 #SBATCH --qos=short
 #SBATCH --mail-user=ajk245@pitt.edu
 #SBATCH --mail-type=END,FAIL
@@ -34,12 +34,17 @@
 # Per battery: median / mean / p95 / worst ΔE + pass rates at ΔE < {1, 2, 5, 10}.
 # Aggregated JSON written under --output; stable enough for CI regression.
 #
-# Time budget (28 targets total):
-#   fast      ~5  s / target → ~3 min single, ~6 min both.
-#   balanced  ~20 s / target → ~10 min single, ~20 min both.
-#   best      ~90 s / target → ~45 min single, ~90 min both.
-#   max       ~180 s / target → ~90 min single, ~3 h both.
-# The 04:00:00 wall covers the max/both combination with cold-load pad.
+# Time budget (28 targets total; measured on L40s, includes JAX cold
+# start + full per-target orchestration overhead — the previous inline
+# estimates were per-solve() and understated the real wall):
+#   fast      ~10 s / target → ~5 min single, ~10 min both.
+#   balanced  ~30 s / target → ~15 min single, ~30 min both.
+#   best      ~3 min / target → ~1.5 h single, ~3 h both.
+#   max       ~10-15 min / target → ~5-7 h single, ~10-14 h both.
+# 24:00:00 wall (qos=short's cap on this cluster; matches training.sh /
+# lr_tuning.sh) covers max/both with cold-load and outlier padding.
+# The last max/both attempt timed out at 04:00:00 — do not lower this
+# again without first confirming a full max run under 12 h.
 # ============================================================================
 
 set -euo pipefail
