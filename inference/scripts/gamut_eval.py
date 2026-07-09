@@ -601,12 +601,16 @@ def main() -> int:
                   f"  ·  preset={args.preset}"
                   f"  ·  optimizer={args.optimizer}")
         if args.optimizer == "both":
-            # Two grids stacked (dog above adam) would double the height,
-            # so emit one PNG per optimizer with a suffix.
+            # One PNG per optimizer. Build the name directly —
+            # with_suffix('.png') would REPLACE the '.dog'/'.adam' piece
+            # treating it as an existing suffix, so both iterations
+            # would resolve to the SAME path and the second write would
+            # overwrite the first. That was the previous bug that made
+            # only the Adam PNG appear on disk.
             for opt in ("dog", "adam"):
                 sub_path = out_path.with_name(
-                    out_path.stem + f".{opt}"
-                ).with_suffix(".png")
+                    f"{out_path.stem}.{opt}.png"
+                )
                 _draw_swatch_grid(
                     result_root["ab_comparison"][opt], sub_path,
                     header.replace(f"optimizer={args.optimizer}",
