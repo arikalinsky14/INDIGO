@@ -199,24 +199,15 @@ def _draw_paper_swatch_grid(
                 if not in_gamut:
                     oog_count += 1
 
-                # Target swatch. Out-of-gamut targets get a hatched
-                # overlay (paper convention for "this is not the
-                # displayable colour") plus a bold black outline.
-                tgt_rect = Rectangle(
+                # Both swatches get the SAME thin border — no hatching,
+                # no line-weight change based on gamut. Consistent look
+                # across all cells; out-of-gamut information is carried
+                # by the '*' marker on the Lab caption below.
+                ax.add_patch(Rectangle(
                     (x, y), SW, SW,
                     facecolor=tgt_rgb,
-                    edgecolor="#111111",
-                    linewidth=1.2 if not in_gamut else 0.7,
-                )
-                ax.add_patch(tgt_rect)
-                if not in_gamut:
-                    ax.add_patch(Rectangle(
-                        (x, y), SW, SW,
-                        facecolor="none",
-                        edgecolor="#111111",
-                        linewidth=0.0,
-                        hatch="////",
-                    ))
+                    edgecolor="#111111", linewidth=0.7,
+                ))
 
                 # Achieved swatch. Neutral grey if solve failed.
                 if achieved_lab is not None:
@@ -239,12 +230,15 @@ def _draw_paper_swatch_grid(
                     fontsize=8.5, family="serif",
                     ha="center", va="top",
                 )
-                # Lab coordinates below the ΔE.
+                # Lab coordinates below the ΔE. Trailing '*' flags
+                # out-of-gamut targets; the disclaimer at the bottom of
+                # the figure spells out what it means.
                 L, a, bl = tgt_lab
+                oog_mark = " *" if not in_gamut else ""
                 ax.text(
                     x + SW + PAIR_GAP / 2.0,
                     y - 0.42,
-                    f"L={L:.0f}  a={a:+.0f}  b={bl:+.0f}",
+                    f"L={L:.0f}  a={a:+.0f}  b={bl:+.0f}{oog_mark}",
                     fontsize=6.8, color="#4b5563",
                     family="DejaVu Sans Mono",
                     ha="center", va="top",
@@ -257,11 +251,11 @@ def _draw_paper_swatch_grid(
             "Fig. Each column shows the target Lab colour (left) and the "
             "sRGB representation of the achieved thin-film reflectance "
             "(right). "
-            f"Hatched swatches ({oog_count} total) mark Lab targets that "
-            "lie outside the sRGB display gamut — the printed colour is "
-            "clipped to the nearest displayable sRGB and does not "
-            "represent the true target chroma. ΔE_00 is computed in Lab "
-            "and is unaffected by the sRGB clipping."
+            f"Lab captions marked with '*' ({oog_count} total) denote "
+            "targets outside the sRGB display gamut — the printed swatch "
+            "colour is clipped to the nearest displayable sRGB and does "
+            "not represent the true target chroma. ΔE_00 is computed in "
+            "Lab and is unaffected by the sRGB clipping."
         )
         ax.text(
             MARGIN, MARGIN + 0.05, footer,
