@@ -56,6 +56,9 @@ def get_training_loss_from_meta(checkpoint_dir: Path) -> Optional[float]:
 
 def evaluate_teacher_forcing(model, dataset, device, batch_size=64,
                               num_workers=4, prefetch_factor=1) -> Dict[str, float]:
+    """Legacy path — re-reads the dataset every call. Kept for the rare
+    case where a caller wants a stream. Every checkpoint-loop caller
+    should use `precollate_dataset` + `evaluate_precollated` instead."""
     model.eval()
     loader_kw = {}
     if num_workers > 0:
@@ -70,6 +73,62 @@ def evaluate_teacher_forcing(model, dataset, device, batch_size=64,
     with torch.no_grad():
         for batch in loader:
             batch_on_device = {k: v.to(device) for k, v in batch.items()}
+            losses = compute_loss(model, batch_on_device)
+            count = batch_on_device["lab"].size(0)
+            total_loss += losses["loss"].item() * count
+            total_correct += int(losses["accuracy"].item() * count)
+            total_samples += count
+    return {
+        "loss": total_loss / max(total_samples, 1),
+        "accuracy": total_correct / max(total_samples, 1),
+        "n_samples": total_samples,
+    }
+
+
+def precollate_dataset(dataset, batch_size: int, num_workers: int,
+                       prefetch_factor: int, label: str) -> List[Dict[str, torch.Tensor]]:
+    """Read the dataset ONCE and collect every collated batch as CPU
+    tensors. Massive speed-up over the streaming path when we're going
+    to iterate the same dataset dozens of times (35 checkpoints × 4
+    datasets = 140 iterations in the default sweep).
+
+    Per-checkpoint cost drops from "re-read shards + respawn workers"
+    to "iterate a Python list of tensors". Memory: ~50 KB per row, so
+    5 k rows fits in ~250 MB CPU RAM — comfortably under any reasonable
+    SLURM allocation.
+    """
+    import time
+    loader_kw = {}
+    if num_workers > 0:
+        loader_kw["prefetch_factor"] = prefetch_factor
+    loader = DataLoader(
+        dataset, batch_size=batch_size, collate_fn=collate_fn,
+        num_workers=num_workers, pin_memory=True, **loader_kw,
+    )
+    batches: List[Dict[str, torch.Tensor]] = []
+    t0 = time.time()
+    for batch in loader:
+        batches.append(batch)
+    elapsed = time.time() - t0
+    n_rows = sum(b["lab"].size(0) for b in batches)
+    print(f"[INFO] Pre-collated {label}: {n_rows} rows in {len(batches)} "
+          f"batches ({elapsed:.1f}s)")
+    return batches
+
+
+def evaluate_precollated(model, batches: List[Dict[str, torch.Tensor]],
+                         device) -> Dict[str, float]:
+    """Iterate pre-collated batches. No disk I/O, no worker spawn — the
+    per-checkpoint cost is a pure GPU forward-pass loop.
+    """
+    model.eval()
+    total_loss = 0.0
+    total_correct = 0
+    total_samples = 0
+    with torch.no_grad():
+        for batch in batches:
+            batch_on_device = {k: v.to(device, non_blocking=True)
+                               for k, v in batch.items()}
             losses = compute_loss(model, batch_on_device)
             count = batch_on_device["lab"].size(0)
             total_loss += losses["loss"].item() * count
@@ -115,6 +174,22 @@ def main() -> None:
                         default=False,
                         help="Stream dataset shard-by-shard (recommended at "
                              "production scale; the legacy mode OOMs).")
+    parser.add_argument("--train-loss-source",
+                        choices=("meta", "eval"), default="meta",
+                        help="'meta' (default, fast): read the running "
+                             "training loss from each checkpoint's "
+                             "meta.json — no re-eval, saves ~75%% of the "
+                             "sweep. 'eval': re-evaluate a train subset "
+                             "the same way val is scored — slower but on "
+                             "the same scale as val (no batch-noise "
+                             "artefacts).")
+    parser.add_argument("--resume", action=argparse.BooleanOptionalAction,
+                        default=True,
+                        help="If the output JSON already contains "
+                             "completed steps, skip them and continue. "
+                             "Combined with the incremental save (always "
+                             "on), a timed-out sweep can be resumed by "
+                             "just re-sbatching the same job.")
 
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -139,21 +214,47 @@ def main() -> None:
     )
     print(f"[INFO] Validation set: {len(val_dataset)} examples")
 
-    print(f"[INFO] Loading training data from {data_dir}")
-    train_dataset = FlexThinFilmDataset(
-        data_dir, seed=args.seed, split="train",
-        limit_examples=args.train_examples, verbose=True,
-        streaming=args.streaming,
-    )
-    print(f"[INFO] Training set: {len(train_dataset)} examples")
+    # Resolve output path first — needed for --resume before we pre-collate.
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        tag = checkpoint_base.name
+        output_path = repo_root / "outputs" / f"training_curves_{tag}.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Optional held-out test tiers. Loaded once, re-used across every
-    # checkpoint. Tier_a = seen materials + novel structures; tier_b =
-    # unseen materials + novel structures (the harder generalisation test).
-    test_a_dataset = None
-    test_b_dataset = None
-    # limit_examples=0 in FlexThinFilmDataset is falsy — read all shards.
-    # Use None for "read all", so translate 0 → None here.
+    # Only pre-collate a train set if the user actually wants to
+    # re-evaluate train loss. Default path reads train loss from each
+    # checkpoint's meta.json (running training loss, no re-eval needed).
+    train_batches = None
+    if args.train_loss_source == "eval":
+        print(f"[INFO] Loading training data from {data_dir} (--train-loss-source=eval)")
+        train_dataset = FlexThinFilmDataset(
+            data_dir, seed=args.seed, split="train",
+            limit_examples=args.train_examples, verbose=True,
+            streaming=args.streaming,
+        )
+        print(f"[INFO] Training set: {len(train_dataset)} examples")
+        train_batches = precollate_dataset(
+            train_dataset, args.batch_size, args.num_workers,
+            args.prefetch_factor, "train",
+        )
+        del train_dataset
+    else:
+        print(f"[INFO] Train loss will be read from meta.json per checkpoint "
+              f"(--train-loss-source=meta; skips train re-eval).")
+
+    # Pre-collate val + optional test tiers ONCE. Every subsequent
+    # per-checkpoint eval iterates a list of CPU tensors instead of
+    # spawning DataLoader workers + re-reading parquet shards.
+    val_batches = precollate_dataset(
+        val_dataset, args.batch_size, args.num_workers,
+        args.prefetch_factor, "val",
+    )
+    del val_dataset
+
+    test_a_batches = None
+    test_b_batches = None
+    # limit_examples=0 → None (read all shards).
     test_limit = args.test_examples or None
     if args.test_a_dir:
         print(f"[INFO] Loading tier_A test data from {args.test_a_dir}")
@@ -163,6 +264,11 @@ def main() -> None:
             streaming=args.streaming,
         )
         print(f"[INFO] Test-A set: {len(test_a_dataset)} examples")
+        test_a_batches = precollate_dataset(
+            test_a_dataset, args.batch_size, args.num_workers,
+            args.prefetch_factor, "test_a",
+        )
+        del test_a_dataset
     if args.test_b_dir:
         print(f"[INFO] Loading tier_B test data from {args.test_b_dir}")
         test_b_dataset = FlexThinFilmDataset(
@@ -171,17 +277,40 @@ def main() -> None:
             streaming=args.streaming,
         )
         print(f"[INFO] Test-B set: {len(test_b_dataset)} examples")
+        test_b_batches = precollate_dataset(
+            test_b_dataset, args.batch_size, args.num_workers,
+            args.prefetch_factor, "test_b",
+        )
+        del test_b_dataset
 
     steps_to_eval = list(range(args.start_step, args.end_step + 1, args.step_interval))
     print(f"[INFO] Will evaluate {len(steps_to_eval)} checkpoints from step "
           f"{args.start_step} to {args.end_step}")
 
+    # Resume support: if the output JSON already contains completed
+    # steps, skip those. Combined with the incremental save below, a
+    # timed-out sweep can be resumed by just re-sbatching the same job.
     results: Dict[str, List] = {
         "steps": [], "train_loss": [], "train_accuracy": [],
         "val_loss": [], "val_accuracy": [],
         "test_a_loss": [], "test_a_accuracy": [],
         "test_b_loss": [], "test_b_accuracy": [],
     }
+    if args.resume and output_path.exists():
+        try:
+            with open(output_path) as f:
+                prior = json.load(f)
+            for k in results:
+                if k in prior and isinstance(prior[k], list):
+                    results[k] = list(prior[k])
+            done_steps = set(results["steps"])
+            skipped = [s for s in steps_to_eval if s in done_steps]
+            steps_to_eval = [s for s in steps_to_eval if s not in done_steps]
+            print(f"[INFO] Resume: {len(skipped)} steps already in "
+                  f"{output_path.name}, {len(steps_to_eval)} to go.")
+        except Exception as exc:
+            print(f"[WARN] Resume disabled — could not parse existing "
+                  f"{output_path}: {exc}")
 
     for i, step in enumerate(steps_to_eval):
         checkpoint_path = checkpoint_base / f"step_{step}"
@@ -197,48 +326,39 @@ def main() -> None:
         test_b_loss = test_b_acc = float("nan")
         try:
             model, config = load_model_from_checkpoint(checkpoint_path, device)
-            train_results = evaluate_teacher_forcing(
-                model, train_dataset, device,
-                batch_size=args.batch_size, num_workers=args.num_workers,
-                prefetch_factor=args.prefetch_factor,
-            )
-            val_results = evaluate_teacher_forcing(
-                model, val_dataset, device,
-                batch_size=args.batch_size, num_workers=args.num_workers,
-                prefetch_factor=args.prefetch_factor,
-            )
-            train_loss = train_results["loss"]
-            train_acc = train_results["accuracy"]
-            val_loss = val_results["loss"]
-            val_acc = val_results["accuracy"]
-            if test_a_dataset is not None:
-                r = evaluate_teacher_forcing(
-                    model, test_a_dataset, device,
-                    batch_size=args.batch_size,
-                    num_workers=args.num_workers,
-                    prefetch_factor=args.prefetch_factor,
-                )
+            # Val + optional test tiers via pre-collated batches — no
+            # disk I/O or worker spawn per checkpoint.
+            val_r = evaluate_precollated(model, val_batches, device)
+            val_loss, val_acc = val_r["loss"], val_r["accuracy"]
+            if test_a_batches is not None:
+                r = evaluate_precollated(model, test_a_batches, device)
                 test_a_loss, test_a_acc = r["loss"], r["accuracy"]
-            if test_b_dataset is not None:
-                r = evaluate_teacher_forcing(
-                    model, test_b_dataset, device,
-                    batch_size=args.batch_size,
-                    num_workers=args.num_workers,
-                    prefetch_factor=args.prefetch_factor,
-                )
+            if test_b_batches is not None:
+                r = evaluate_precollated(model, test_b_batches, device)
                 test_b_loss, test_b_acc = r["loss"], r["accuracy"]
+            # Train loss: either the running training loss from meta.json
+            # (fast, default) or a fresh re-eval on a train subset (slow).
+            if train_batches is not None:
+                r = evaluate_precollated(model, train_batches, device)
+                train_loss, train_acc = r["loss"], r["accuracy"]
+            else:
+                meta_loss = get_training_loss_from_meta(checkpoint_path)
+                if meta_loss is not None:
+                    train_loss = float(meta_loss)
+                # train_acc stays NaN — meta.json doesn't store accuracy.
             del model
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except Exception as e:
             print(f"  [ERROR] Failed to evaluate: {e}")
         parts = [
-            f"Train loss={train_loss:.4f} acc={train_acc:.3f}",
+            f"Train loss={train_loss:.4f}"
+            + (f" acc={train_acc:.3f}" if not np.isnan(train_acc) else ""),
             f"Val loss={val_loss:.4f} acc={val_acc:.3f}",
         ]
-        if test_a_dataset is not None:
+        if test_a_batches is not None:
             parts.append(f"TestA loss={test_a_loss:.4f} acc={test_a_acc:.3f}")
-        if test_b_dataset is not None:
+        if test_b_batches is not None:
             parts.append(f"TestB loss={test_b_loss:.4f} acc={test_b_acc:.3f}")
         print("  " + "  ".join(parts))
         results["steps"].append(step)
@@ -251,14 +371,14 @@ def main() -> None:
         results["test_b_loss"].append(test_b_loss)
         results["test_b_accuracy"].append(test_b_acc)
 
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        tag = checkpoint_base.name
-        output_path = repo_root / "outputs" / f"training_curves_{tag}.json"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w") as f:
-        json.dump(results, f, indent=2)
+        # Incremental save — a timeout leaves every completed checkpoint
+        # on disk, and --resume picks up where we left off on the next
+        # sbatch. Cheap: rewriting a few dozen KB per checkpoint.
+        with open(output_path, "w") as _f:
+            json.dump(results, _f, indent=2)
+
+    # output_path already resolved (and updated incrementally after each
+    # checkpoint). Nothing to re-dump here.
     print(f"\n[INFO] Results saved to {output_path}")
 
     have_test_a = any(not np.isnan(x) for x in results["test_a_loss"])

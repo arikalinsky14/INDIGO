@@ -11,7 +11,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --qos=short
 #SBATCH --mail-user=ajk245@pitt.edu
 #SBATCH --mail-type=END,FAIL
@@ -31,11 +31,20 @@
 # Output: outputs/training_curves_<CHECKPOINT_TAG>.json plus a matching
 # .png (2 panels: loss and accuracy) with one series per dataset.
 #
-# Time budget on an L40s (per-checkpoint teacher-forcing eval):
-#   • 5k eval examples × 5k train examples × 2 tiers × 5k each
-#     ≈ 20-40 s per checkpoint at batch_size=64.
-#   • Default STEP_INTERVAL=5000 over a 175k-step run ≈ 35 checkpoints
-#     ≈ 15-30 min. 12:00:00 wall covers larger sweeps / cold loads.
+# Speed model (post pre-collate + meta-json train-loss optimisation):
+#   • One-time cost:  pre-collate val + tier_a + tier_b (~30-60 s total).
+#   • Per checkpoint: forward-only inference over the cached batches
+#     (~5-15 s at 5 k rows/dataset on an L40s). Train loss free (read
+#     from meta.json).
+#   • Default sweep (35 checkpoints): ~5-10 min total wall.
+# The prior version's timeout came from re-reading the parquet shards
+# AND re-spawning DataLoader workers 140 times (35 ckpts × 4 datasets).
+# Both are now one-time costs. 24 h wall is padding for pathological
+# NFS latency; a healthy run finishes in under an hour.
+#
+# Robust to timeouts: results are written incrementally after every
+# checkpoint, and --resume (default on) skips already-completed steps.
+# Re-sbatch the same job and it picks up where it left off.
 # ============================================================================
 
 set -euo pipefail
@@ -91,6 +100,12 @@ SMOOTHING_WINDOW="${SMOOTHING_WINDOW:-15}"
 SEED="${SEED:-42}"
 STREAMING="${STREAMING:-1}"                  # 1 = shard-by-shard (recommended)
 
+# Where to get the training loss. 'meta' (default) reads the running
+# training loss from each checkpoint's meta.json — no re-eval, saves
+# ~75%% of the sweep. 'eval' re-scores a train subset the same way val
+# is scored (slower, but on identical scale).
+TRAIN_LOSS_SOURCE="${TRAIN_LOSS_SOURCE:-meta}"
+
 # Output path. Default: outputs/training_curves_<tag>.json.
 OUTPUT="${OUTPUT:-}"
 
@@ -129,6 +144,7 @@ ARGS=(
   --prefetch-factor "${PREFETCH_FACTOR}"
   --smoothing-window "${SMOOTHING_WINDOW}"
   --seed "${SEED}"
+  --train-loss-source "${TRAIN_LOSS_SOURCE}"
   --plot
 )
 # Include tier flags only if the directories actually exist — the eval
@@ -216,4 +232,20 @@ exit ${EXIT_CODE}
 # Skip a tier (e.g. no test_b generated yet):
 #   CHECKPOINT_DIR=<dir> TEST_B_DIR=/dev/null \
 #     sbatch slurms/training_curve.sh
+#
+# LIGHT preset — fastest useful curve (~2-5 min wall on L40s):
+#   CHECKPOINT_DIR=<dir> \
+#     STEP_INTERVAL=10000 TEST_EXAMPLES=2000 EVAL_EXAMPLES=2000 \
+#     sbatch slurms/training_curve.sh
+#
+# TRAIN-EVAL preset — re-scores a 30k-row train subset the same way
+# val is scored (slower; use when train-vs-val on identical scale
+# matters more than wall time):
+#   CHECKPOINT_DIR=<dir> TRAIN_LOSS_SOURCE=eval \
+#     sbatch slurms/training_curve.sh
+#
+# RESUME after timeout — just re-run the same command. Incremental
+# saves persist every completed checkpoint; --resume (default on)
+# picks up where the previous run left off:
+#   CHECKPOINT_DIR=<dir> sbatch slurms/training_curve.sh
 # ============================================================================
