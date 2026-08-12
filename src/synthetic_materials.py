@@ -87,48 +87,57 @@ def _clip_physical(n: np.ndarray, k: np.ndarray) -> Tuple[np.ndarray, np.ndarray
 
 
 # ============================================================================
+# ε ↔ (n, k) conversions + angular-frequency grid. Shared by every strategy
+# that operates in ε-space (all three now do, for KK-consistency).
+# ============================================================================
+
+# Angular frequency (rad/s) on the canonical wavelength grid.
+_OMEGA: np.ndarray = 2.0 * np.pi * CANONICAL_FREQ_HZ
+
+
+def _nk_to_eps(n: np.ndarray, k: np.ndarray) -> np.ndarray:
+    """(n, k) → complex ε. ε = (n + ik)² for non-magnetic media (μ_r = 1)."""
+    return (n + 1j * k) ** 2
+
+
+def _eps_to_nk(eps: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Complex permittivity → (n, k) via principal sqrt with k ≥ 0.
+
+    sqrt(ε) has two branches; we pick the one with non-negative imaginary
+    part, which is the physical convention for passive (absorbing) media.
+    """
+    sqrt_eps = np.sqrt(eps)
+    flip_mask = sqrt_eps.imag < 0
+    sqrt_eps = np.where(flip_mask, -sqrt_eps, sqrt_eps)
+    return sqrt_eps.real, sqrt_eps.imag
+
+
+# ============================================================================
 # Strategy 1: perturb a real material
+#
+# Kramers–Kronig-consistent implementation. The naïve approach — perturb
+# n(ω) and k(ω) independently with smooth random curves — breaks causality
+# because the KK relation couples ε₁ and ε₂ across ALL frequencies. The
+# fix used here follows the linearity property of the Hilbert transform:
+# adding a causal correction ε_c(ω) to an already-causal ε_base(ω)
+# preserves causality. Correction terms are drawn from the same
+# Lorentz-oscillator functional form used in parametric_lorentz
+# (§Strategy 3), which is causal by construction (Fourier transform of a
+# damped-driven-oscillator EOM, poles in the lower-half ω plane).
 # ============================================================================
 
 
-def _smooth_random_curve(
-    rng: np.random.Generator,
-    num_points: int,
-    num_components: int = 4,
-    amplitude: float = 1.0,
-) -> np.ndarray:
-    """Build a smooth wavelength-dependent multiplier curve via low-frequency
-    Fourier components. Output is a [num_points] array centred near zero with
-    the requested amplitude scale."""
-    x = np.linspace(0.0, 1.0, num_points)
-    curve = np.zeros(num_points)
-    for j in range(1, num_components + 1):
-        coef_sin = rng.normal(0.0, 1.0 / j)
-        coef_cos = rng.normal(0.0, 1.0 / j)
-        curve += coef_sin * np.sin(2.0 * np.pi * j * x)
-        curve += coef_cos * np.cos(2.0 * np.pi * j * x)
-    # Normalize to roughly the requested amplitude (max abs deviation).
-    if np.max(np.abs(curve)) > 1e-8:
-        curve = curve / np.max(np.abs(curve)) * amplitude
-    return curve
-
-
-# Amplitude presets — tuned against the JLL envelope via
-# scripts/visualize_synthetic.py. Both terms are band-limited smooth
-# curves (no white noise), because real materials have analytic, smooth
-# dispersion. *_scale_amp is the coarse multiplicative envelope
-# (4 harmonics); *_detail_amp is a finer additive smooth perturbation
-# (8 harmonics) that breaks exact equivalence with the base without
-# introducing high-frequency artefacts.
-#
-# (The *_detail_amp keys were historically named *_jitter_amp when the
-#  term was white noise; kept the dict keys stable for back-compat with
-#  any override kwargs, but the semantics are now "smooth detail".)
+# Small ε-space perturbation presets. Both quantities are dimensionless
+# additions in ε; `eps_inf_shift` shifts the frequency-independent
+# background level, `max_oscillator_strength` bounds the peak
+# amplitude of each Lorentz correction term. Tune against the JLL
+# envelope via scripts/visualize_synthetic.py before shipping the next
+# large data-generation run.
 _PERTURB_PRESETS = {
-    "small": dict(n_scale_amp=0.10, k_scale_amp=0.20,
-                  n_jitter_amp=0.04, k_jitter_amp=0.04),
-    "large": dict(n_scale_amp=0.25, k_scale_amp=0.40,
-                  n_jitter_amp=0.07, k_jitter_amp=0.07),
+    "small": dict(eps_inf_shift=0.15, max_oscillator_strength=0.5,
+                  n_correction_terms=1),
+    "large": dict(eps_inf_shift=0.35, max_oscillator_strength=1.5,
+                  n_correction_terms=2),
 }
 
 
@@ -138,47 +147,48 @@ def perturb_real(
     magnitude: Literal["small", "large"] = "small",
     **overrides,
 ) -> MaterialNK:
-    """Apply a smooth structured perturbation to a real material's n,k.
+    """Additive causal perturbation of a real material's ε(ω).
 
-    Two band-limited smooth perturbations are composed (no white noise —
-    every output curve stays as smooth as a real dispersion curve):
-    - Coarse multiplicative envelope (4-harmonic Fourier) — shifts the
-      overall shape of the dispersion.
-    - Finer additive detail (8-harmonic Fourier) — adds local structure
-      and breaks exact equivalence with the source, while remaining
-      continuous and differentiable.
+    Every operation on the complex permittivity is causality-preserving
+    by construction:
+      1. Convert the base material's (n, k) → ε.
+      2. Add a small frequency-independent real shift to the background
+         permittivity. Constants trivially satisfy KK (H[const] = 0).
+      3. Add 1–2 low-amplitude Lorentz oscillator terms with strictly
+         positive damping (γ > 0). Each term is individually causal;
+         sums of causal functions are causal.
+      4. Convert back to (n, k) via the physical sqrt branch.
 
-    `magnitude` selects an amplitude preset. `small` keeps the output
-    recognisably in the same class as the source; `large` is broader. Any
-    preset value can be overridden by keyword argument.
-
-    Parameters
-    ----------
-    base : MaterialNK
-        Source material to perturb.
-    rng : np.random.Generator
-    magnitude : 'small' or 'large'
-    **overrides : float
-        Override individual preset entries
-        (n_scale_amp, k_scale_amp, n_jitter_amp, k_jitter_amp). The
-        *_jitter_amp entries now scale the smooth additive detail term.
+    `magnitude` selects a preset. `small` stays visually close to the
+    base; `large` explores further. Preset entries can be overridden
+    with kwargs (`eps_inf_shift`, `max_oscillator_strength`,
+    `n_correction_terms`).
     """
     params = {**_PERTURB_PRESETS[magnitude], **overrides}
 
-    # Coarse multiplicative envelope.
-    n_curve = 1.0 + _smooth_random_curve(rng, NUM_LAMBDA, amplitude=params["n_scale_amp"])
-    k_curve = 1.0 + _smooth_random_curve(rng, NUM_LAMBDA, amplitude=params["k_scale_amp"])
+    eps = _nk_to_eps(base.n, base.k)
 
-    # Finer additive smooth detail (band-limited; NOT white noise).
-    n_detail = _smooth_random_curve(
-        rng, NUM_LAMBDA, num_components=8, amplitude=params["n_jitter_amp"]
-    )
-    k_detail = _smooth_random_curve(
-        rng, NUM_LAMBDA, num_components=8, amplitude=params["k_jitter_amp"]
-    )
+    # (a) Frequency-independent real background shift. Causality-safe:
+    # a constant has zero Hilbert transform, so adding it to ε₁ doesn't
+    # require any ε₂ change.
+    shift = params["eps_inf_shift"]
+    eps = eps + float(rng.uniform(-shift, shift))
 
-    n = base.n * n_curve + n_detail
-    k = base.k * k_curve + k_detail
+    # (b) 1–2 additive Lorentz correction terms. Same functional form
+    # as parametric_lorentz. Amplitudes deliberately smaller so the
+    # perturbation stays in the "recognisably related to base" regime.
+    omega = _OMEGA
+    omega_min, omega_max = omega.min(), omega.max()
+    n_terms = int(params["n_correction_terms"])
+    max_f = float(params["max_oscillator_strength"])
+    for _ in range(n_terms):
+        omega_0 = float(rng.uniform(0.5 * omega_min, 3.0 * omega_max))
+        f = float(rng.uniform(0.0, max_f))
+        # γ > 0 required for causality (poles in lower-half ω plane).
+        gamma = float(rng.uniform(0.02 * omega_0, 0.4 * omega_0))
+        eps += f * omega_0 ** 2 / (omega_0 ** 2 - omega ** 2 - 1j * gamma * omega)
+
+    n, k = _eps_to_nk(eps)
     n, k = _clip_physical(n, k)
 
     return MaterialNK(
@@ -191,6 +201,13 @@ def perturb_real(
 
 # ============================================================================
 # Strategy 2: linear interpolation between two real materials
+#
+# Kramers–Kronig-consistent implementation. The naïve linear mix of
+# (n, k) is NOT the same as a linear mix of ε (because ε = (n+ik)² is
+# quadratic in n, k); the discrepancy is O(w(1−w)·Δn²) even for smooth
+# endpoints. Linear combinations with frequency-independent coefficients
+# in ε-space ARE causal by linearity of the Hilbert transform, so we mix
+# in ε and convert back.
 # ============================================================================
 
 
@@ -200,11 +217,10 @@ def interpolate_real(
     weight: Optional[float] = None,
     rng: Optional[np.random.Generator] = None,
 ) -> MaterialNK:
-    """Convex combination of two materials' n,k.
+    """Convex combination of two materials in ε-space.
 
-    This is physically motivated for some real fabrication contexts (graded
-    composition, alloy films) and serves as a cheap way to fill in the
-    space between known materials.
+    Physically motivated for graded composition / alloy films; also a
+    cheap way to fill in the material space between known endpoints.
 
     Parameters
     ----------
@@ -219,8 +235,13 @@ def interpolate_real(
             raise ValueError("Provide either `weight` or `rng`.")
         weight = float(rng.uniform(0.1, 0.9))
 
-    n = weight * a.n + (1.0 - weight) * b.n
-    k = weight * a.k + (1.0 - weight) * b.k
+    # Linear mix of ε with frequency-independent weight → causal by the
+    # linearity property of the Hilbert transform, provided a and b are
+    # each individually causal (true for tabulated real measured data).
+    eps_a = _nk_to_eps(a.n, a.k)
+    eps_b = _nk_to_eps(b.n, b.k)
+    eps_mix = weight * eps_a + (1.0 - weight) * eps_b
+    n, k = _eps_to_nk(eps_mix)
     n, k = _clip_physical(n, k)
 
     return MaterialNK(
@@ -249,23 +270,6 @@ def interpolate_real(
 # Parameter ranges below were tuned by comparing the resulting (n, k) spectra
 # to the JaxLayerLumos library; the defaults produce material-like shapes
 # spanning low-loss dielectrics through lossy semiconductors and metals.
-
-# Convert canonical frequency grid (Hz) to angular frequency (rad/s)
-_OMEGA: np.ndarray = 2.0 * np.pi * CANONICAL_FREQ_HZ
-
-
-def _eps_to_nk(eps: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Complex permittivity → (n, k) via principal sqrt with k ≥ 0.
-
-    sqrt(ε) has two branches; we pick the one with non-negative imaginary
-    part, which is the physical convention for passive (absorbing) media.
-    """
-    sqrt_eps = np.sqrt(eps)
-    # If by branch choice we got k < 0, flip the sign of the whole sqrt.
-    flip_mask = sqrt_eps.imag < 0
-    sqrt_eps = np.where(flip_mask, -sqrt_eps, sqrt_eps)
-    return sqrt_eps.real, sqrt_eps.imag
-
 
 def parametric_lorentz(
     rng: np.random.Generator,
