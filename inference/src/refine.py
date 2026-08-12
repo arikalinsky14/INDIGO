@@ -109,96 +109,17 @@ def _build_thickness_bounds(constraint_set: ConstraintSet, L: int
     return mins, maxs
 
 
-def _project(t: np.ndarray, mins: np.ndarray, maxs: np.ndarray) -> np.ndarray:
-    """Box projection onto per-layer bounds."""
-    return np.minimum(np.maximum(t, mins), maxs)
-
-
-# ----------------------------------------------------------------------------
-# Adam (kept for A/B benchmarking; DoG is the default at inference time)
-# ----------------------------------------------------------------------------
-
-def _adam_step(t: np.ndarray, g: np.ndarray, m: np.ndarray, v: np.ndarray,
-               step_idx: int, lr: float,
-               beta1: float = 0.9, beta2: float = 0.999, eps: float = 1e-8,
-               ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    m = beta1 * m + (1.0 - beta1) * g
-    v = beta2 * v + (1.0 - beta2) * (g * g)
-    m_hat = m / (1.0 - beta1 ** step_idx)
-    v_hat = v / (1.0 - beta2 ** step_idx)
-    t_new = t - lr * m_hat / (np.sqrt(v_hat) + eps)
-    return t_new, m, v
-
-
-# ----------------------------------------------------------------------------
-# DoG — Distance-over-Gradients (Ivgi, Hinder, Carmon 2023).
-#
-# Parameter-free step size. There is no LR to pick: the effective step is
-#     eta_t = r_t / sqrt(G_t + eps)
-# where
-#     r_t = max(r_{t-1}, ||x_t - x_0||)         # farthest distance from init
-#     G_t = G_{t-1} + ||g_t||^2                 # cumulative squared-grad norm
-# and r_0 is a tiny initial radius r_eps that just breaks the first-step
-# degeneracy — the paper's default of `1e-6 * (1 + ||x_0||)` works well.
-#
-# Why we prefer this over Adam here: at inference time we cannot afford a
-# per-request LR search, and thickness gradients ∂ΔE/∂t vary an order of
-# magnitude across colors, layer counts, and pools. Adam with a fixed
-# `refine_step_size=1.0` nm was aggressive for some targets and too small
-# for others; DoG adapts to whichever regime the current descent is in.
-# ----------------------------------------------------------------------------
-
-@dataclass
-class DoGState:
-    """Iteration state carried between DoG steps.
-
-    `x0` and `G_squared_sum` are per-parameter unaware (scalars aggregated
-    across the whole thickness vector). That's the "vanilla" DoG variant
-    from the paper; per-layer L-DoG is possible but adds a hyperparameter
-    (the "reference layer") and hasn't been necessary in practice for
-    this problem's dozen-parameter vectors.
-    """
-    x0: np.ndarray                       # starting iterate (for r_t)
-    r_max: float                         # running max distance from x0
-    g_squared_sum: float                 # sum of ||g_s||^2 up to now
-
-
-def _dog_init(x0: np.ndarray, r_eps_scale: float = 1e-3) -> DoGState:
-    """Initial DoG state.
-
-    r_eps is the paper's tiny anchoring radius. The paper's default is
-    1e-6 * (1 + ||x0||), which works for deep-learning-scale problems
-    (millions of params, gradients O(10^3)). For our thickness vector
-    (≤ 10 params, gradients O(1)) that default keeps the effective step
-    negligible for the entire refine_max_iters budget — the iterate
-    never moves far enough for r_t to grow past the anchor.
-
-    A numerical sweep on the toy loss ||x − x*||² with x₀ ~100 nm found:
-      scale=1e-6 →  loss=2.4e3 after 50 iters (essentially no progress)
-      scale=1e-4 →  loss=3.06
-      scale=1e-3 →  loss=1.5e-4          ← default
-      scale=1e-2 →  loss=3.5e-13
-    1e-3 leaves headroom on more curved landscapes while still making
-    meaningful early progress. Exposed as an argument so the gamut_eval
-    A/B script can sweep it.
-    """
-    r_eps = r_eps_scale * (1.0 + float(np.linalg.norm(x0)))
-    return DoGState(x0=x0.copy(), r_max=r_eps, g_squared_sum=0.0)
-
-
-def _dog_step(t: np.ndarray, g: np.ndarray, state: DoGState,
-              eps: float = 1e-12,
-              ) -> Tuple[np.ndarray, DoGState]:
-    # Update r_t BEFORE stepping: it's the max distance seen so far.
-    dist = float(np.linalg.norm(t - state.x0))
-    r_t = max(state.r_max, dist)
-    # Accumulate squared-gradient norm.
-    g_sq_sum = state.g_squared_sum + float(np.dot(g, g))
-    eta = r_t / np.sqrt(g_sq_sum + eps)
-    t_new = t - eta * g
-    return t_new, DoGState(
-        x0=state.x0, r_max=r_t, g_squared_sum=g_sq_sum,
-    )
+# ---- Optimizer primitives -------------------------------------------------
+# _project / _adam_step / DoGState / _dog_init / _dog_step live in
+# src.thickness_optimizer so both this file AND the data-gen high-chroma
+# search share the same numerical code path. See that module's docstring
+# for the DoG calibration notes (r_eps_scale=1e-3 default, calibration
+# sweep results, etc.). Re-exported at module scope so existing callers
+# in this file — and any external caller that imported them from here —
+# keep working.
+from src.thickness_optimizer import (  # noqa: E402
+    DoGState, _adam_step, _dog_init, _dog_step, _project,
+)
 
 
 # ----------------------------------------------------------------------------

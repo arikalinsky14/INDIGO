@@ -39,6 +39,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--layer-max", type=int, default=10)
     p.add_argument("--greyscale-threshold", type=float, default=8.0)
     p.add_argument("--greyscale-keep-prob", type=float, default=0.2)
+    # High-chroma directed-search knobs (see create_dataset/src/high_chroma_search.py).
+    # Default 0 keeps behaviour byte-identical to the pre-feature code path.
+    p.add_argument("--high-chroma-prob", type=float, default=0.0)
+    p.add_argument("--high-chroma-candidate-count", type=int, default=24)
+    p.add_argument("--high-chroma-refine-iters", type=int, default=12)
+    p.add_argument("--high-chroma-optimizer",
+                   choices=("dog", "adam"), default="dog")
+    p.add_argument("--high-chroma-chroma-min", type=float, default=60.0)
+    p.add_argument("--high-chroma-chroma-max", type=float, default=110.0)
+    p.add_argument("--high-chroma-lightness-min", type=float, default=25.0)
+    p.add_argument("--high-chroma-lightness-max", type=float, default=75.0)
     p.add_argument("--p-real", type=float, default=0.15,
                    help="Per material: probability of pulling from held-in real "
                         "instead of generating a fresh synthetic (default: 0.15)")
@@ -102,6 +113,16 @@ def main() -> None:
             "--pool-size-min", str(args.pool_size_min),
             "--pool-size-max", str(args.pool_size_max),
             "--output-dir", str(output_dir),
+            # High-chroma-search passthrough. --high-chroma-prob=0.0 is
+            # the safe default (behaviour unchanged from pre-feature).
+            "--high-chroma-prob", str(args.high_chroma_prob),
+            "--high-chroma-candidate-count", str(args.high_chroma_candidate_count),
+            "--high-chroma-refine-iters", str(args.high_chroma_refine_iters),
+            "--high-chroma-optimizer", str(args.high_chroma_optimizer),
+            "--high-chroma-chroma-min", str(args.high_chroma_chroma_min),
+            "--high-chroma-chroma-max", str(args.high_chroma_chroma_max),
+            "--high-chroma-lightness-min", str(args.high_chroma_lightness_min),
+            "--high-chroma-lightness-max", str(args.high_chroma_lightness_max),
         ]
         if args.use_held_out_reals:
             cmd.append("--use-held-out-reals")

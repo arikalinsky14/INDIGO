@@ -100,6 +100,20 @@ LAYER_MIN="${LAYER_MIN:-2}"
 LAYER_MAX="${LAYER_MAX:-10}"
 GREYSCALE_THRESHOLD="${GREYSCALE_THRESHOLD:-8.0}"
 GREYSCALE_KEEP_PROB="${GREYSCALE_KEEP_PROB:-0.2}"
+
+# High-chroma-search path — default 0 keeps existing behaviour identical.
+# Target production value HIGH_CHROMA_PROB=0.2 (~20% of dataset), per
+# create_dataset/src/high_chroma_search.py docstring + spec §3.
+# Per-row cost at defaults is ~60× the random-path cost; a full 2M-row
+# run at prob=0.2 adds ~10-14 h on 32 workers over the current baseline.
+HIGH_CHROMA_PROB="${HIGH_CHROMA_PROB:-0.0}"
+HIGH_CHROMA_CANDIDATE_COUNT="${HIGH_CHROMA_CANDIDATE_COUNT:-24}"
+HIGH_CHROMA_REFINE_ITERS="${HIGH_CHROMA_REFINE_ITERS:-12}"
+HIGH_CHROMA_OPTIMIZER="${HIGH_CHROMA_OPTIMIZER:-dog}"
+HIGH_CHROMA_CHROMA_MIN="${HIGH_CHROMA_CHROMA_MIN:-60.0}"
+HIGH_CHROMA_CHROMA_MAX="${HIGH_CHROMA_CHROMA_MAX:-110.0}"
+HIGH_CHROMA_LIGHTNESS_MIN="${HIGH_CHROMA_LIGHTNESS_MIN:-25.0}"
+HIGH_CHROMA_LIGHTNESS_MAX="${HIGH_CHROMA_LIGHTNESS_MAX:-75.0}"
 P_REAL="${P_REAL:-0.15}"
 ALL_REAL="${ALL_REAL:-0}"                        # 1 = fully-real dataset
                                                 # (zero synthetic; forces p_real=1)
@@ -141,6 +155,14 @@ echo "  Incidence angle:   ${INCIDENCE_ANGLE}"
 echo "  Layer lambda:      ${LAYER_LAMBDA} (range [${LAYER_MIN}, ${LAYER_MAX}])"
 echo "  Greyscale:         C* >= ${GREYSCALE_THRESHOLD} accepted, "
 echo "                     C* < ${GREYSCALE_THRESHOLD} kept with prob ${GREYSCALE_KEEP_PROB}"
+echo "  High-chroma:       prob=${HIGH_CHROMA_PROB} (0 = disabled)"
+if [ "$(printf '%s\n' "${HIGH_CHROMA_PROB}" | awk '{ print ($1 > 0) }')" = "1" ]; then
+  echo "                     candidate_count=${HIGH_CHROMA_CANDIDATE_COUNT}, "
+  echo "                     refine_iters=${HIGH_CHROMA_REFINE_ITERS}, "
+  echo "                     optimizer=${HIGH_CHROMA_OPTIMIZER}, "
+  echo "                     C*∈[${HIGH_CHROMA_CHROMA_MIN}, ${HIGH_CHROMA_CHROMA_MAX}], "
+  echo "                     L*∈[${HIGH_CHROMA_LIGHTNESS_MIN}, ${HIGH_CHROMA_LIGHTNESS_MAX}]"
+fi
 echo "  p_real:            ${P_REAL}"
 echo "  All-real:          ${ALL_REAL} (1 = zero synthetic, p_real forced to 1)"
 echo "  Pool size range:   [${POOL_SIZE_MIN}, ${POOL_SIZE_MAX}]"
@@ -165,6 +187,12 @@ cat > "${RUN_MANIFEST}" <<EOF
   "layer_range": [${LAYER_MIN}, ${LAYER_MAX}],
   "greyscale_threshold": ${GREYSCALE_THRESHOLD},
   "greyscale_keep_prob": ${GREYSCALE_KEEP_PROB},
+  "high_chroma_prob": ${HIGH_CHROMA_PROB},
+  "high_chroma_candidate_count": ${HIGH_CHROMA_CANDIDATE_COUNT},
+  "high_chroma_refine_iters": ${HIGH_CHROMA_REFINE_ITERS},
+  "high_chroma_optimizer": "${HIGH_CHROMA_OPTIMIZER}",
+  "high_chroma_chroma_range": [${HIGH_CHROMA_CHROMA_MIN}, ${HIGH_CHROMA_CHROMA_MAX}],
+  "high_chroma_lightness_range": [${HIGH_CHROMA_LIGHTNESS_MIN}, ${HIGH_CHROMA_LIGHTNESS_MAX}],
   "p_real": ${P_REAL},
   "all_real": ${ALL_REAL},
   "pool_size_range": [${POOL_SIZE_MIN}, ${POOL_SIZE_MAX}],
@@ -200,6 +228,14 @@ seq "${START_SHARD_ID}" "${END_SHARD_ID}" | xargs -P "${PARALLEL_WORKERS}" -I '{
         --pool-size-min "${POOL_SIZE_MIN}" \
         --pool-size-max "${POOL_SIZE_MAX}" \
         --output-dir "${OUTPUT_DIR}" \
+        --high-chroma-prob "${HIGH_CHROMA_PROB}" \
+        --high-chroma-candidate-count "${HIGH_CHROMA_CANDIDATE_COUNT}" \
+        --high-chroma-refine-iters "${HIGH_CHROMA_REFINE_ITERS}" \
+        --high-chroma-optimizer "${HIGH_CHROMA_OPTIMIZER}" \
+        --high-chroma-chroma-min "${HIGH_CHROMA_CHROMA_MIN}" \
+        --high-chroma-chroma-max "${HIGH_CHROMA_CHROMA_MAX}" \
+        --high-chroma-lightness-min "${HIGH_CHROMA_LIGHTNESS_MIN}" \
+        --high-chroma-lightness-max "${HIGH_CHROMA_LIGHTNESS_MAX}" \
         --skip-existing \
         ${HELD_OUT_FLAG} ${ALL_REAL_FLAG}
 
