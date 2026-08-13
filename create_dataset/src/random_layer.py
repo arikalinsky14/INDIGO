@@ -9,7 +9,9 @@ material and thickness:
 - Per layer: with probability `p_real`, pick uniformly from `held_in_real`;
   otherwise generate a fresh synthetic material via the existing 4-way
   strategy (`generate_synthetic_pool` with `n=1`).
-- Thicknesses: uniform over `THICKNESS_RANGE_NM` (5..200 nm in 5 nm steps).
+- Thicknesses: uniform continuous over [MIN_THICKNESS_NM, MAX_THICKNESS_NM].
+  The old 5 nm grid is gone — the model now regresses continuous
+  thicknesses, so training data is continuous too.
 
 Optical-sim calls go through `src.optical_sim.OpticalSimulator`, which
 accepts MaterialNK objects directly.
@@ -23,11 +25,13 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 from src.material_features import MaterialNK
+from src.materials_vocab import MAX_THICKNESS_NM, MIN_THICKNESS_NM
 from src.optical_sim import OpticalSimulator
 from src.synthetic_materials import generate_synthetic_pool
 
 
-# Thickness grid (nm), unchanged from CHROMA-Lite.
+# Kept only for callers still importing the symbol; the sampler itself
+# no longer uses a grid.
 THICKNESS_RANGE_NM = np.arange(5, 201, 5)
 
 
@@ -129,19 +133,22 @@ class RandomLayerSimulation:
 
     def random_materials_and_thicknesses(
         self,
-    ) -> Tuple[List[MaterialNK], List[int]]:
-        """Sample one structure: independent per-layer material + uniform thickness."""
+    ) -> Tuple[List[MaterialNK], List[float]]:
+        """Sample one structure: independent per-layer material + uniform
+        continuous thickness in [MIN_THICKNESS_NM, MAX_THICKNESS_NM]."""
         n_layers = self._sample_layer_count()
         layer_materials = [self._sample_one_material() for _ in range(n_layers)]
         layer_thicknesses = [
-            int(t) for t in self.rng.choice(THICKNESS_RANGE_NM, size=n_layers, replace=True)
+            float(t) for t in self.rng.uniform(
+                MIN_THICKNESS_NM, MAX_THICKNESS_NM, size=n_layers,
+            )
         ]
         return layer_materials, layer_thicknesses
 
     def compute_lab(
         self,
         layer_materials: List[MaterialNK],
-        layer_thicknesses: List[int],
+        layer_thicknesses: List[float],
     ) -> List[float]:
         """Run the optical simulator and return CIE Lab [L*, a*, b*]."""
         slot_indices = list(range(len(layer_materials)))
@@ -153,15 +160,14 @@ class RandomLayerSimulation:
 
     def sample_structure(
         self,
-    ) -> Tuple[List[MaterialNK], List[int], List[float]]:
+    ) -> Tuple[List[MaterialNK], List[float], List[float]]:
         """Sample one structure and compute its CIE Lab target.
 
         Returns
         -------
         layer_materials : list of MaterialNK
-        layer_thicknesses : list of int
-        lab : list of float, shape (3,)
-            [L*, a*, b*] in CIE Lab.
+        layer_thicknesses : list of float (nm)
+        lab : list of float, shape (3,) — [L*, a*, b*] in CIE Lab.
         """
         layer_materials, layer_thicknesses = self.random_materials_and_thicknesses()
         lab = self.compute_lab(layer_materials, layer_thicknesses)
@@ -193,9 +199,14 @@ if __name__ == "__main__":
     )
     materials, thicknesses, lab = sim_fixed.sample_structure()
     print(f"[smoke] fixed-count sample: layers={len(materials)}, "
-          f"thicknesses={thicknesses}, "
+          f"thicknesses(nm)={[f'{t:.2f}' for t in thicknesses]}, "
           f"Lab=[{lab[0]:.2f}, {lab[1]:.2f}, {lab[2]:.2f}]")
     assert 0 <= lab[0] <= 100, f"L* out of range: {lab[0]}"
+    for t in thicknesses:
+        assert 5.0 <= t <= 200.0, f"thickness {t} outside [5, 200] nm"
+    # No grid: a float sample should almost surely NOT land on a 5 nm multiple.
+    non_grid = sum(1 for t in thicknesses if abs(round(t / 5) * 5 - t) > 1e-6)
+    assert non_grid > 0, "continuous sampler produced grid-aligned thicknesses"
 
     sim = RandomLayerSimulation(
         held_in_real=held_in,

@@ -69,7 +69,9 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 from src.materials_vocab import (
-    EOS_TOKEN, M_MAX, MAX_LAYERS, NUM_THICKNESSES, THICKNESSES, VOCAB_SIZE,
+    LEGACY_EOS_TOKEN as EOS_TOKEN,
+    LEGACY_VOCAB_SIZE as VOCAB_SIZE,
+    M_MAX, MAX_LAYERS, NUM_THICKNESSES, THICKNESSES,
 )
 
 from inference.src.constraints import (

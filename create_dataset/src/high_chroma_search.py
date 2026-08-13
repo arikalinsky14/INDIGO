@@ -25,16 +25,11 @@ so `compile_datasets.py::build_rows` can gate between the two paths on a
 single Bernoulli draw with no downstream code aware which one produced
 the row.
 
-Snap-to-grid caveat. Stage 2 optimises thicknesses continuously in nm,
-but the model's vocabulary (`src/materials_vocab.THICKNESSES`) is a
-40-bin 5 nm grid; a training row's `layer_thicknesses` must be
-grid-legal ints or `encode_layer()` raises `ValueError` at
-tokenisation. Every path that leaves this module snaps to the grid AND
-re-simulates the achieved Lab at the snapped values (so the stored
-label matches the exact discrete structure being stored, not the
-pre-snap continuum optimum). The pre-snap floats are also returned so
-callers can persist them alongside for possible future use with a
-continuous-thickness model head.
+Continuous thicknesses. Stage 2 optimises thicknesses continuously in
+nm; there is no snap-to-grid step. The model's slot head has no
+thickness component (thickness is now a regression head), so any float
+in [MIN_THICKNESS_NM, MAX_THICKNESS_NM] is a legal training target and
+the achieved Lab stored alongside it is the Lab at that exact float.
 """
 from __future__ import annotations
 
@@ -56,7 +51,7 @@ from inference.src.simulate import (
     delta_e_from_thicknesses, pad_pool_nk, pad_structure,
 )
 from src.material_features import MaterialNK
-from src.materials_vocab import MAX_LAYERS, MAX_THICKNESS_NM, THICKNESSES
+from src.materials_vocab import MAX_LAYERS, MAX_THICKNESS_NM, MIN_THICKNESS_NM
 from src.thickness_optimizer import _adam_step, _dog_init, _dog_step, _project
 
 
@@ -114,29 +109,6 @@ def sample_high_chroma_target_lab(
 
 
 # ============================================================================
-# Snap-to-grid
-# ============================================================================
-
-_GRID_NM = np.asarray(THICKNESSES, dtype=np.float64)   # [5, 10, …, 200]
-
-
-def _snap_to_grid(thickness_nm: float) -> int:
-    """Round a continuous nm value to the nearest 5 nm token grid point.
-
-    Clips out-of-range values to the grid endpoints; every returned
-    value is guaranteed to be one of `THICKNESSES`, so `encode_layer()`
-    accepts it without raising.
-    """
-    idx = int(np.argmin(np.abs(_GRID_NM - float(thickness_nm))))
-    return int(_GRID_NM[idx])
-
-
-def _snap_vector(t_continuous: np.ndarray) -> List[int]:
-    """Snap every element of a continuous nm vector to the token grid."""
-    return [_snap_to_grid(float(x)) for x in t_continuous]
-
-
-# ============================================================================
 # Gradient loss + refinement loop
 # ============================================================================
 
@@ -176,18 +148,15 @@ def _grad_delta_e(t_active: np.ndarray, pool_n_jax, pool_k_jax,
 
 def _refine_thicknesses(
     materials: List[MaterialNK],
-    thicknesses_nm: List[int],
+    thicknesses_nm: List[float],
     target_lab: Tuple[float, float, float],
     incidence_angle: float,
     cfg: HighChromaSearchConfig,
-    bounds_nm: Tuple[float, float] = (float(THICKNESSES[0]),
-                                       float(MAX_THICKNESS_NM)),
+    bounds_nm: Tuple[float, float] = (MIN_THICKNESS_NM, MAX_THICKNESS_NM),
 ) -> np.ndarray:
     """Projected DoG/Adam descent on continuous thickness toward `target_lab`.
 
     Returns the refined continuous-nm vector (length = len(materials)).
-    The caller is responsible for snapping this to the token grid and
-    re-simulating the achieved Lab.
     """
     L = len(materials)
     if L == 0:
@@ -234,36 +203,26 @@ def search_structure_for_target(
     target_lab: Tuple[float, float, float],
     cfg: HighChromaSearchConfig,
     rng: np.random.Generator,
-) -> Tuple[List[MaterialNK], List[int], List[float], List[float]]:
+) -> Tuple[List[MaterialNK], List[float], List[float]]:
     """Two-stage directed search for a structure whose achieved Lab is
     close to `target_lab`.
 
-    Stage 1: `candidate_count` fully-random (materials + thicknesses)
-    candidates drawn from `sim.random_materials_and_thicknesses()` and
-    scored on squared Lab distance to the target. Reusing `sim`'s own
-    per-layer sampler keeps the material/layer-count distribution
-    identical to the random path — only thicknesses get further tuned
-    in stage 2.
+    Stage 1: `candidate_count` fully-random (materials + continuous
+    thicknesses) candidates from `sim.random_materials_and_thicknesses()`
+    scored on squared Lab distance to the target.
 
     Stage 2: projected gradient descent on the winning candidate's
-    thicknesses toward the target, using the shared DoG/Adam primitives
-    from `src.thickness_optimizer` and the JAX-differentiable
-    `delta_e_from_thicknesses` from `inference.src.simulate`.
+    thicknesses (continuous nm, no grid).
 
     Returns
     -------
     materials : list of MaterialNK
-    thicknesses_snapped : list of int   — on the 5 nm token grid
-    achieved_lab : list of 3 floats     — Lab at the SNAPPED thicknesses
-                                           (label matches stored structure)
-    thicknesses_raw_nm : list of float  — pre-snap continuous nm; useful
-                                           if a future continuous-thickness
-                                           model head lands (§4c/§4e of the
-                                           integration spec).
+    thicknesses_nm : list of float   — refined continuous nm
+    achieved_lab : list of 3 floats  — Lab at those thicknesses
     """
     # ---- Stage 1: coarse random search --------------------------------
     best_materials: Optional[List[MaterialNK]] = None
-    best_thick: Optional[List[int]] = None
+    best_thick: Optional[List[float]] = None
     best_d2 = float("inf")
     target = np.asarray(target_lab, dtype=np.float64)
     for _ in range(cfg.candidate_count):
@@ -284,29 +243,25 @@ def search_structure_for_target(
         best_materials, best_thick, target_lab,
         sim.incidence_angle, cfg,
     )
-
-    # ---- Snap back to the token grid + re-simulate achieved Lab -------
-    thicknesses_snapped = _snap_vector(refined_nm)
-    achieved_lab = sim.compute_lab(best_materials, thicknesses_snapped)
+    refined_list = [float(x) for x in refined_nm.tolist()]
+    achieved_lab = sim.compute_lab(best_materials, refined_list)
 
     return (
         best_materials,
-        thicknesses_snapped,
+        refined_list,
         [float(c) for c in achieved_lab],
-        [float(x) for x in refined_nm.tolist()],
     )
 
 
 # ============================================================================
-# Smoke test — assert every returned thickness is on the token grid.
-# Reachable via `python -m create_dataset.src.high_chroma_search`.
+# Smoke test — assert every returned thickness is a physical float and the
+# Lab agreement is at least as good as the stage-1 winner.
 # ============================================================================
 
 def _smoke_test() -> None:
     from create_dataset.src.random_layer import LayerCountConfig
     from src.material_features import load_jll_material_directory
 
-    # Load enough real materials to have something to sample from.
     real_dir = None
     for cand in [
         Path("./jaxlayerlumos/materials"),
@@ -337,17 +292,21 @@ def _smoke_test() -> None:
     print(f"[smoke] target Lab = {target}")
 
     cfg = HighChromaSearchConfig(candidate_count=8, refine_iters=6)
-    materials, snapped, achieved, raw = search_structure_for_target(
+    materials, thicknesses_nm, achieved = search_structure_for_target(
         sim, target, cfg, rng,
     )
 
-    grid = set(THICKNESSES)
-    assert all(t in grid for t in snapped), (
-        f"snap-to-grid failed! Got {snapped}, grid is {sorted(grid)}"
-    )
-    print(f"[smoke] snapped thicknesses on grid: {snapped}")
+    for t in thicknesses_nm:
+        assert MIN_THICKNESS_NM - 1e-6 <= t <= MAX_THICKNESS_NM + 1e-6, (
+            f"thickness {t} outside [{MIN_THICKNESS_NM}, {MAX_THICKNESS_NM}] nm"
+        )
+    # A continuous sample should almost surely NOT land on a 5 nm grid.
+    non_grid = sum(1 for t in thicknesses_nm if abs(round(t / 5) * 5 - t) > 1e-6)
+    print(f"[smoke] {non_grid}/{len(thicknesses_nm)} thicknesses off the 5 nm grid "
+          f"(expected all)")
+    assert non_grid > 0, "returned thicknesses are all grid-aligned"
+    print(f"[smoke] continuous thicknesses: {[round(t, 3) for t in thicknesses_nm]}")
     print(f"[smoke] achieved Lab = {[round(c, 2) for c in achieved]}")
-    print(f"[smoke] pre-snap continuous = {[round(x, 2) for x in raw]}")
     print("[smoke] OK")
 
 

@@ -266,7 +266,9 @@ def refine_candidate(
     # round-up for the check call signature, which expects ints).
     fs_refined = FinishedStructure(
         slot_indices=list(cand.slot_indices),
-        thicknesses_nm=[int(round(x)) for x in best_t.tolist()],
+        # Continuous nm — no grid rounding. The two-head model regresses
+        # continuous thickness; the constraint layer accepts floats now.
+        thicknesses_nm=[float(x) for x in best_t.tolist()],
         pool_size=len(pool),
     )
     constraint_results = constraint_set.check(fs_refined, pool)

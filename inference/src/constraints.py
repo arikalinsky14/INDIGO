@@ -47,9 +47,33 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 from src.materials_vocab import (
-    EOS_TOKEN, M_MAX, MAX_LAYERS, NUM_THICKNESSES, THICKNESSES, VOCAB_SIZE,
-    encode_layer,
+    # LEGACY joint-vocab shape — this module still speaks (slot × thickness)
+    # tokens. inference/src/generate.py projects the joint mask down to the
+    # M_MAX + 1 slot vocab the two-head model actually consumes. See
+    # _project_joint_mask_to_slot_mask there for the contract.
+    LEGACY_EOS_TOKEN as EOS_TOKEN,
+    LEGACY_VOCAB_SIZE as VOCAB_SIZE,
+    M_MAX, MAX_LAYERS, NUM_THICKNESSES, THICKNESSES,
 )
+
+
+def encode_layer(slot_idx: int, thickness_nm: float) -> int:
+    """Legacy joint-vocab index used by this module's smoke tests.
+
+    The two-head model no longer decodes joint tokens, but the mask this
+    module builds keeps the joint layout so its incremental logic stays
+    unchanged. The projection down to a slot-only mask happens in
+    inference/src/generate.py.
+    """
+    if not (0 <= slot_idx < M_MAX):
+        raise ValueError(f"slot_idx {slot_idx} out of range [0, {M_MAX})")
+    # Match old grid semantics: round to nearest 5 nm and lookup index.
+    idx = int(round(float(thickness_nm) / 5.0)) - 1
+    if not (0 <= idx < NUM_THICKNESSES):
+        raise ValueError(
+            f"thickness {thickness_nm} not representable on legacy 5 nm grid"
+        )
+    return slot_idx * NUM_THICKNESSES + idx
 
 from inference.src.schema import Constraint, MaterialEntry
 
@@ -66,7 +90,7 @@ class PartialStructure:
     ops — no jax involvement here, the decode mask is a pure CPU step.
     """
     slots_so_far: List[int]            # slot indices for layers 0..k-1
-    thicknesses_so_far: List[int]      # nm at each placed layer (5 nm grid)
+    thicknesses_so_far: List[float]    # nm at each placed layer (continuous)
     pool_size: int                     # valid slot range: [0, pool_size)
 
     @property
@@ -74,15 +98,15 @@ class PartialStructure:
         return len(self.slots_so_far)
 
     @property
-    def total_thickness_so_far(self) -> int:
-        return int(sum(self.thicknesses_so_far))
+    def total_thickness_so_far(self) -> float:
+        return float(sum(self.thicknesses_so_far))
 
 
 @dataclass
 class FinishedStructure:
     """Post-hoc-check view of a fully-decoded candidate."""
     slot_indices: List[int]
-    thicknesses_nm: List[int]
+    thicknesses_nm: List[float]        # continuous nm (was int on the 5 nm grid)
     pool_size: int
 
 
