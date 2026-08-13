@@ -316,6 +316,8 @@ def run_one_epoch(
             slot_loss = losses.get("slot_loss")
             thick_loss = losses.get("thickness_loss")
             thick_mae = losses.get("thickness_mae_nm")
+            lv_slot = losses.get("log_var_slot")
+            lv_thick = losses.get("log_var_thickness")
             extras = ""
             if slot_loss is not None:
                 extras += f", slot_ce={float(slot_loss):.4f}"
@@ -323,6 +325,14 @@ def run_one_epoch(
                 extras += f", thick_mse={float(thick_loss):.4f}"
             if thick_mae is not None:
                 extras += f", thick_mae_nm={float(thick_mae):.2f}"
+            if lv_slot is not None and lv_thick is not None:
+                # σ = exp(s/2). Reporting both σs makes the auto-balance
+                # visible: a σ trending down means "this head's loss is
+                # confident, weight it more"; trending up means "this
+                # head is noisy, weight it less".
+                sigma_slot = float(torch.exp(0.5 * lv_slot))
+                sigma_thick = float(torch.exp(0.5 * lv_thick))
+                extras += f", σ_slot={sigma_slot:.3f}, σ_thick={sigma_thick:.3f}"
             print(
                 f"  Step {global_step}/{total_steps}: "
                 f"loss={last_loss:.4f}, "
@@ -410,10 +420,6 @@ def parse_args() -> argparse.Namespace:
                              "consumer the bottleneck.")
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--warmup-fraction", type=float, default=0.02)
-    parser.add_argument("--thickness-loss-weight", type=float, default=1.0,
-                        help="λ in total_loss = CE_slot + λ · MSE_norm_thickness. "
-                             "MSE is on normalized (÷200) thickness so the two "
-                             "heads live at comparable magnitudes at λ=1.")
 
     # Performance knobs
     parser.add_argument("--bf16", action=argparse.BooleanOptionalAction,
@@ -509,7 +515,6 @@ def main() -> None:
         n_heads=args.n_heads,
         slot_encoder_layers=args.slot_encoder_layers,
         decoder_layers=args.decoder_layers,
-        thickness_loss_weight=args.thickness_loss_weight,
         learning_rate=args.lr,
         batch_size=args.batch_size,
         epochs=args.epochs,

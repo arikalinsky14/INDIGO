@@ -80,9 +80,10 @@ class ModelConfig:
     slot_encoder_layers: int = 0
     decoder_layers: int = 1
 
-    # Loss weight on the thickness head. Slot loss is CE; thickness loss is
-    # MSE on normalized thickness. Fixed λ combo (see training.py).
-    thickness_loss_weight: float = 1.0
+    # Two-head loss uses Kendall & Gal (2018) uncertainty weighting; no
+    # manual scale factor to tune. The model carries two learnable
+    # log-variances (log_var_slot, log_var_thickness) that the optimiser
+    # itself balances alongside the network weights.
 
     # Training bookkeeping (in-config so tags match the run's hypers)
     learning_rate: float = 4.42e-5
@@ -113,8 +114,6 @@ class ModelConfig:
             base += f"_{self.head_mode}H{self.n_heads}"
             se = self.slot_encoder_layers or self.n_layers
             base += f"_se{se}_dec{self.decoder_layers}"
-        if self.thickness_loss_weight != 1.0:
-            base += f"_tw{self.thickness_loss_weight}"
         if self.limit_examples is not None:
             base += f"_lim{self.limit_examples}"
         return base
@@ -152,6 +151,45 @@ class MaterialEncoder(nn.Module):
 def _thickness_from_scalar(x: torch.Tensor) -> torch.Tensor:
     """Sigmoid → thickness in nm ∈ (0, MAX_THICKNESS_NM)."""
     return torch.sigmoid(x) * MAX_THICKNESS_NM
+
+
+# ============================================================================
+# Kendall & Gal (2018) uncertainty-weighted multi-task loss combiner
+# ----------------------------------------------------------------------------
+# Every model exposes two learnable log-variance scalars (init 0 → σ² = 1).
+# The optimiser drives them alongside the network weights, so the two-head
+# loss balances itself and there is no λ hyperparameter to sweep.
+#
+# Per Kendall & Gal Eq. 10 (classification approximation) and Eq. 5 (regression):
+#     L_total = exp(-s_slot)  · CE_slot   + 0.5 · s_slot
+#             + 0.5 · exp(-s_th) · MSE_th  + 0.5 · s_th
+# where s = log σ². The regularisers (0.5 · s terms) prevent σ² → ∞.
+#
+# The two learnable log-vars live on the model (init 0 = weight both losses
+# at 1.0 initially), and both are registered as regular parameters so any
+# AdamW optimiser picks them up without extra plumbing.
+# ============================================================================
+
+
+def _register_uncertainty_weights(model: nn.Module) -> None:
+    """Attach `log_var_slot` and `log_var_thickness` as trainable scalars."""
+    model.log_var_slot = nn.Parameter(torch.zeros(()))
+    model.log_var_thickness = nn.Parameter(torch.zeros(()))
+
+
+def _uncertainty_weighted_loss(
+    slot_loss: torch.Tensor,
+    thick_loss: torch.Tensor,
+    log_var_slot: torch.Tensor,
+    log_var_thickness: torch.Tensor,
+) -> torch.Tensor:
+    """Combine the two task losses with learnable uncertainty weights."""
+    weighted_slot = torch.exp(-log_var_slot) * slot_loss + 0.5 * log_var_slot
+    weighted_thick = (
+        0.5 * torch.exp(-log_var_thickness) * thick_loss
+        + 0.5 * log_var_thickness
+    )
+    return weighted_slot + weighted_thick
 
 
 # ============================================================================
@@ -195,6 +233,7 @@ class FlexMaterialMLP(nn.Module):
         self.slot_head = nn.Linear(config.d_model, M_MAX + 1)
         self.thickness_head = nn.Linear(config.d_model, M_MAX)
 
+        _register_uncertainty_weights(self)
         self._init_weights()
 
     def _init_weights(self) -> None:
@@ -318,6 +357,7 @@ class FlexMaterialCrossAttn(nn.Module):
         )
         self.register_buffer("_causal_mask", causal, persistent=False)
 
+        _register_uncertainty_weights(self)
         self._init_weights()
 
     def _init_weights(self) -> None:
@@ -480,9 +520,10 @@ def compute_loss(
 
     slot_loss = F.cross_entropy(slot_logits, slot_target)
     thick_loss = _thickness_loss(thickness_nm, slot_target, thickness_target)
-    lam = getattr(model, "config", None)
-    lam_w = lam.thickness_loss_weight if lam is not None else 1.0
-    loss = slot_loss + lam_w * thick_loss
+    loss = _uncertainty_weighted_loss(
+        slot_loss, thick_loss,
+        model.log_var_slot, model.log_var_thickness,
+    )
 
     with torch.no_grad():
         slot_acc = (slot_logits.argmax(dim=-1) == slot_target).float().mean()
@@ -502,6 +543,8 @@ def compute_loss(
         "accuracy": slot_acc,               # kept name for callers
         "slot_accuracy": slot_acc,
         "thickness_mae_nm": thickness_mae_nm,
+        "log_var_slot": model.log_var_slot.detach(),
+        "log_var_thickness": model.log_var_thickness.detach(),
     }
 
 
@@ -550,9 +593,10 @@ def compute_loss_packed(
                             torch.full_like(flat_slot, EOS_TOKEN))
     thick_loss = _thickness_loss(flat_thick_pred, safe_slot, flat_thick_tgt)
 
-    lam = getattr(model, "config", None)
-    lam_w = lam.thickness_loss_weight if lam is not None else 1.0
-    loss = slot_loss + lam_w * thick_loss
+    loss = _uncertainty_weighted_loss(
+        slot_loss, thick_loss,
+        model.log_var_slot, model.log_var_thickness,
+    )
 
     with torch.no_grad():
         pred = slot_logits.argmax(dim=-1)
@@ -583,6 +627,8 @@ def compute_loss_packed(
         "accuracy": slot_acc,
         "slot_accuracy": slot_acc,
         "thickness_mae_nm": thickness_mae_nm,
+        "log_var_slot": model.log_var_slot.detach(),
+        "log_var_thickness": model.log_var_thickness.detach(),
     }
 
 
@@ -798,7 +844,9 @@ if __name__ == "__main__":
     out_packed = compute_loss_packed(model_xa, packed_batch)
     print(f"  packed loss = {out_packed['loss'].item():.4f}, "
           f"slot_acc = {out_packed['slot_accuracy'].item():.3f}, "
-          f"thick_mae_nm = {out_packed['thickness_mae_nm'].item():.2f}")
+          f"thick_mae_nm = {out_packed['thickness_mae_nm'].item():.2f}, "
+          f"σ_slot = {float(torch.exp(0.5 * out_packed['log_var_slot'])):.3f}, "
+          f"σ_thick = {float(torch.exp(0.5 * out_packed['log_var_thickness'])):.3f}")
     out_packed["loss"].backward()
     n_with_grad = sum(
         1 for p in model_xa.parameters()
@@ -806,5 +854,11 @@ if __name__ == "__main__":
     )
     n_total = sum(1 for _ in model_xa.parameters())
     print(f"  packed backward: {n_with_grad}/{n_total} params received grad")
+    # The uncertainty scalars themselves must receive gradient — that's
+    # what makes the balance self-tuning.
+    assert model_xa.log_var_slot.grad is not None, "log_var_slot got no grad"
+    assert model_xa.log_var_thickness.grad is not None, "log_var_thickness got no grad"
+    print(f"  σ params carrying grad: log_var_slot={float(model_xa.log_var_slot.grad):+.4f}, "
+          f"log_var_thickness={float(model_xa.log_var_thickness.grad):+.4f}")
 
     print("\n[smoke] OK")
