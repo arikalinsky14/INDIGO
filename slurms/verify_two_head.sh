@@ -58,11 +58,13 @@ echo " PARALLEL_WORKERS : $PARALLEL_WORKERS   (for ETA extrapolation)"
 echo " KK_TOLERANCE     : $KK_TOLERANCE"
 echo "======================================================================"
 
-module load anaconda/2023.09-2 || true
-source activate indigo || true
+module purge
+module load python/pytorch_251_311_cu124
 
-# Force JAX to CPU — the search path uses jax.grad but the mock GPU on the
-# smp queue would just slow it down.
+source "$HOME/envs/llm-env/bin/activate"
+
+# Force JAX to CPU — the search path uses jax.grad but the smp queue's
+# mock GPU would just slow it down.
 export JAX_PLATFORMS=cpu
 
 mkdir -p "$(dirname "$OUTPUT_DIR")"
