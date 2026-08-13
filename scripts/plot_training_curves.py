@@ -124,6 +124,7 @@ def evaluate_precollated(model, batches: List[Dict[str, torch.Tensor]],
     model.eval()
     total_loss = 0.0
     total_correct = 0
+    total_thick_mae_nm = 0.0
     total_samples = 0
     with torch.no_grad():
         for batch in batches:
@@ -133,10 +134,14 @@ def evaluate_precollated(model, batches: List[Dict[str, torch.Tensor]],
             count = batch_on_device["lab"].size(0)
             total_loss += losses["loss"].item() * count
             total_correct += int(losses["accuracy"].item() * count)
+            total_thick_mae_nm += float(
+                losses.get("thickness_mae_nm", torch.tensor(0.0)).item()
+            ) * count
             total_samples += count
     return {
         "loss": total_loss / max(total_samples, 1),
         "accuracy": total_correct / max(total_samples, 1),
+        "thickness_mae_nm": total_thick_mae_nm / max(total_samples, 1),
         "n_samples": total_samples,
     }
 

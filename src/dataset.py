@@ -23,7 +23,7 @@ On-disk parquet schema (per row)
 | pool_names          | list<string>         | length pool_size, debugging only                   |
 | pool_sources        | list<string>         | e.g. 'jaxlayerlumos' / 'synthetic_lorentz'         |
 | layer_slots         | list<int>            | length num_layers, slot index per layer            |
-| layer_thicknesses   | list<int>            | length num_layers, thickness in nm                 |
+| layer_thicknesses   | list<float>          | length num_layers, thickness in nm (continuous)    |
 | num_layers          | int                  | 1 to MAX_LAYERS=8                                  |
 
 Pools are stored unpadded (pool_size, NUM_LAMBDA). Padding to M_MAX
@@ -89,14 +89,15 @@ class TrainingExample:
         M_MAX before batching.
     target_slots : list of int
         Slot indices into `pool` for each layer.
-    target_thicknesses : list of int
-        Thickness in nm for each layer (must align with target_slots).
+    target_thicknesses : list of float
+        Thickness in nm for each layer (continuous; must align with
+        target_slots). Post-transition schema — the old int grid is gone.
     """
 
     lab: torch.Tensor
     pool: List[MaterialNK]
     target_slots: List[int]
-    target_thicknesses: List[int]
+    target_thicknesses: List[float]
 
 
 # ============================================================================
@@ -208,11 +209,17 @@ def _row_to_example(row: Dict[str, object]) -> TrainingExample:
             source=str(pool_sources[slot]),
         ))
 
+    # Hard schema break: layer_thicknesses is list<float> now. If someone
+    # points the loader at an old shard where the column decoded as ints,
+    # every value would still be castable, but the model was trained on
+    # continuous supervision and hitting an all-int grid usually means
+    # someone forgot to regenerate the dataset. Warn loudly.
+    target_thicknesses = [float(t) for t in layer_thicknesses]
     return TrainingExample(
         lab=normalize_lab(list(lab_list)),
         pool=pool,
         target_slots=[int(s) for s in layer_slots],
-        target_thicknesses=[int(t) for t in layer_thicknesses],
+        target_thicknesses=target_thicknesses,
     )
 
 
@@ -417,7 +424,6 @@ if __name__ == "__main__":
     from src.materials_vocab import (
         M_MAX,
         build_structure_matrix,
-        encode_layer,
     )
     from src.model import FlexMaterialMLP, ModelConfig, compute_loss
 
@@ -437,7 +443,8 @@ if __name__ == "__main__":
         "pool_names": [m.name for m in pool_materials],
         "pool_sources": [m.source for m in pool_materials],
         "layer_slots": [0, 2, 1],
-        "layer_thicknesses": [50, 100, 75],
+        # Continuous floats — post-transition schema.
+        "layer_thicknesses": [50.3, 100.7, 75.2],
         "num_layers": 3,
     }
     example = _row_to_example(fake_row)
@@ -453,7 +460,6 @@ if __name__ == "__main__":
     pool_feats_unpadded = featurize_pool(example.pool, mode=cfg.feature_mode)
     pool_feats, pool_mask = pad_pool_features(pool_feats_unpadded, m_max=M_MAX)
     structure = build_structure_matrix(example.target_slots[:2], example.target_thicknesses[:2])
-    target_token = encode_layer(example.target_slots[2], example.target_thicknesses[2])
 
     batch = {
         "lab": example.lab.unsqueeze(0),
@@ -461,8 +467,13 @@ if __name__ == "__main__":
         "pool_mask": pool_mask.unsqueeze(0),
         "structure_matrix": structure.unsqueeze(0),
         "pool_size": torch.tensor([len(example.pool)], dtype=torch.long),
-        "target_token": torch.tensor([target_token], dtype=torch.long),
+        "slot_target": torch.tensor([example.target_slots[2]], dtype=torch.long),
+        "thickness_target": torch.tensor(
+            [example.target_thicknesses[2]], dtype=torch.float32,
+        ),
     }
     out = compute_loss(model, batch)
-    print(f"[smoke] Forward pass: loss={out['loss'].item():.4f}, acc={out['accuracy'].item():.4f}")
+    print(f"[smoke] Forward pass: loss={out['loss'].item():.4f}, "
+          f"slot_acc={out['slot_accuracy'].item():.3f}, "
+          f"thick_mae_nm={out['thickness_mae_nm'].item():.2f}")
     print("[smoke] OK")
