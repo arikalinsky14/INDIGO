@@ -78,14 +78,18 @@ from src.synthetic_materials import (
 #
 # For a causal linear medium, ε(ω) = ε₁(ω) + iε₂(ω) satisfies:
 #     ε₁(ω) − ε_∞ = (2/π) · P ∫_0^∞ (ω' · ε₂(ω') / (ω'^2 − ω^2)) dω'
-# Numerically, on a UNIFORMLY-sampled ω grid, the Hilbert transform of
-# ε₂ (as a function of ω) gives exactly this integral. We use the
-# Fourier definition of the Hilbert transform (no scipy dependency):
-#     H(f)[ω] = IFFT( −i · sign(ω_freq) · FFT(f)[ω_freq] )
-# and treat the raw sample vector as if it were uniformly sampled — for
-# generation-time verification this is a well-tested proxy; residuals
-# below a few percent mean "this material is KK-consistent enough that
-# a rigorous test on a uniform grid would also pass".
+# On a UNIFORMLY-sampled ω grid, the Hilbert transform of ε₂ gives this
+# integral. Our raw (n, k) samples are uniform in λ, so we FIRST
+# interpolate ε₁, ε₂ onto a uniform ω grid, then Hilbert.
+#
+# Even with the ω-grid fix, the check has an irreducible artefact: the
+# integral runs over ω ∈ [0, ∞), but our data covers only the narrow
+# visible band. The missing tails inflate every material's residual —
+# including the real JLL materials, which are causal by construction
+# (measured / tabulated). So we can't compare to an absolute tolerance;
+# instead we use the real-material residuals as the noise floor and
+# ask "is the synthetic residual within a small multiple of that?".
+# This is the honest test given band-limited data.
 # ============================================================================
 
 def _hilbert_via_fft(x: np.ndarray) -> np.ndarray:
@@ -100,44 +104,126 @@ def _hilbert_via_fft(x: np.ndarray) -> np.ndarray:
         h[0] = 1.0
         h[1:(N + 1) // 2] = 2.0
     analytic = np.fft.ifft(X * h)
-    # Im(analytic) is the Hilbert transform.
     return analytic.imag
 
 
-def check_kk(mat: MaterialNK, eps_inf_guess: Optional[float] = None
-             ) -> Dict[str, float]:
-    """Return residual metrics for a single material's KK-consistency.
+def _residual_on_uniform_omega(
+    mat: MaterialNK,
+) -> Tuple[float, float, float]:
+    """Compute the KK residual of one material on a uniform-ω grid.
 
-    We check that ε₁ − ε_∞ ≈ H(ε₂) where H is the Hilbert transform.
-    Because our ω grid is NOT strictly uniform (it comes from CANONICAL_FREQ_HZ,
-    which corresponds to a wavelength grid), the pure Fourier definition is
-    an approximation. Report the residual in both absolute and relative
-    (÷ dynamic range of ε₁) form; treat anything below rel_tol as a pass.
+    Returns (max_rel_resid, mean_rel_resid, eps1_dyn_range). Residuals are
+    normalised by the dynamic range of ε₁ − ε_∞_fit so materials with a
+    tiny ε swing (near-vacuum dielectrics) don't drown the statistics.
     """
     n = np.asarray(mat.n, dtype=np.float64)
     k = np.asarray(mat.k, dtype=np.float64)
     eps_r = n * n - k * k
     eps_i = 2.0 * n * k
-    if eps_inf_guess is None:
-        eps_inf_guess = float(np.min(eps_r))   # simple heuristic
-    lhs = eps_r - eps_inf_guess               # ε₁ − ε_∞
-    rhs = _hilbert_via_fft(eps_i)             # H(ε₂)
-    resid = lhs - rhs
-    # Ignore the very edges of the grid where the Hilbert transform is
-    # dominated by boundary artefacts.
-    edge = len(lhs) // 20
+
+    # Native ω grid — uniform in λ = c/(ω/2π), NOT in ω.
+    omega = 2.0 * np.pi * CANONICAL_FREQ_HZ
+    # Ensure monotone increasing (np.interp needs it).
+    idx = np.argsort(omega)
+    omega_sorted = omega[idx]
+    eps_r_sorted = eps_r[idx]
+    eps_i_sorted = eps_i[idx]
+
+    # Interpolate onto a uniform-ω grid covering the same range.
+    N = len(omega_sorted)
+    omega_u = np.linspace(omega_sorted[0], omega_sorted[-1], N)
+    eps_r_u = np.interp(omega_u, omega_sorted, eps_r_sorted)
+    eps_i_u = np.interp(omega_u, omega_sorted, eps_i_sorted)
+
+    # Hilbert transform of ε₂ on the uniform grid.
+    h_eps_i = _hilbert_via_fft(eps_i_u)
+
+    # Fit ε_∞ as the constant that makes ε₁ − ε_∞ ≈ H(ε₂) best in the
+    # least-squares sense — that's just their mean difference. Better
+    # than min(ε₁) which biased the residual toward the value at the
+    # band edge.
+    edge = len(eps_r_u) // 20
+    core_r = eps_r_u[edge:-edge]
+    core_h = h_eps_i[edge:-edge]
+    eps_inf_fit = float(np.mean(core_r - core_h))
+
+    lhs = eps_r_u - eps_inf_fit
+    resid = lhs - h_eps_i
     core_lhs = lhs[edge:-edge]
     core_resid = resid[edge:-edge]
     dyn_range = max(float(np.ptp(core_lhs)), 1e-6)
-    rel_resid = float(np.max(np.abs(core_resid))) / dyn_range
+    max_rel = float(np.max(np.abs(core_resid))) / dyn_range
+    mean_rel = float(np.mean(np.abs(core_resid))) / dyn_range
+    return max_rel, mean_rel, dyn_range
+
+
+def check_kk(mat: MaterialNK, eps_inf_guess: Optional[float] = None
+             ) -> Dict[str, float]:
+    """Per-material KK residual on a uniform-ω interpolated grid."""
+    max_rel, mean_rel, dyn = _residual_on_uniform_omega(mat)
     return {
         "name": mat.name,
         "source": mat.source,
-        "eps1_dyn_range": dyn_range,
-        "max_abs_residual": float(np.max(np.abs(core_resid))),
-        "max_rel_residual": rel_resid,
-        "mean_rel_residual": float(np.mean(np.abs(core_resid))) / dyn_range,
+        "eps1_dyn_range": dyn,
+        "max_rel_residual": max_rel,
+        "mean_rel_residual": mean_rel,
     }
+
+
+def kk_verdict_by_source(
+    reports: List[Dict[str, float]],
+    slack_factor: float = 2.5,
+) -> Dict[str, Dict[str, float]]:
+    """Group residuals by source and compare each source to the real-material
+    noise floor.
+
+    A synthetic source PASSES if its p95 residual is ≤ slack_factor × p95
+    of the JLL real materials. If no real materials are present, we fall
+    back to the raw p95 with a permissive slack (real materials are the
+    band-limitation noise floor; without them the KK check is unanchored).
+    """
+    from collections import defaultdict
+    by_source: Dict[str, List[float]] = defaultdict(list)
+    for r in reports:
+        by_source[r["source"]].append(r["max_rel_residual"])
+
+    real_source = "jaxlayerlumos"
+    reals = by_source.get(real_source, [])
+    if reals:
+        real_p95 = float(np.percentile(reals, 95))
+        real_median = float(np.median(reals))
+        threshold = slack_factor * real_p95
+    else:
+        real_p95 = float("nan")
+        real_median = float("nan")
+        threshold = float("nan")
+
+    out: Dict[str, Dict[str, float]] = {}
+    for source, residuals in sorted(by_source.items()):
+        arr = np.asarray(residuals)
+        p95 = float(np.percentile(arr, 95))
+        median = float(np.median(arr))
+        if reals:
+            passed = bool(p95 <= threshold)
+        else:
+            # No real reference. Warn caller by putting a NaN threshold in
+            # the record; leave verdict to a permissive fallback (< 5).
+            passed = bool(p95 <= 5.0)
+        out[source] = {
+            "n": int(arr.size),
+            "median": median,
+            "p95": p95,
+            "max": float(arr.max()),
+            "threshold_used": threshold if reals else float("nan"),
+            "passed": passed,
+        }
+    out["_baseline"] = {
+        "real_source": real_source,
+        "real_median": real_median,
+        "real_p95": real_p95,
+        "slack_factor": slack_factor,
+    }
+    return out
 
 
 # ============================================================================
@@ -150,6 +236,8 @@ def generate_dryrun_shard(
     high_chroma_prob: float,
     seed: int = 0,
     jll_materials_dir: Optional[Path] = None,
+    candidate_count: int = 24,
+    refine_iters: int = 12,
 ) -> Tuple[Path, float, float]:
     """Produce one shard end-to-end.
 
@@ -196,7 +284,9 @@ def generate_dryrun_shard(
         )
         hc_target_cfg = HighChromaTargetConfig()
         hc_search_cfg = HighChromaSearchConfig(
-            candidate_count=24, refine_iters=12, optimizer_name="dog",
+            candidate_count=candidate_count,
+            refine_iters=refine_iters,
+            optimizer_name="dog",
         )
 
     t0 = time.time()
@@ -324,11 +414,19 @@ def main() -> None:
     ap.add_argument("--parallel-workers", type=int, default=8,
                     help="how many SLURM workers will be used for the "
                          "10M-row production run; used only for ETA.")
-    ap.add_argument("--kk-tolerance", type=float, default=0.30,
-                    help="max acceptable relative Hilbert residual per "
-                         "material (default 0.30). Perturb + interpolate "
-                         "materials are constructed with an additive "
-                         "causal correction so most should be well below.")
+    ap.add_argument("--kk-slack-factor", type=float, default=2.5,
+                    help="Synthetic sources PASS if their p95 KK residual "
+                         "≤ slack × real-material p95. Real materials define "
+                         "the noise floor since we're band-limited to the "
+                         "visible; the KK integral runs over ω ∈ [0, ∞) so "
+                         "even real materials show a bandwidth-limitation "
+                         "residual > 0.")
+    ap.add_argument("--high-chroma-candidate-count", type=int, default=24,
+                    help="stage-1 candidates per search row (default 24). "
+                         "Cut to 12 to roughly halve search cost.")
+    ap.add_argument("--high-chroma-refine-iters", type=int, default=12,
+                    help="stage-2 gradient iters per search row (default 12). "
+                         "Cut to 6 to roughly halve search cost.")
     ap.add_argument("--jll-materials-dir", type=Path, default=None)
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
@@ -345,6 +443,8 @@ def main() -> None:
         high_chroma_prob=args.high_chroma_prob,
         seed=args.seed,
         jll_materials_dir=args.jll_materials_dir,
+        candidate_count=args.high_chroma_candidate_count,
+        refine_iters=args.high_chroma_refine_iters,
     )
 
     # 2. KK check + curve plot on generated materials
@@ -387,30 +487,30 @@ def main() -> None:
     plot_curves(materials_by_source, curves_path)
     print(f"[curves] wrote {curves_path}")
 
-    # KK verdict
-    fails = [r for r in kk_reports if r["max_rel_residual"] > args.kk_tolerance]
+    # KK verdict: per-source residual distribution vs real-material baseline.
+    per_source = kk_verdict_by_source(kk_reports, slack_factor=args.kk_slack_factor)
+    baseline = per_source.pop("_baseline")
     kk_summary = {
         "n_materials_checked": len(kk_reports),
-        "kk_tolerance": args.kk_tolerance,
-        "n_pass": len(kk_reports) - len(fails),
-        "n_fail": len(fails),
-        "median_rel_residual": float(np.median(
-            [r["max_rel_residual"] for r in kk_reports]
-        )),
-        "p95_rel_residual": float(np.percentile(
-            [r["max_rel_residual"] for r in kk_reports], 95
-        )),
-        "top_failures": sorted(
-            fails, key=lambda r: -r["max_rel_residual"]
-        )[:10],
+        "slack_factor": args.kk_slack_factor,
+        "baseline_real_median": baseline["real_median"],
+        "baseline_real_p95": baseline["real_p95"],
+        "per_source": per_source,
+        "n_sources_pass": sum(1 for v in per_source.values() if v["passed"]),
+        "n_sources_fail": sum(1 for v in per_source.values() if not v["passed"]),
     }
     (args.output_dir / "kk_report.json").write_text(json.dumps(
         {"summary": kk_summary, "per_material": kk_reports}, indent=2,
     ))
-    print(f"[KK] {len(kk_reports)} materials, "
-          f"median rel-residual {kk_summary['median_rel_residual']:.3f}, "
-          f"p95 {kk_summary['p95_rel_residual']:.3f}, "
-          f"pass {kk_summary['n_pass']}/{len(kk_reports)}")
+    print(f"[KK] {len(kk_reports)} materials across {len(per_source)} sources")
+    print(f"[KK] Real ({baseline['real_source']}) baseline: "
+          f"median={baseline['real_median']:.3f}, p95={baseline['real_p95']:.3f}")
+    print(f"[KK] Threshold: p95 ≤ {args.kk_slack_factor} × real_p95 = "
+          f"{args.kk_slack_factor * baseline['real_p95']:.3f}")
+    for source, s in per_source.items():
+        verdict = "PASS" if s["passed"] else "FAIL"
+        print(f"[KK]   {source:40s} n={s['n']:5d} median={s['median']:.3f} "
+              f"p95={s['p95']:.3f} → {verdict}")
 
     # Row-level thickness sanity: no grid alignment.
     all_thicks = [t for row in tbl["layer_thicknesses"] for t in row]
@@ -455,10 +555,11 @@ def main() -> None:
     print("\n" + "=" * 78)
     print("VERDICT")
     print("=" * 78)
-    kk_ok = kk_summary["n_fail"] == 0
+    kk_ok = kk_summary["n_sources_fail"] == 0
     grid_ok = grid_frac < 0.02
     print(f"  KK causality:      {'PASS' if kk_ok else 'FAIL'} "
-          f"({kk_summary['n_fail']} materials over tolerance)")
+          f"({kk_summary['n_sources_pass']}/{len(per_source)} sources within "
+          f"{args.kk_slack_factor}× real-material p95 baseline)")
     print(f"  Continuous thicks: {'PASS' if grid_ok else 'FAIL'} "
           f"({100 * grid_frac:.1f}% grid-aligned)")
     print(f"  Timing:            10M @ {args.parallel_workers}-way "
