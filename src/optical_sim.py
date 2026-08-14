@@ -135,7 +135,7 @@ class OpticalSimulator:
         self,
         pool: List[MaterialNK],
         slot_indices: List[int],
-        thicknesses_nm: List[float],
+        thicknesses_nm: List[int],
     ) -> np.ndarray:
         """Reflectance spectrum (TE+TM averaged) on the canonical grid.
 
@@ -179,7 +179,7 @@ class OpticalSimulator:
         self,
         pool: List[MaterialNK],
         slot_indices: List[int],
-        thicknesses_nm: List[float],
+        thicknesses_nm: List[int],
     ) -> List[float]:
         """CIE Lab [L*, a*, b*] for the given (pool, structure).
 
@@ -195,7 +195,7 @@ class OpticalSimulator:
         self,
         pool: List[MaterialNK],
         slot_indices: List[int],
-        thicknesses_nm: List[float],
+        thicknesses_nm: List[int],
     ) -> List[int]:
         """sRGB [0, 255] for the given (pool, structure). For display only —
         training targets use compute_lab.

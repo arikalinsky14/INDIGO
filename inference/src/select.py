@@ -161,7 +161,7 @@ def filter_feasible(
             continue
         fs = FinishedStructure(
             slot_indices=list(c.slot_indices),
-            thicknesses_nm=[float(t) for t in c.thicknesses_nm],
+            thicknesses_nm=[int(round(t)) for t in c.thicknesses_nm],
             pool_size=len(pool),
         )
         results = constraint_set.check(fs, pool)
@@ -248,7 +248,7 @@ def select_top_k(
         return [], drop_counts, []
     fs_best = FinishedStructure(
         slot_indices=list(top[0].slot_indices),
-        thicknesses_nm=[float(t) for t in top[0].thicknesses_nm],
+        thicknesses_nm=[int(round(t)) for t in top[0].thicknesses_nm],
         pool_size=len(pool),
     )
     rep = [ConstraintCheck(kind=k, passed=p, detail=d)

@@ -1,23 +1,28 @@
 #!/usr/bin/env python3
 """
-End-to-end verification for the two-head transition.
+End-to-end verification for the KK-consistent generators + high-chroma search.
 
 Run this BEFORE launching the 10M-row production data generation. It
 generates a small dry-run shard, walks the parquet, and independently
-checks the three things you actually care about:
+checks the things you actually care about:
 
-  1. Every material passes Kramers-Kronig numerically.
-     For each n,k pair we compute ε₂(ω) from k, take its Hilbert
-     transform (numpy-only Fourier-domain implementation), and compare
-     against the true ε₁(ω) − ε_∞. The relative residual is reported per
-     material with a pass threshold; every material must pass.
+  1. Kramers-Kronig residuals per source, compared to real-material baseline.
+     Real JLL materials are causal by measurement and set the noise floor
+     (the KK integral is over ω ∈ [0, ∞) but our data covers only the
+     visible band, so even real materials have a nonzero bandwidth-loss
+     residual). Synthetic sources PASS if their p95 residual is within
+     KK_SLACK_FACTOR × the real p95.
 
   2. n,k curves look physical.
      A random sample from each strategy (real / perturb / interpolate /
      lorentz / high-chroma-search layers) is plotted to a PNG grid so
      you can eyeball the shapes.
 
-  3. Wall-clock per shard extrapolates to a reasonable full-scale run.
+  3. Grid alignment: every thickness must be on the 5 nm token grid,
+     in [5, 200] nm. High-chroma-search rows snap continuous refinement
+     back to the grid before storing.
+
+  4. Wall-clock per shard extrapolates to a reasonable full-scale run.
      We report seconds/row for both undirected (random) and directed
      (high-chroma-search) rows, then multiply out to 10M rows at the
      production 20% search share, and print the ETA at the SLURM
@@ -512,13 +517,17 @@ def main() -> None:
         print(f"[KK]   {source:40s} n={s['n']:5d} median={s['median']:.3f} "
               f"p95={s['p95']:.3f} → {verdict}")
 
-    # Row-level thickness sanity: no grid alignment.
+    # Row-level thickness sanity: every layer must be on the 5 nm token grid,
+    # in [5, 200] nm. High-chroma-search rows snap continuous refinement
+    # back to the grid before storing.
     all_thicks = [t for row in tbl["layer_thicknesses"] for t in row]
     grid_frac = sum(1 for t in all_thicks
                     if abs(round(t / 5) * 5 - t) < 1e-6) / max(len(all_thicks), 1)
+    range_ok = all(5 <= t <= 200 for t in all_thicks)
     print(f"[thickness] {len(all_thicks)} layers, "
           f"{100 * grid_frac:.1f}% grid-aligned "
-          f"(expected ~0% — continuous sampling)")
+          f"(expected 100% — 5 nm token grid), "
+          f"range {'✓' if range_ok else '✗'} [5, 200] nm")
 
     # 3. Timing extrapolation
     print("\n" + "=" * 78)
@@ -556,12 +565,13 @@ def main() -> None:
     print("VERDICT")
     print("=" * 78)
     kk_ok = kk_summary["n_sources_fail"] == 0
-    grid_ok = grid_frac < 0.02
+    grid_ok = grid_frac >= 0.99 and range_ok
     print(f"  KK causality:      {'PASS' if kk_ok else 'FAIL'} "
           f"({kk_summary['n_sources_pass']}/{len(per_source)} sources within "
           f"{args.kk_slack_factor}× real-material p95 baseline)")
-    print(f"  Continuous thicks: {'PASS' if grid_ok else 'FAIL'} "
-          f"({100 * grid_frac:.1f}% grid-aligned)")
+    print(f"  Grid alignment:    {'PASS' if grid_ok else 'FAIL'} "
+          f"({100 * grid_frac:.1f}% on 5 nm grid, "
+          f"range ok={'yes' if range_ok else 'NO'})")
     print(f"  Timing:            10M @ {args.parallel_workers}-way "
           f"{hours_parallel:.1f} h")
 

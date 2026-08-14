@@ -206,13 +206,14 @@ def build_rows(
             target_lab = sample_high_chroma_target_lab(
                 high_chroma_target_rng, target_cfg,
             )
-            (layer_materials, layer_thicknesses,
-             lab) = search_structure_for_target(
+            (layer_materials, layer_thicknesses, lab,
+             thicknesses_raw_nm) = search_structure_for_target(
                 sim, target_lab, search_cfg, high_chroma_search_rng,
             )
             structure_source = "high_chroma_search"
         else:
             layer_materials, layer_thicknesses, lab = sim.sample_structure()
+            thicknesses_raw_nm = None
             target_lab = None
             structure_source = "random"
 
@@ -238,15 +239,17 @@ def build_rows(
             "pool_names": [m.name for m in pool],
             "pool_sources": [m.source for m in pool],
             "layer_slots": [int(s) for s in structure_slot_indices],
-            # Continuous nm floats — the model regresses thickness, no
-            # grid to snap to. HARD schema break vs the pre-transition
-            # int-list column of the same name; regenerate old shards.
-            "layer_thicknesses": [float(t) for t in layer_thicknesses],
+            "layer_thicknesses": [int(t) for t in layer_thicknesses],
             "num_layers": len(layer_materials),
             "structure_seed": structure_seed,
             "incidence_angle": incidence_angle,
             "target_chroma": float(chroma),
+            # Additive, backward-compat schema columns:
             "structure_source": structure_source,
+            "layer_thicknesses_raw_nm": (
+                [float(x) for x in thicknesses_raw_nm]
+                if thicknesses_raw_nm is not None else None
+            ),
             "search_target_lab": (
                 [float(x) for x in target_lab]
                 if target_lab is not None else None

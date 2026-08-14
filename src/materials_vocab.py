@@ -1,33 +1,37 @@
 """
-Slot-Indexed Token Vocabulary (two-head variant)
-================================================
+Slot-Indexed Token Vocabulary
+=============================
 
-The model now has two output heads: a slot classifier (which material
-in the pool to deposit next, or EOS) and a per-slot thickness regressor
-(how thick that layer should be, in nm). The joint (slot × thickness)
-vocab from the previous version is gone.
+Replaces the original CHROMA-Lite `materials_vocab.py`. The key change:
+tokens no longer encode material *identity*. They encode "use the material
+in slot k of the input pool, at thickness bin t".
 
-Vocabulary layout (used by the slot head only)
-----------------------------------------------
-- Tokens 0 .. M_MAX-1 : layer tokens (slot index k)
-- Token M_MAX         : EOS
+This is the core mechanism that lets the same trained model handle any
+user-provided material pool at inference time. The model never sees a
+fixed material vocabulary — only featurized n,k spectra in pool slots.
 
-There is no thickness in this vocabulary. Thicknesses live in a separate
-regression target and never enter the classification loss.
+Vocabulary layout
+-----------------
+- Tokens 0 .. M_MAX*NUM_THICKNESSES-1: layer tokens
+    token_id = slot_idx * NUM_THICKNESSES + thickness_idx
+    where slot_idx ∈ [0, M_MAX) and thickness_idx ∈ [0, NUM_THICKNESSES)
+- Token M_MAX*NUM_THICKNESSES: EOS
 
-Structure-matrix contract
--------------------------
-The structure matrix is still [M_MAX, MAX_LAYERS] of normalized-nm
-scalars. Thicknesses are now continuous floats (5..200 nm), not snapped
-to the old 5-nm grid. `normalize_thickness` / `denormalize_thickness`
-are simple scalar rescales — no rounding.
+Differences from original CHROMA-Lite vocab
+-------------------------------------------
+- No ERROR token. Constraints are handled post-hoc by filtering generated
+  structures, not by the model.
+- M_MAX is configurable. Defaults to 32 — comfortably larger than the JLL
+  library, with room for user-supplied custom materials.
+- The thickness grid is preserved unchanged (5..200 nm in 5 nm steps),
+  inherited from the original codebase.
 
-Backward compatibility
-----------------------
-This is a HARD schema break vs the previous grid-based vocab. Any
-parquet shard produced before the transition (with int layer_thicknesses
-and a per-slot × per-thickness token vocab) is not readable by the new
-loader. Regenerate the dataset before training.
+Decoding requires the pool
+--------------------------
+Because slot indices have no meaning without a pool, `decode_token` takes
+a `pool` argument. This is a slight ergonomic change vs. the original
+`decode_token(token_id)` signature — callers must pass the pool the
+structure was generated against.
 """
 
 from __future__ import annotations
@@ -44,162 +48,166 @@ from src.material_features import MaterialNK
 # ============================================================================
 
 # Maximum number of materials in any single pool. Padding fills shorter pools.
+# 32 is generous: JLL has ~30 named materials, and even with disambiguated
+# parameterisations we stay well under this.
 M_MAX: int = 32
 
-# Physical thickness range (nm). No grid — thicknesses are continuous.
-MIN_THICKNESS_NM: float = 5.0
-MAX_THICKNESS_NM: float = 200.0
+# Thickness grid (nm) — unchanged from original CHROMA-Lite.
+THICKNESSES: List[int] = list(range(5, 201, 5))  # [5, 10, ..., 200]
+NUM_THICKNESSES: int = len(THICKNESSES)
+MAX_THICKNESS_NM: int = 200
 
 # Maximum number of layers in a structure.
 MAX_LAYERS: int = 10
 
-# Vocab sizes for the SLOT HEAD (thickness is regression, not classification).
-NUM_LAYER_TOKENS: int = M_MAX     # one token per slot
-EOS_TOKEN: int = NUM_LAYER_TOKENS  # slot index M_MAX == "stop"
-VOCAB_SIZE: int = NUM_LAYER_TOKENS + 1   # M_MAX + 1
-
-# Kept for callers that still import the old grid size. Nothing in the new
-# training path uses these; the search / random-layer generators sample
-# continuously in [MIN_THICKNESS_NM, MAX_THICKNESS_NM]. The inference-time
-# constraint machinery (inference/src/constraints.py) still speaks joint
-# (slot × thickness) vocab; the LEGACY_* constants below let it keep
-# building masks in that shape while the new slot-only vocab (VOCAB_SIZE =
-# M_MAX + 1) drives model input/output.
-THICKNESSES: List[float] = [
-    5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0,
-    55.0, 60.0, 65.0, 70.0, 75.0, 80.0, 85.0, 90.0, 95.0, 100.0,
-    105.0, 110.0, 115.0, 120.0, 125.0, 130.0, 135.0, 140.0, 145.0, 150.0,
-    155.0, 160.0, 165.0, 170.0, 175.0, 180.0, 185.0, 190.0, 195.0, 200.0,
-]
-NUM_THICKNESSES: int = len(THICKNESSES)
-LEGACY_VOCAB_SIZE: int = M_MAX * NUM_THICKNESSES + 1  # joint-vocab size
-LEGACY_EOS_TOKEN: int = M_MAX * NUM_THICKNESSES       # last index of joint vocab
+# Derived sizes.
+NUM_LAYER_TOKENS: int = M_MAX * NUM_THICKNESSES
+EOS_TOKEN: int = NUM_LAYER_TOKENS
+VOCAB_SIZE: int = NUM_LAYER_TOKENS + 1
 
 
 # ============================================================================
-# Slot-token encoding / decoding
+# Token encoding / decoding
 # ============================================================================
 
 
-def encode_slot(slot_idx: int) -> int:
-    """Encode a slot index → slot-head token id."""
+def encode_layer(slot_idx: int, thickness_nm: int) -> int:
+    """Encode (slot_index, thickness_nm) → token_id.
+
+    Parameters
+    ----------
+    slot_idx : int
+        Which slot of the material pool this layer uses, ∈ [0, M_MAX).
+    thickness_nm : int
+        Layer thickness in nm. Must be one of THICKNESSES (5..200, step 5).
+
+    Returns
+    -------
+    token_id : int ∈ [0, NUM_LAYER_TOKENS)
+    """
     if not (0 <= slot_idx < M_MAX):
         raise ValueError(f"slot_idx {slot_idx} out of range [0, {M_MAX})")
-    return int(slot_idx)
+    if thickness_nm not in THICKNESSES:
+        raise ValueError(
+            f"thickness {thickness_nm} not in valid grid {THICKNESSES[0]}..{THICKNESSES[-1]} step 5"
+        )
+    thickness_idx = (thickness_nm - 5) // 5
+    return slot_idx * NUM_THICKNESSES + thickness_idx
 
 
-def decode_slot_token(
+def decode_token(
     token_id: int, pool: Optional[List[MaterialNK]] = None
-) -> Tuple[Optional[str], int, str]:
-    """Decode a slot-head token back to (material_name, slot_idx, kind).
+) -> Tuple[Optional[str], Optional[int], int, int, str]:
+    """Decode a token back to its components.
+
+    Parameters
+    ----------
+    token_id : int
+    pool : list of MaterialNK, optional
+        The material pool the token was generated against. If provided, the
+        material name is looked up; otherwise returned as None.
 
     Returns
     -------
     material_name : str or None
-        Name looked up from `pool`, if provided and slot_idx < len(pool).
+        Name of the material in the slot, or None if pool was not provided
+        or the slot index exceeds the pool size.
+    thickness_nm : int or None
+        Layer thickness in nm, or None for EOS.
     slot_idx : int
         Slot index, or -1 for EOS.
-    kind : str
+    thickness_idx : int
+        Thickness bin index, or -1 for EOS.
+    token_type : str
         'LAYER' or 'EOS'.
     """
     if token_id == EOS_TOKEN:
-        return None, -1, "EOS"
+        return None, None, -1, -1, "EOS"
     if not (0 <= token_id < NUM_LAYER_TOKENS):
         raise ValueError(f"token_id {token_id} out of range [0, {VOCAB_SIZE})")
-    name = None
-    if pool is not None and token_id < len(pool):
-        name = pool[token_id].name
-    return name, int(token_id), "LAYER"
+
+    slot_idx = token_id // NUM_THICKNESSES
+    thickness_idx = token_id % NUM_THICKNESSES
+    thickness_nm = THICKNESSES[thickness_idx]
+
+    material_name: Optional[str] = None
+    if pool is not None and slot_idx < len(pool):
+        material_name = pool[slot_idx].name
+
+    return material_name, thickness_nm, slot_idx, thickness_idx, "LAYER"
 
 
 def is_eos(token_id: int) -> bool:
     return token_id == EOS_TOKEN
 
 
-# --- Legacy shims -----------------------------------------------------------
-# Older callers imported `encode_layer(slot_idx, thickness_nm) -> int` and
-# `decode_token(token_id) -> (name, thickness_nm, slot_idx, thick_idx, kind)`.
-# The transition drops the joint token space entirely, so these shims exist
-# only to catch stragglers with a clear error rather than a silent mis-encode.
+# ============================================================================
+# Thickness normalisation (unchanged from original)
+# ============================================================================
 
 
-def encode_layer(slot_idx: int, thickness_nm: float) -> int:  # noqa: D401
-    """Deprecated joint-token encoder — thickness is now a regression target.
-
-    Returns a slot-only token; thickness is silently discarded. Kept so
-    older callers don't crash mid-refactor, but every hot path should be
-    updated to call `encode_slot(slot_idx)` directly.
-    """
-    return encode_slot(slot_idx)
+def normalize_thickness(thickness_nm: int) -> float:
+    """Normalize thickness to [0, 1] for use in the structure matrix."""
+    return thickness_nm / MAX_THICKNESS_NM
 
 
-def decode_token(
-    token_id: int, pool: Optional[List[MaterialNK]] = None
-) -> Tuple[Optional[str], Optional[float], int, int, str]:
-    """Legacy 5-tuple decoder. Thickness is now None (no longer in the vocab).
-
-    Prefer `decode_slot_token` in new code.
-    """
-    name, slot_idx, kind = decode_slot_token(token_id, pool=pool)
-    # Legacy tuple layout kept so old call sites still unpack — thickness
-    # comes from the regression head, not from decoding.
-    return name, None, slot_idx, -1, kind
+def denormalize_thickness(thickness_norm: float) -> int:
+    """Recover nm thickness from normalised value, snapped to the valid grid."""
+    raw_nm = round(thickness_norm * MAX_THICKNESS_NM / 5) * 5
+    return max(5, min(MAX_THICKNESS_NM, int(raw_nm)))
 
 
 # ============================================================================
-# Thickness normalisation
+# Structure matrix construction
 # ============================================================================
 #
-# Thicknesses in the structure matrix are stored as a scalar in [0, 1],
-# which is nm / MAX_THICKNESS_NM. The model's regression head emits
-# sigmoid outputs on the same scale, so training-time normalisation and
-# the model's output space match by construction.
-
-
-def normalize_thickness(thickness_nm: float) -> float:
-    """nm → normalized ∈ (0, 1]."""
-    return float(thickness_nm) / MAX_THICKNESS_NM
-
-
-def denormalize_thickness(thickness_norm: float) -> float:
-    """normalized → nm, CLAMPED to [MIN_THICKNESS_NM, MAX_THICKNESS_NM]. No grid snap."""
-    nm = float(thickness_norm) * MAX_THICKNESS_NM
-    return max(MIN_THICKNESS_NM, min(MAX_THICKNESS_NM, nm))
-
-
-# ============================================================================
-# Structure matrix construction (thicknesses are floats now)
-# ============================================================================
+# The structure matrix is the model's running record of "which slot is in
+# use at which layer position". Same shape pattern as original CHROMA-Lite
+# (NUM_MATERIALS × MAX_LAYERS), except the first dim is now M_MAX (slots,
+# not fixed material ids), and the row at slot index k is meaningful only
+# if that pool position is populated for the example.
 
 
 def build_structure_matrix(
-    slot_indices: List[int], thicknesses_nm: List[float]
+    slot_indices: List[int], thicknesses_nm: List[int]
 ) -> torch.Tensor:
-    """[M_MAX, MAX_LAYERS] structure matrix of normalized-nm scalars."""
+    """Build a [M_MAX, MAX_LAYERS] structure matrix from a layer sequence.
+
+    Parameters
+    ----------
+    slot_indices : list of int
+        Slot index for each layer (in deposition order, layer 0 first).
+    thicknesses_nm : list of int
+        Thickness in nm for each layer.
+
+    Returns
+    -------
+    matrix : torch.Tensor, shape [M_MAX, MAX_LAYERS], dtype float32
+        matrix[s, l] = normalized_thickness if layer l uses slot s, else 0.
+    """
     if len(slot_indices) != len(thicknesses_nm):
         raise ValueError("slot_indices and thicknesses_nm must have same length")
     if len(slot_indices) > MAX_LAYERS:
-        raise ValueError(
-            f"structure has {len(slot_indices)} layers, max is {MAX_LAYERS}"
-        )
+        raise ValueError(f"structure has {len(slot_indices)} layers, max is {MAX_LAYERS}")
 
     matrix = torch.zeros(M_MAX, MAX_LAYERS, dtype=torch.float32)
     for layer_idx, (slot, thick) in enumerate(zip(slot_indices, thicknesses_nm)):
         if not (0 <= slot < M_MAX):
             raise ValueError(f"slot {slot} out of range [0, {M_MAX})")
-        matrix[slot, layer_idx] = normalize_thickness(float(thick))
+        matrix[slot, layer_idx] = normalize_thickness(thick)
     return matrix
 
 
 def decode_structure_matrix(
     matrix: torch.Tensor,
-) -> Tuple[List[int], List[float]]:
+) -> Tuple[List[int], List[int]]:
     """Recover (slot_indices, thicknesses_nm) from a structure matrix.
 
-    Thicknesses come back as floats. Stops at the first all-zero column.
+    Stops at the first all-zero column (= no layer present). This mirrors
+    the original CHROMA-Lite decoder.
     """
     slot_indices: List[int] = []
-    thicknesses: List[float] = []
+    thicknesses: List[int] = []
     for layer_idx in range(MAX_LAYERS):
         col = matrix[:, layer_idx]
         if col.sum().item() == 0:
@@ -211,8 +219,14 @@ def decode_structure_matrix(
 
 
 # ============================================================================
-# Lab normalization (unchanged)
+# Lab normalization (the canonical color target for the model)
 # ============================================================================
+#
+# Lab is wider gamut than sRGB and perceptually uniform (so CIEDE2000
+# distances are meaningful). We scale into roughly [-1, 1] / [0, 1] for
+# the MLP: L*/100 (in [0, 1]), a*/128 and b*/128 (in roughly [-1, 1] for
+# colors near the sRGB gamut, possibly outside for wide-gamut targets).
+
 
 _L_SCALE: float = 100.0
 _AB_SCALE: float = 128.0
@@ -234,24 +248,35 @@ def denormalize_lab(lab_norm: torch.Tensor) -> List[float]:
 
 
 # ============================================================================
-# Slot-head output masking
+# Output masking — for handling variable pool sizes
 # ============================================================================
 
 
 def build_output_mask(pool_size: int, device: Optional[torch.device] = None) -> torch.Tensor:
-    """Mask over the slot-head vocab. Tokens with slot ≥ pool_size get -inf.
+    """Build a mask over the vocab that suppresses tokens for unused slots.
 
-    EOS (slot index M_MAX) is always valid.
+    Token i is valid iff i == EOS or its slot index < pool_size. Invalid
+    tokens get -inf added to their logits before softmax.
+
+    Parameters
+    ----------
+    pool_size : int
+        Number of valid materials in the pool, ∈ [1, M_MAX].
+    device : torch.device, optional
 
     Returns
     -------
-    mask : torch.Tensor, shape [VOCAB_SIZE = M_MAX + 1]
+    mask : torch.Tensor, shape [VOCAB_SIZE], dtype float32
+        0.0 for valid tokens, -inf for invalid.
     """
     if not (1 <= pool_size <= M_MAX):
         raise ValueError(f"pool_size {pool_size} out of range [1, {M_MAX}]")
 
     mask = torch.full((VOCAB_SIZE,), float("-inf"), dtype=torch.float32, device=device)
-    mask[:pool_size] = 0.0
+    # Valid layer tokens: slot ∈ [0, pool_size).
+    valid_layer_count = pool_size * NUM_THICKNESSES
+    mask[:valid_layer_count] = 0.0
+    # EOS is always valid.
     mask[EOS_TOKEN] = 0.0
     return mask
 
@@ -259,19 +284,28 @@ def build_output_mask(pool_size: int, device: Optional[torch.device] = None) -> 
 def build_output_mask_batch(
     pool_sizes: torch.Tensor, device: Optional[torch.device] = None
 ) -> torch.Tensor:
-    """Vectorised `build_output_mask`. Returns [B, VOCAB_SIZE]."""
+    """Vectorised version of `build_output_mask` over a batch of pool sizes.
+
+    Parameters
+    ----------
+    pool_sizes : torch.Tensor, shape [B], dtype int
+
+    Returns
+    -------
+    mask : torch.Tensor, shape [B, VOCAB_SIZE]
+    """
     B = pool_sizes.size(0)
     device = device or pool_sizes.device
 
-    slot_ids = torch.arange(VOCAB_SIZE, device=device)
-    # Slot index of each token: itself for 0..M_MAX-1, sentinel -1 for EOS
-    # so the < pool_size comparison keeps EOS valid for every row.
-    token_slots = slot_ids.clone()
-    token_slots[EOS_TOKEN] = -1
+    # Slot index for each token in the vocab. EOS gets a sentinel of -1
+    # so the comparison below treats it as always valid.
+    token_slots = torch.arange(VOCAB_SIZE, device=device) // NUM_THICKNESSES
+    token_slots[EOS_TOKEN] = -1  # EOS is always valid
 
+    # Compare each example's pool size against every token's slot.
     pool_sizes_b = pool_sizes.to(device).long().unsqueeze(1)  # [B, 1]
-    valid = token_slots.unsqueeze(0) < pool_sizes_b            # [B, V]
-    valid[:, EOS_TOKEN] = True
+    valid = token_slots.unsqueeze(0) < pool_sizes_b           # [B, V]
+    valid[:, EOS_TOKEN] = True                                # EOS always valid
 
     mask = torch.where(
         valid,
@@ -287,50 +321,51 @@ def build_output_mask_batch(
 
 if __name__ == "__main__":
     print(f"M_MAX            = {M_MAX}")
+    print(f"NUM_THICKNESSES  = {NUM_THICKNESSES}")
     print(f"NUM_LAYER_TOKENS = {NUM_LAYER_TOKENS}")
     print(f"EOS_TOKEN        = {EOS_TOKEN}")
-    print(f"VOCAB_SIZE       = {VOCAB_SIZE}   (was M_MAX * NUM_THICKNESSES + 1 pre-transition)")
+    print(f"VOCAB_SIZE       = {VOCAB_SIZE}")
 
-    # Slot round-trip.
-    for slot in [0, 5, M_MAX - 1]:
-        tok = encode_slot(slot)
-        _, s_back, kind = decode_slot_token(tok)
-        assert s_back == slot and kind == "LAYER", "slot round-trip failed"
-        print(f"  slot={slot} -> token {tok} -> slot={s_back} ({kind}) ✓")
+    # Round-trip a few tokens.
+    print("\nencode/decode round-trip:")
+    for slot, thick in [(0, 5), (3, 100), (M_MAX - 1, 200)]:
+        tok = encode_layer(slot, thick)
+        _, t_back, s_back, _, _ = decode_token(tok)
+        assert s_back == slot and t_back == thick, "round-trip failed"
+        print(f"  slot={slot}, thickness={thick}nm -> token {tok} -> "
+              f"({s_back}, {t_back}nm) ✓")
 
-    # EOS.
-    _, s, kind = decode_slot_token(EOS_TOKEN)
-    assert s == -1 and kind == "EOS"
+    # EOS round-trip.
+    _, _, _, _, kind = decode_token(EOS_TOKEN)
+    assert kind == "EOS"
     print(f"  EOS ({EOS_TOKEN}) -> {kind} ✓")
 
-    # Continuous thickness normalization.
-    for t in [5.0, 12.7, 100.0, 199.9]:
-        n = normalize_thickness(t)
-        back = denormalize_thickness(n)
-        assert abs(back - t) < 1e-6, f"thickness round-trip failed: {t} -> {n} -> {back}"
-    print("  thickness normalize round-trip ✓")
-
-    # Structure matrix round-trip with floats.
+    # Structure matrix round-trip.
     slots = [2, 5, 0, 7]
-    thicks = [50.3, 100.0, 75.1, 199.9]
+    thicks = [50, 100, 75, 200]
     M = build_structure_matrix(slots, thicks)
     s_back, t_back = decode_structure_matrix(M)
-    assert s_back == slots
-    for a, b in zip(thicks, t_back):
-        assert abs(a - b) < 1e-4, f"thickness round-trip: {a} vs {b}"
-    print(f"  structure matrix (float): slots={slots} thicks={thicks} ✓")
+    assert s_back == slots and t_back == thicks
+    print(f"\nstructure matrix shape: {tuple(M.shape)}")
+    print(f"round-trip slots={slots} thicks={thicks}: ✓")
 
-    # Slot-head mask.
+    # Mask correctness.
+    print("\nmask test:")
     mask = build_output_mask(pool_size=3)
     valid_count = (mask == 0.0).sum().item()
-    expected_valid = 3 + 1  # 3 slots + EOS
-    assert valid_count == expected_valid
-    print(f"  pool_size=3 mask: {int(valid_count)} valid tokens ({expected_valid} expected) ✓")
+    expected_valid = 3 * NUM_THICKNESSES + 1  # 3 slots × 40 thicknesses + EOS
+    print(f"  pool_size=3: valid tokens = {int(valid_count)} (expected {expected_valid}) "
+          f"{'✓' if valid_count == expected_valid else '✗'}")
 
+    # Vectorized mask
     mask_batch = build_output_mask_batch(torch.tensor([1, 8, M_MAX]))
+    print(f"  batched mask shape: {tuple(mask_batch.shape)}")
     counts = (mask_batch == 0.0).sum(dim=1).tolist()
-    expected = [1 + 1, 8 + 1, M_MAX + 1]
-    assert counts == expected, f"batched mask: {counts} vs {expected}"
-    print(f"  batched mask counts: {counts} ✓")
-
+    expected = [
+        1 * NUM_THICKNESSES + 1,
+        8 * NUM_THICKNESSES + 1,
+        M_MAX * NUM_THICKNESSES + 1,
+    ]
+    print(f"  per-example valid counts: {counts} (expected {expected})")
+    assert counts == expected, "batched mask mismatch"
     print("[smoke] OK")

@@ -17,7 +17,7 @@
 set -euo pipefail
 
 # ============================================================================
-# Two-Head Transition Verifier — MUST pass before generating 10M rows.
+# Data-Generation Verifier — MUST pass before generating 10M rows.
 # ============================================================================
 #
 # What it does (see scripts/verify_two_head.py):
