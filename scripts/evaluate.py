@@ -33,7 +33,7 @@ from src.materials_vocab import (
     MAX_LAYERS,
     build_structure_matrix,
     denormalize_lab,
-    encode_slot,
+    encode_layer,
 )
 from src.model import ModelConfig, build_model, compute_loss, generate_structure
 
@@ -65,9 +65,9 @@ except ImportError:
 
 
 def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
-    """Same expansion as training.py:collate_fn (two-head target layout)."""
+    """Same expansion as training.py:collate_fn."""
     all_lab, all_pool_feats, all_pool_masks, all_pool_sizes = [], [], [], []
-    all_structures, all_slot_targets, all_thick_targets = [], [], []
+    all_structures, all_targets = [], []
 
     for ex in examples:
         pool_feats_unpadded = featurize_pool(ex.pool, mode="raw_spectrum")
@@ -89,11 +89,12 @@ def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
                     ex.target_thicknesses[:step],
                 ))
             if step < n_layers:
-                all_slot_targets.append(encode_slot(ex.target_slots[step]))
-                all_thick_targets.append(float(ex.target_thicknesses[step]))
+                all_targets.append(encode_layer(
+                    ex.target_slots[step],
+                    ex.target_thicknesses[step],
+                ))
             else:
-                all_slot_targets.append(EOS_TOKEN)
-                all_thick_targets.append(0.0)
+                all_targets.append(EOS_TOKEN)
 
     return {
         "lab": torch.stack(all_lab),
@@ -101,8 +102,7 @@ def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
         "pool_mask": torch.stack(all_pool_masks),
         "pool_size": torch.tensor(all_pool_sizes, dtype=torch.long),
         "structure_matrix": torch.stack(all_structures),
-        "slot_target": torch.tensor(all_slot_targets, dtype=torch.long),
-        "thickness_target": torch.tensor(all_thick_targets, dtype=torch.float32),
+        "target_token": torch.tensor(all_targets, dtype=torch.long),
     }
 
 
@@ -127,7 +127,6 @@ def evaluate_teacher_forcing(model, dataset, device, batch_size=32,
 
     print("[INFO] Running teacher forcing evaluation...")
 
-    total_thick_mae_nm = 0.0
     with torch.no_grad():
         for batch_idx, batch in enumerate(loader):
             batch_on_device = {k: v.to(device) for k, v in batch.items()}
@@ -135,25 +134,15 @@ def evaluate_teacher_forcing(model, dataset, device, batch_size=32,
             count = batch_on_device["lab"].size(0)
             total_loss += losses["loss"].item() * count
             total_correct += int(losses["accuracy"].item() * count)
-            total_thick_mae_nm += float(
-                losses.get("thickness_mae_nm", torch.tensor(0.0)).item()
-            ) * count
             total_samples += count
             if (batch_idx + 1) % 100 == 0:
                 running_loss = total_loss / total_samples
-                running_slot_acc = total_correct / total_samples
-                running_mae = total_thick_mae_nm / total_samples
-                print(
-                    f"  Batch {batch_idx + 1}: loss={running_loss:.4f}, "
-                    f"slot_acc={running_slot_acc:.3f}, "
-                    f"thick_mae_nm={running_mae:.2f}"
-                )
+                running_acc = total_correct / total_samples
+                print(f"  Batch {batch_idx + 1}: loss={running_loss:.4f}, acc={running_acc:.3f}")
 
     return {
         "loss": total_loss / max(total_samples, 1),
         "accuracy": total_correct / max(total_samples, 1),
-        "slot_accuracy": total_correct / max(total_samples, 1),
-        "thickness_mae_nm": total_thick_mae_nm / max(total_samples, 1),
         "n_samples": total_samples,
     }
 
@@ -222,11 +211,11 @@ class EvalResult:
     gt_pool_names: List[str]
     gt_slots: List[int]
     gt_materials: List[str]
-    gt_thicknesses: List[float]
+    gt_thicknesses: List[int]
     gt_lab: List[float]
     pred_slots: List[int]
     pred_materials: List[str]
-    pred_thicknesses: List[float]
+    pred_thicknesses: List[int]
     pred_lab: Optional[List[float]]
     stop_reason: str
     n_layers_gt: int

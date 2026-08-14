@@ -17,9 +17,8 @@ per example). The model receives:
     pool_mask        : [B, M_MAX]  bool
     pool_size        : [B]         int
     structure_matrix : [B, M_MAX, MAX_LAYERS]
-and predicts, via two heads:
-    slot_target       : [B]  int  ∈ [0, M_MAX] (M_MAX = EOS)
-    thickness_target  : [B]  float nm (masked at EOS positions)
+and predicts:
+    target_token     : [B]         int in [0, VOCAB_SIZE)
 
 LR schedule: 2% linear warmup + cosine decay.
 Checkpoints: data/checkpoints/<config.tag()>/step_<N>/  and  .../latest/
@@ -53,7 +52,7 @@ from src.materials_vocab import (
     M_MAX,
     MAX_LAYERS,
     build_structure_matrix,
-    encode_slot,
+    encode_layer,
 )
 from src.model import ModelConfig, build_model, compute_loss, compute_loss_packed
 
@@ -61,18 +60,15 @@ from src.model import ModelConfig, build_model, compute_loss, compute_loss_packe
 def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
     """Expand each example into autoregressive sub-samples and batch them.
 
-    Two-head targets:
-      slot_target       : [B] in [0, M_MAX] (EOS = M_MAX)
-      thickness_target  : [B] float nm; arbitrary at EOS rows (masked out
-                          of the regression loss inside compute_loss)
+    The pool is featurized once per example and broadcast across all
+    expanded steps (same pool throughout the autoregressive trajectory).
     """
     all_lab: List[torch.Tensor] = []
     all_pool_feats: List[torch.Tensor] = []
     all_pool_masks: List[torch.Tensor] = []
     all_pool_sizes: List[int] = []
     all_structures: List[torch.Tensor] = []
-    all_slot_targets: List[int] = []
-    all_thick_targets: List[float] = []
+    all_targets: List[int] = []
 
     for ex in examples:
         pool_feats_unpadded = featurize_pool(ex.pool, mode="raw_spectrum")
@@ -96,12 +92,12 @@ def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
                 ))
 
             if step < n_layers:
-                all_slot_targets.append(encode_slot(ex.target_slots[step]))
-                all_thick_targets.append(float(ex.target_thicknesses[step]))
+                all_targets.append(encode_layer(
+                    ex.target_slots[step],
+                    ex.target_thicknesses[step],
+                ))
             else:
-                all_slot_targets.append(EOS_TOKEN)
-                # Any value works — the loss drops EOS rows.
-                all_thick_targets.append(0.0)
+                all_targets.append(EOS_TOKEN)
 
     return {
         "lab": torch.stack(all_lab),
@@ -109,8 +105,7 @@ def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
         "pool_mask": torch.stack(all_pool_masks),
         "pool_size": torch.tensor(all_pool_sizes, dtype=torch.long),
         "structure_matrix": torch.stack(all_structures),
-        "slot_target": torch.tensor(all_slot_targets, dtype=torch.long),
-        "thickness_target": torch.tensor(all_thick_targets, dtype=torch.float32),
+        "target_token": torch.tensor(all_targets, dtype=torch.long),
     }
 
 
@@ -125,24 +120,20 @@ def collate_fn_packed(examples: List[TrainingExample]) -> Dict[str, torch.Tensor
     Each example becomes ONE batch row carrying:
       - lab, pool_features, pool_mask, pool_size : as before, 1 copy per example
       - structure_matrix : the FULL deposited structure (all layers laid down)
-      - slot_targets [SEQ_LEN]      : slot ids at positions 0..n_layers-1,
-                                       EOS_TOKEN (= M_MAX) at n_layers, -100
-                                       at masked-out positions n_layers+1..
-      - thickness_targets [SEQ_LEN] : float nm at 0..n_layers-1, 0.0 elsewhere
-                                       (loss ignores non-supervised positions
-                                       and EOS positions)
+      - target_tokens [SEQ_LEN] : encoded layer tokens at positions
+        0..n_layers-1, EOS_TOKEN at position n_layers, and -100 at positions
+        n_layers+1..MAX_LAYERS so they are excluded from loss.
 
     The packed forward predicts at every sequence position in a single pass —
-    one slot-encoder run amortised across all (n_layers + 1) decisions per
-    example.
+    one slot-encoder run amortised across all (n_layers + 1) token decisions
+    per example.
     """
     all_lab: List[torch.Tensor] = []
     all_pool_feats: List[torch.Tensor] = []
     all_pool_masks: List[torch.Tensor] = []
     all_pool_sizes: List[int] = []
     all_structures: List[torch.Tensor] = []
-    all_slot_targets: List[torch.Tensor] = []
-    all_thick_targets: List[torch.Tensor] = []
+    all_targets: List[torch.Tensor] = []
 
     for ex in examples:
         pool_feats_unpadded = featurize_pool(ex.pool, mode="raw_spectrum")
@@ -150,28 +141,30 @@ def collate_fn_packed(examples: List[TrainingExample]) -> Dict[str, torch.Tensor
         pool_size = len(ex.pool)
 
         n_layers = len(ex.target_slots)
+        # Whether EOS gets a prediction position: yes if structure ended before
+        # MAX_LAYERS (so n_layers < MAX_LAYERS); no if it filled to the cap.
         emits_eos = n_layers < MAX_LAYERS
 
+        # Full deposited structure (every layer the model is supposed to
+        # produce). The causal mask in the model ensures position p only
+        # sees layers 0..p-1, so feeding the full structure here does not
+        # leak information.
         full_structure = build_structure_matrix(
             ex.target_slots, ex.target_thicknesses
         )
 
-        slot_targets = torch.full((_PACKED_SEQ_LEN,), -100, dtype=torch.long)
-        thick_targets = torch.zeros((_PACKED_SEQ_LEN,), dtype=torch.float32)
+        targets = torch.full((_PACKED_SEQ_LEN,), -100, dtype=torch.long)
         for k in range(n_layers):
-            slot_targets[k] = encode_slot(ex.target_slots[k])
-            thick_targets[k] = float(ex.target_thicknesses[k])
+            targets[k] = encode_layer(ex.target_slots[k], ex.target_thicknesses[k])
         if emits_eos:
-            slot_targets[n_layers] = EOS_TOKEN
-            # thickness at EOS is ignored by the regression loss
+            targets[n_layers] = EOS_TOKEN
 
         all_lab.append(ex.lab)
         all_pool_feats.append(pool_feats)
         all_pool_masks.append(pool_mask)
         all_pool_sizes.append(pool_size)
         all_structures.append(full_structure)
-        all_slot_targets.append(slot_targets)
-        all_thick_targets.append(thick_targets)
+        all_targets.append(targets)
 
     return {
         "lab": torch.stack(all_lab),
@@ -179,8 +172,7 @@ def collate_fn_packed(examples: List[TrainingExample]) -> Dict[str, torch.Tensor
         "pool_mask": torch.stack(all_pool_masks),
         "pool_size": torch.tensor(all_pool_sizes, dtype=torch.long),
         "structure_matrix": torch.stack(all_structures),
-        "slot_targets": torch.stack(all_slot_targets),
-        "thickness_targets": torch.stack(all_thick_targets),
+        "target_tokens": torch.stack(all_targets),
     }
 
 
@@ -232,9 +224,9 @@ def save_checkpoint(model, config, optimizer, step, loss, save_dir: Path, lr=Non
 def train_step(model, batch, device, loss_fn=compute_loss) -> Dict[str, torch.Tensor]:
     """Move batch to device and run one forward + loss pass.
 
-    Two-head targets are named per collate:
-      - fanned-out collate: `slot_target` [B]      + `thickness_target` [B]
-      - packed collate:     `slot_targets` [B, S]  + `thickness_targets` [B, S]
+    `loss_fn` decides which target field is consumed:
+      - `compute_loss`        -> `target_token` (fanned-out collate)
+      - `compute_loss_packed` -> `target_tokens` (packed collate)
     """
     batch_on_device = {
         "lab": batch["lab"].to(device),
@@ -243,10 +235,10 @@ def train_step(model, batch, device, loss_fn=compute_loss) -> Dict[str, torch.Te
         "pool_size": batch["pool_size"].to(device),
         "structure_matrix": batch["structure_matrix"].to(device),
     }
-    for k in ("slot_target", "thickness_target",
-              "slot_targets", "thickness_targets"):
-        if k in batch:
-            batch_on_device[k] = batch[k].to(device)
+    if "target_token" in batch:
+        batch_on_device["target_token"] = batch["target_token"].to(device)
+    if "target_tokens" in batch:
+        batch_on_device["target_tokens"] = batch["target_tokens"].to(device)
     return loss_fn(model, batch_on_device)
 
 
@@ -313,30 +305,10 @@ def run_one_epoch(
 
         if verbose and global_step % log_every == 0:
             phase = "warmup" if global_step <= warmup_steps else "decay"
-            slot_loss = losses.get("slot_loss")
-            thick_loss = losses.get("thickness_loss")
-            thick_mae = losses.get("thickness_mae_nm")
-            lv_slot = losses.get("log_var_slot")
-            lv_thick = losses.get("log_var_thickness")
-            extras = ""
-            if slot_loss is not None:
-                extras += f", slot_ce={float(slot_loss):.4f}"
-            if thick_loss is not None:
-                extras += f", thick_mse={float(thick_loss):.4f}"
-            if thick_mae is not None:
-                extras += f", thick_mae_nm={float(thick_mae):.2f}"
-            if lv_slot is not None and lv_thick is not None:
-                # σ = exp(s/2). Reporting both σs makes the auto-balance
-                # visible: a σ trending down means "this head's loss is
-                # confident, weight it more"; trending up means "this
-                # head is noisy, weight it less".
-                sigma_slot = float(torch.exp(0.5 * lv_slot))
-                sigma_thick = float(torch.exp(0.5 * lv_thick))
-                extras += f", σ_slot={sigma_slot:.3f}, σ_thick={sigma_thick:.3f}"
             print(
                 f"  Step {global_step}/{total_steps}: "
                 f"loss={last_loss:.4f}, "
-                f"slot_acc={losses['accuracy'].item():.3f}{extras}, "
+                f"acc={losses['accuracy'].item():.3f}, "
                 f"lr={current_lr:.2e} [{phase}]",
                 flush=True,
             )
