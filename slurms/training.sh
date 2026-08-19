@@ -94,12 +94,14 @@ ENCODER_DROPOUT="${ENCODER_DROPOUT:-0.1}"     # Material encoder dropout
 D_MODEL="${D_MODEL:-1024}"                    # Backbone hidden dim
 N_LAYERS="${N_LAYERS:-8}"                     # Number of backbone hidden layers
 DROPOUT="${DROPOUT:-0.1}"                     # Backbone dropout
-HEAD_MODE="${HEAD_MODE:-mlp}"                 # 'mlp' (flatten-then-MLP, default)
-                                              # or 'cross_attn' (pointer head:
-                                              # per-slot transformer + query
-                                              # cross-attention; permutation-
-                                              # equivariant by construction).
-                                              # Tune LR per head — optimum
+HEAD_MODE="${HEAD_MODE:-cross_attn}"          # PRODUCTION default: 'cross_attn'
+                                              # (pointer head: per-slot transformer
+                                              # + query cross-attention; permutation-
+                                              # equivariant by construction). Matches
+                                              # the last shipped prod checkpoint tag
+                                              # flex_..._cross_attnH8_se4_dec1.
+                                              # Override to 'mlp' for the ablation
+                                              # baseline. Tune LR per head — optimum
                                               # differs across architectures.
 N_HEADS="${N_HEADS:-8}"                       # Attention heads (cross_attn only)
 
@@ -129,11 +131,15 @@ COMPILE="${COMPILE:-0}"                       # torch.compile(model). First batc
                                               # is slow to trace; subsequent ~1.3x.
 
 # -------------------- Optimization --------------------
-LR="${LR:-1.44e-3}"                           # Base learning rate
+LR="${LR:-6e-5}"                              # PRODUCTION default LR for the
+                                              # cross_attn head. If you flip
+                                              # HEAD_MODE=mlp, bump this to ~1.44e-3
+                                              # (the LR tuning previously ran).
 WEIGHT_DECAY="${WEIGHT_DECAY:-0.01}"          # AdamW weight decay
 GRAD_CLIP="${GRAD_CLIP:-1.0}"                 # Gradient clipping norm
 WARMUP_FRACTION="${WARMUP_FRACTION:-0.02}"    # Warmup fraction
-EPOCHS="${EPOCHS:-1}"                         # Number of training epochs
+EPOCHS="${EPOCHS:-10}"                        # PRODUCTION default (matches last
+                                              # shipped checkpoint's ep=10 tag).
 
 # -------------------- Data Loading --------------------
 BATCH_SIZE="${BATCH_SIZE:-256}"                # Batch size
