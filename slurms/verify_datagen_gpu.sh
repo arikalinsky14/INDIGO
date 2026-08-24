@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=indigo-verify-2h-gpu
-#SBATCH --output=job-outputs/indigo-verify-2h-gpu.%j.out
-#SBATCH --error=job-outputs/indigo-verify-2h-gpu.%j.err
+#SBATCH --job-name=indigo-verify-datagen-gpu
+#SBATCH --output=job-outputs/indigo-verify-datagen-gpu.%j.out
+#SBATCH --error=job-outputs/indigo-verify-datagen-gpu.%j.err
 
 #SBATCH --cluster=gpu
 #SBATCH --partition=l40s
@@ -22,7 +22,7 @@ set -euo pipefail
 # GPU variant of the data-generation throughput verifier.
 # ============================================================================
 #
-# Same test as slurms/verify_two_head.sh but lets JAX see the L40S. Use it
+# Same test as slurms/verify_datagen.sh but lets JAX see the L40S. Use it
 # to A/B-benchmark whether the high-chroma-search path is faster on GPU
 # than on CPU on your data-gen shape (per row cost ~4.5s on CPU last we
 # measured; the ceiling has been dominated by 12x jax.grad calls that
@@ -39,7 +39,7 @@ set -euo pipefail
 # so you can confirm the run actually lands on GPU (`platform=gpu`,
 # device_count=1).
 #
-# Env knobs — same as verify_two_head.sh:
+# Env knobs — same as verify_datagen.sh:
 #   OUTPUT_DIR                     default: data/verify_2h_gpu
 #   N_ROWS                         default: 200
 #   HIGH_CHROMA_PROB               default: 0.2
@@ -49,7 +49,7 @@ set -euo pipefail
 #   KK_SLACK_FACTOR                default: 2.5
 #
 # Example:
-#   sbatch slurms/verify_two_head_gpu.sh
+#   sbatch slurms/verify_datagen_gpu.sh
 #   # A/B comparison against CPU: submit both, then diff the timing_reports.
 # ============================================================================
 
@@ -93,7 +93,7 @@ python -c "import jax; d = jax.devices(); print(f'[env] JAX platform: {d[0].plat
 
 mkdir -p "$(dirname "$OUTPUT_DIR")"
 
-python scripts/verify_two_head.py \
+python scripts/verify_datagen.py \
     --output-dir "$OUTPUT_DIR" \
     --n-rows "$N_ROWS" \
     --high-chroma-prob "$HIGH_CHROMA_PROB" \

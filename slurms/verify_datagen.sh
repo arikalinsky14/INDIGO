@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=indigo-verify-2h
-#SBATCH --output=job-outputs/indigo-verify-2h.%j.out
-#SBATCH --error=job-outputs/indigo-verify-2h.%j.err
+#SBATCH --job-name=indigo-verify-datagen
+#SBATCH --output=job-outputs/indigo-verify-datagen.%j.out
+#SBATCH --error=job-outputs/indigo-verify-datagen.%j.err
 
 #SBATCH --cluster=smp
 #SBATCH --partition=smp
@@ -20,7 +20,7 @@ set -euo pipefail
 # Data-Generation Verifier — MUST pass before generating 10M rows.
 # ============================================================================
 #
-# What it does (see scripts/verify_two_head.py):
+# What it does (see scripts/verify_datagen.py):
 #   1. Generates one small end-to-end shard (default 200 rows) with the same
 #      pipeline you'll run at scale, including the high-chroma-search path.
 #   2. Kramers-Kronig residual check on every material, grouped by source.
@@ -42,10 +42,10 @@ set -euo pipefail
 #   KK_SLACK_FACTOR                default: 2.5
 #
 # Example:
-#   sbatch slurms/verify_two_head.sh
+#   sbatch slurms/verify_datagen.sh
 #   # trim search cost for a faster projection
 #   HIGH_CHROMA_CANDIDATE_COUNT=12 HIGH_CHROMA_REFINE_ITERS=6 \
-#       sbatch slurms/verify_two_head.sh
+#       sbatch slurms/verify_datagen.sh
 # ============================================================================
 
 : "${OUTPUT_DIR:=data/verify_2h}"
@@ -57,7 +57,7 @@ set -euo pipefail
 : "${KK_SLACK_FACTOR:=2.5}"
 
 echo "======================================================================"
-echo " INDIGO two-head transition verifier"
+echo " INDIGO data-generation verifier"
 echo " OUTPUT_DIR                  : $OUTPUT_DIR"
 echo " N_ROWS                      : $N_ROWS"
 echo " HIGH_CHROMA_PROB            : $HIGH_CHROMA_PROB"
@@ -79,7 +79,7 @@ export JAX_PLATFORMS=cpu
 
 mkdir -p "$(dirname "$OUTPUT_DIR")"
 
-python scripts/verify_two_head.py \
+python scripts/verify_datagen.py \
     --output-dir "$OUTPUT_DIR" \
     --n-rows "$N_ROWS" \
     --high-chroma-prob "$HIGH_CHROMA_PROB" \

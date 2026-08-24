@@ -18,8 +18,8 @@ checks the things you actually care about:
      lorentz / high-chroma-search layers) is plotted to a PNG grid so
      you can eyeball the shapes.
 
-  3. Grid alignment: every thickness must be on the 5 nm token grid,
-     in [5, 200] nm. High-chroma-search rows snap continuous refinement
+  3. Grid alignment: every thickness must be on the 2 nm token grid,
+     in [2, 200] nm. High-chroma-search rows snap continuous refinement
      back to the grid before storing.
 
   4. Wall-clock per shard extrapolates to a reasonable full-scale run.
@@ -30,7 +30,7 @@ checks the things you actually care about:
 
 Usage
 -----
-    python scripts/verify_two_head.py \\
+    python scripts/verify_datagen.py \\
         --output-dir /tmp/indigo_dryrun \\
         --n-rows 200 --high-chroma-prob 0.2 \\
         --parallel-workers 8
@@ -527,17 +527,22 @@ def main() -> None:
         print(f"[KK]   {source:40s} n={s['n']:5d} median={s['median']:.3f} "
               f"p95={s['p95']:.3f} → {verdict}")
 
-    # Row-level thickness sanity: every layer must be on the 5 nm token grid,
-    # in [5, 200] nm. High-chroma-search rows snap continuous refinement
-    # back to the grid before storing.
+    # Row-level thickness sanity: every layer must be on the token grid
+    # defined in src.materials_vocab.THICKNESSES. High-chroma-search rows
+    # snap continuous refinement back to the grid before storing.
+    from src.materials_vocab import THICKNESSES as _TOKEN_GRID
+    grid_step = _TOKEN_GRID[1] - _TOKEN_GRID[0]
+    grid_lo, grid_hi = _TOKEN_GRID[0], _TOKEN_GRID[-1]
     all_thicks = [t for row in tbl["layer_thicknesses"] for t in row]
-    grid_frac = sum(1 for t in all_thicks
-                    if abs(round(t / 5) * 5 - t) < 1e-6) / max(len(all_thicks), 1)
-    range_ok = all(5 <= t <= 200 for t in all_thicks)
+    grid_frac = sum(
+        1 for t in all_thicks
+        if abs(round(t / grid_step) * grid_step - t) < 1e-6
+    ) / max(len(all_thicks), 1)
+    range_ok = all(grid_lo <= t <= grid_hi for t in all_thicks)
     print(f"[thickness] {len(all_thicks)} layers, "
           f"{100 * grid_frac:.1f}% grid-aligned "
-          f"(expected 100% — 5 nm token grid), "
-          f"range {'✓' if range_ok else '✗'} [5, 200] nm")
+          f"(expected 100% — {grid_step} nm token grid), "
+          f"range {'✓' if range_ok else '✗'} [{grid_lo}, {grid_hi}] nm")
 
     # 3. Timing extrapolation
     print("\n" + "=" * 78)
@@ -580,7 +585,7 @@ def main() -> None:
           f"({kk_summary['n_sources_pass']}/{len(per_source)} sources within "
           f"{args.kk_slack_factor}× real-material p95 baseline)")
     print(f"  Grid alignment:    {'PASS' if grid_ok else 'FAIL'} "
-          f"({100 * grid_frac:.1f}% on 5 nm grid, "
+          f"({100 * grid_frac:.1f}% on {grid_step} nm grid, "
           f"range ok={'yes' if range_ok else 'NO'})")
     print(f"  Timing:            10M @ {args.parallel_workers}-way "
           f"{hours_parallel:.1f} h")
