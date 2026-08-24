@@ -44,7 +44,7 @@ set -euo pipefail
 # ============================================================================
 
 : "${OUTPUT_DIR:=data/thickness_sensitivity}"
-: "${N_STRUCTURES:=30}"
+: "${N_STRUCTURES:=60}"       # per source (high_chroma + random); doubles total
 : "${SWEEP_MAX_NM:=10}"
 : "${SWEEP_STEP_NM:=1}"
 : "${HIGH_CHROMA_CANDIDATE_COUNT:=24}"

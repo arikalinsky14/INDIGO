@@ -1,33 +1,43 @@
 #!/usr/bin/env python3
 """
-Thickness Sensitivity Study on High-Chroma Structures
-=====================================================
+Thickness Sensitivity Study — Outermost Layer, High-Chroma vs Random
+====================================================================
 
-Purpose: measure how ΔE_00 responds to thickness perturbations, so we can
-decide the token grid's granularity (currently uniform 5 nm on [5, 200]).
+Purpose: measure how ΔE_00 responds to thickness perturbations of the
+LAYER THAT ACTUALLY DRIVES REFLECTED COLOUR (the outermost, air-side
+layer), so we can decide the token grid's granularity. First-pass sweeps
+of every layer showed interior layers are essentially "hidden" behind
+the topmost and contributed ΔE ≈ 0 across the full ±20 nm sweep — they
+just dragged aggregate stats toward zero. Restricting to the outermost
+layer eliminates the noise and always yields a signal.
+
+We also compare high-chroma-search structures against undirected-random
+ones — if directed-search structures cluster on more sensitive operating
+points, the grid decision is dominated by them.
+
 Two questions we're trying to answer:
 
-  1. What Δnm perturbation moves the achieved colour by ΔE ≈ 1 (~JND)?
-     If the answer at some base thickness is < 5 nm, the current grid
-     under-resolves that region and we're paying perceptual cost.
+  1. What Δnm perturbation moves the achieved colour by ΔE ≈ 2 or 3?
+     ΔE ≈ 1 was too close to numerical noise to be a useful threshold;
+     ΔE 2-3 are what colour scientists call "clearly perceptible".
 
   2. Does sensitivity vary systematically with the layer's BASE thickness?
-     Thin metal layers (Ag @ 15 nm) usually swing colour hard on ±1 nm,
-     while thick dielectrics (SiO2 @ 150 nm) tolerate ±10 nm. If the
-     effect is monotone in base thickness, a log-nm (or piecewise) grid
-     with finer spacing at small t would spend tokens where they matter.
+     If the effect is monotone in base thickness, a log-nm (or piecewise)
+     grid with finer spacing at small t would spend tokens where they
+     matter. First run showed sensitivity is NOT monotone — log grids
+     actually hurt at large t — so we keep this as a diagnostic.
 
 Method
 ------
-* Generate N high-chroma structures via the existing directed-search path
-  (create_dataset/src/high_chroma_search.py).
-* For each structure, for each layer, sweep that layer's thickness in
+* Generate N high-chroma structures via the directed-search path AND N
+  undirected-random structures via `sim.sample_structure()`.
+* For each structure, sweep the OUTERMOST layer's thickness in
   ±sweep_max_nm around its stored value at sweep_step_nm resolution,
   re-simulate the full stack, and record ΔE_00 vs the base achieved Lab.
-* Aggregate per (base-thickness bin, material category) and report:
+* Aggregate per (base-thickness bin, structure_source) and report:
     - Local slope |dΔE/dnm| at Δnm ≈ 0 (via central finite difference).
-    - Δnm needed to reach ΔE = 1, 2, 5 (the "resolvability").
-    - Ranked-worst layers so we can eyeball the extreme cases.
+    - Δnm needed to reach ΔE = 2, 3, 5 (the "resolvability").
+    - Grid comparison per source: expected snap ΔE per candidate grid.
 
 Grid-comparison analysis
 ------------------------
@@ -42,15 +52,18 @@ base thickness t is half the local bin width, multiplied by the local
 
 Outputs
 -------
-    <out>/sensitivity.json         raw sweep results + aggregates
-    <out>/curves_examples.png      per-layer ΔE(Δnm) for a handful of layers
-    <out>/sensitivity_by_bin.png   violin/box of |dΔE/dnm| by base-thickness bin
-    <out>/delta_e_1_by_bin.png     Δnm needed for ΔE=1 by base-thickness bin
-    <out>/grid_comparison.png      expected ΔE cost per grid candidate
-    <out>/grid_comparison.txt      the same as a printable table
+    <out>/sensitivity.json                     raw sweep results + aggregates
+    <out>/curves_examples.png                  outermost-layer ΔE(Δnm), sample
+    <out>/sensitivity_by_bin.png               |dΔE/dnm| by base-thickness bin
+    <out>/delta_e_2_by_bin.png                 Δnm for ΔE=2, split by source
+    <out>/delta_e_3_by_bin.png                 Δnm for ΔE=3, split by source
+    <out>/grid_comparison.png                  snap ΔE per grid, all sources
+    <out>/grid_comparison_by_source.png        p95 snap ΔE, HC vs random
+    <out>/grid_comparison.txt                  printable tables (both sources)
 
-Wallclock: default N=30 structures, ±10 nm × 1 nm step ≈ 3000 evals
-≈ 4-6 min on CPU. Bump --n-structures / --sweep-max-nm for more density.
+Wallclock: default N=60 per source (120 total sweeps), ±10 nm × 1 nm
+step ≈ 2500 evals ≈ 4-8 min on CPU. Bump --n-structures / --sweep-max-nm
+for more density.
 """
 from __future__ import annotations
 
@@ -151,6 +164,7 @@ def _classify(mat: MaterialNK) -> str:
 @dataclass
 class LayerSweep:
     structure_id: int
+    structure_source: str        # 'high_chroma_search' | 'random'
     layer_idx: int
     material_name: str
     material_category: str
@@ -273,9 +287,15 @@ def evaluate_grid(
     per_layer_stats: List[Dict],
     bin_width_fn: callable,
     name: str,
+    threshold_de: Tuple[float, ...] = (2.0, 3.0),
     max_thickness_nm: float = 200.0,
 ) -> Dict[str, float]:
-    """Estimate p50/p95/max ΔE snapping cost per layer for a grid."""
+    """Estimate p50/p95/max ΔE snapping cost per layer for a grid.
+
+    threshold_de : tuple of ΔE thresholds; each produces a
+                   `n_layers_over_<int(t)>` count so callers can pick
+                   the perceptibility level they care about.
+    """
     costs = []
     counts_used = 0
     for r in per_layer_stats:
@@ -284,22 +304,23 @@ def evaluate_grid(
         if not math.isfinite(slope) or slope <= 0:
             continue
         w = bin_width_fn(base)
-        # Worst-case snap error (per Nyquist-ish reasoning) ≈ w/2 · slope.
+        # Worst-case snap error ≈ w/2 · slope.
         cost_max = 0.5 * w * slope
         costs.append(cost_max)
         counts_used += 1
     if not costs:
         return {"grid": name, "n_layers": 0}
     arr = np.asarray(costs)
-    return {
+    out: Dict[str, float] = {
         "grid": name,
         "n_layers": counts_used,
         "median_snap_dE": float(np.median(arr)),
         "p95_snap_dE": float(np.percentile(arr, 95)),
         "max_snap_dE": float(arr.max()),
-        "n_layers_over_1": int((arr > 1.0).sum()),
-        "n_layers_over_2": int((arr > 2.0).sum()),
     }
+    for t in threshold_de:
+        out[f"n_layers_over_{int(t)}"] = int((arr > t).sum())
+    return out
 
 
 # ============================================================================
@@ -386,54 +407,97 @@ def plot_slope_by_bin(per_layer_stats: List[Dict], out_path: Path,
     plt.close(fig)
 
 
-def plot_delta_nm_for_de1(per_layer_stats: List[Dict], out_path: Path,
-                          bin_edges=(5, 20, 40, 80, 120, 200)) -> None:
-    """For each base-thickness bin, boxplot of Δnm needed to reach ΔE=1."""
+def plot_delta_nm_for_de(
+    per_layer_stats: List[Dict],
+    target_de: float,
+    out_path: Path,
+    bin_edges=(5, 20, 40, 80, 120, 200),
+    split_by_source: bool = True,
+) -> None:
+    """For each base-thickness bin, boxplot of Δnm needed to reach ΔE=target_de.
+
+    When split_by_source=True, plots high_chroma_search and random side by
+    side within each bin so you can eyeball whether directed-search
+    structures are systematically more/less sensitive than random ones.
+    """
     edges = list(bin_edges)
-    groups: List[List[float]] = [[] for _ in range(len(edges) - 1)]
+    de_key_neg = f"dnm_de{int(target_de)}_neg"
+    de_key_pos = f"dnm_de{int(target_de)}_pos"
+    sources = ["high_chroma_search", "random"] if split_by_source else [None]
+    # groups[source_idx][bin_idx] -> list of dnm values
+    groups = {src: [[] for _ in range(len(edges) - 1)] for src in sources}
     for r in per_layer_stats:
         vals = []
-        for side in ("dnm_de1_neg", "dnm_de1_pos"):
+        for side in (de_key_neg, de_key_pos):
             v = r.get(side)
             if v is not None and math.isfinite(v):
                 vals.append(v)
         if not vals:
             continue
         t = r["base_thickness_nm"]
-        # Use the smaller side — that's how quickly a small perturbation
-        # crosses the JND.
         smallest = min(vals)
+        src = r.get("structure_source") if split_by_source else None
+        if src not in groups:
+            continue
         for i in range(len(edges) - 1):
             if edges[i] <= t < edges[i + 1] or (i == len(edges) - 2 and t == edges[-1]):
-                groups[i].append(smallest)
+                groups[src][i].append(smallest)
                 break
-    fig, ax = plt.subplots(figsize=(8, 4))
-    positions = np.arange(len(groups))
-    data = [g if g else [0.0] for g in groups]
-    ax.boxplot(data, positions=positions, widths=0.6, showfliers=False,
-               patch_artist=True,
-               boxprops=dict(facecolor="#f5e2df", edgecolor="#653"),
-               medianprops=dict(color="#653"))
-    for i, g in enumerate(groups):
-        ax.scatter([positions[i]] * len(g), g, s=6, color="k", alpha=0.4)
+
+    fig, ax = plt.subplots(figsize=(9, 4))
+    n_bins = len(edges) - 1
+    positions_center = np.arange(n_bins)
+    if split_by_source:
+        colors = {"high_chroma_search": "#c86b6b", "random": "#7ea3d9"}
+        widths = 0.35
+        offsets = {"high_chroma_search": -widths / 2 - 0.02,
+                   "random": +widths / 2 + 0.02}
+        for src in sources:
+            data = [g if g else [0.0] for g in groups[src]]
+            n_each = [len(g) for g in groups[src]]
+            bp = ax.boxplot(
+                data, positions=positions_center + offsets[src],
+                widths=widths, showfliers=False, patch_artist=True,
+                boxprops=dict(facecolor=colors[src], alpha=0.55,
+                              edgecolor="#333"),
+                medianprops=dict(color="#111"),
+            )
+            for i, g in enumerate(groups[src]):
+                ax.scatter([positions_center[i] + offsets[src]] * len(g),
+                           g, s=5, color="k", alpha=0.35)
+            ax.plot([], [], color=colors[src], lw=6, alpha=0.7,
+                    label=f"{src}  (n per bin = "
+                          f"{','.join(str(x) for x in n_each)})")
+    else:
+        data = [g if g else [0.0] for g in groups[None]]
+        ax.boxplot(data, positions=positions_center, widths=0.6, showfliers=False,
+                   patch_artist=True,
+                   boxprops=dict(facecolor="#f5e2df", edgecolor="#653"),
+                   medianprops=dict(color="#653"))
+        for i, g in enumerate(groups[None]):
+            ax.scatter([positions_center[i]] * len(g), g, s=6,
+                       color="k", alpha=0.4)
+
     ax.axhline(5.0, color="tab:blue", lw=0.7, linestyle=":",
                label="current grid spacing (5 nm)")
     ax.axhline(2.5, color="tab:green", lw=0.7, linestyle=":",
                label="candidate 2 nm grid (half-width)")
-    ax.set_xticks(positions)
+    ax.set_xticks(positions_center)
     ax.set_xticklabels([_bin_label(edges[i], edges[i + 1])
-                        for i in range(len(edges) - 1)])
-    ax.set_ylabel("Δnm needed to reach ΔE = 1")
+                        for i in range(n_bins)])
+    ax.set_ylabel(f"Δnm needed to reach ΔE = {target_de:g}")
     ax.set_xlabel("base thickness bin")
-    ax.set_title("Perceptibility distance: smallest Δnm that changes colour "
-                 "by ΔE=1")
+    ax.set_title(f"Perceptibility distance: smallest Δnm on the OUTERMOST layer "
+                 f"that changes colour by ΔE={target_de:g}")
     ax.legend(loc="upper right", fontsize=8)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
-def plot_grid_comparison(grid_results: List[Dict], out_path: Path) -> None:
+def plot_grid_comparison(grid_results: List[Dict], out_path: Path,
+                         suptitle: str = "Grid granularity vs "
+                                          "perceptual snap cost") -> None:
     labels = [g["grid"] for g in grid_results]
     p50 = [g.get("median_snap_dE", 0) for g in grid_results]
     p95 = [g.get("p95_snap_dE", 0) for g in grid_results]
@@ -441,12 +505,41 @@ def plot_grid_comparison(grid_results: List[Dict], out_path: Path) -> None:
     fig, ax = plt.subplots(figsize=(9, 4))
     ax.bar(x - 0.2, p50, width=0.4, label="median snap ΔE", color="#7ea3d9")
     ax.bar(x + 0.2, p95, width=0.4, label="p95 snap ΔE", color="#c86b6b")
-    ax.axhline(1.0, color="k", lw=0.5, linestyle="--",
-               label="JND (~ΔE 1)")
+    ax.axhline(2.0, color="k", lw=0.5, linestyle="--",
+               label="perceptible-diff threshold (ΔE 2)")
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=15, ha="right")
     ax.set_ylabel("expected ΔE from snapping to grid")
-    ax.set_title("Grid granularity vs perceptual snap cost")
+    ax.set_title(suptitle)
+    ax.legend(loc="upper right", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_grid_comparison_split(
+    grid_results_by_source: Dict[str, List[Dict]],
+    out_path: Path,
+) -> None:
+    """Side-by-side p95 snap ΔE per grid, split by structure_source."""
+    sources = list(grid_results_by_source.keys())
+    all_grid_names = [g["grid"] for g in grid_results_by_source[sources[0]]]
+    x = np.arange(len(all_grid_names))
+    width = 0.8 / max(len(sources), 1)
+    colors = {"high_chroma_search": "#c86b6b", "random": "#7ea3d9"}
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for i, src in enumerate(sources):
+        p95 = [g.get("p95_snap_dE", 0)
+               for g in grid_results_by_source[src]]
+        ax.bar(x + (i - (len(sources) - 1) / 2) * width, p95,
+               width=width * 0.9,
+               color=colors.get(src, f"C{i}"),
+               label=f"{src} (p95 snap ΔE)")
+    ax.axhline(2.0, color="k", lw=0.5, linestyle="--", label="ΔE 2 threshold")
+    ax.set_xticks(x)
+    ax.set_xticklabels(all_grid_names, rotation=15, ha="right")
+    ax.set_ylabel("expected ΔE from snapping (p95)")
+    ax.set_title("Grid granularity vs snap cost — high-chroma vs random")
     ax.legend(loc="upper right", fontsize=8)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -460,10 +553,11 @@ def plot_grid_comparison(grid_results: List[Dict], out_path: Path) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--output-dir", type=Path, required=True)
-    ap.add_argument("--n-structures", type=int, default=30,
-                    help="how many high-chroma structures to generate + probe")
+    ap.add_argument("--n-structures", type=int, default=60,
+                    help="how many structures PER SOURCE to generate + probe. "
+                         "Total sweeps = 2 * n_structures (high_chroma + random).")
     ap.add_argument("--sweep-max-nm", type=float, default=10.0,
-                    help="sweep ± this many nm around each layer's base t")
+                    help="sweep ± this many nm around the outermost layer's base t")
     ap.add_argument("--sweep-step-nm", type=float, default=1.0,
                     help="Δnm resolution of the sweep")
     ap.add_argument("--high-chroma-candidate-count", type=int, default=24)
@@ -502,25 +596,46 @@ def main() -> None:
         refine_iters=args.high_chroma_refine_iters,
     )
 
-    # 1. Generate N high-chroma structures.
+    # 1. Generate N high-chroma + N undirected-random structures.
+    structures: List[Dict] = []
     print(f"[INFO] Generating {args.n_structures} high-chroma structures…")
     t0 = time.time()
-    structures: List[Dict] = []
     for i in range(args.n_structures):
         target = sample_high_chroma_target_lab(rng, target_cfg)
         materials, thicks_snapped, achieved_lab, _raw = \
             search_structure_for_target(sim, target, search_cfg, rng)
         structures.append({
-            "id": i,
+            "id": len(structures),
+            "structure_source": "high_chroma_search",
             "target_lab": target,
             "materials": materials,
             "thicknesses_nm": thicks_snapped,
             "achieved_lab": tuple(achieved_lab),
         })
-    print(f"[INFO] Generation done in {time.time() - t0:.1f}s")
+    print(f"[INFO] high-chroma done in {time.time() - t0:.1f}s")
 
-    # 2. Sweep each layer of each structure.
-    print(f"[INFO] Sweeping each layer ± {args.sweep_max_nm} nm at "
+    print(f"[INFO] Generating {args.n_structures} random structures…")
+    t0 = time.time()
+    for i in range(args.n_structures):
+        materials, thicks, lab = sim.sample_structure()
+        thicks_snapped = [int(round(t / 5) * 5) for t in thicks]
+        structures.append({
+            "id": len(structures),
+            "structure_source": "random",
+            "target_lab": None,
+            "materials": materials,
+            "thicknesses_nm": thicks_snapped,
+            "achieved_lab": tuple(lab),
+        })
+    print(f"[INFO] random done in {time.time() - t0:.1f}s")
+
+    # 2. Sweep ONLY the outermost (last-deposited, air-side) layer of each
+    # structure. Rationale: earlier full-stack sweeps showed interior layers
+    # are essentially "hidden" behind the topmost — most of them gave ΔE ≈ 0
+    # across ± 20 nm and dragged all aggregate statistics toward 0. The
+    # outermost layer always contributes to reflected colour, so it's the
+    # cleanest layer to probe for a grid decision.
+    print(f"[INFO] Sweeping OUTERMOST layer only, ± {args.sweep_max_nm} nm at "
           f"{args.sweep_step_nm} nm resolution…")
     t0 = time.time()
     all_sweeps: List[LayerSweep] = []
@@ -529,40 +644,44 @@ def main() -> None:
         mats = s["materials"]
         thicks = s["thicknesses_nm"]
         base_lab = s["achieved_lab"]
-        for li in range(len(thicks)):
-            deltas, delta_es = sweep_one_layer(
-                sim, mats, thicks, li, base_lab,
-                args.sweep_max_nm, args.sweep_step_nm,
-            )
-            cat = _classify(mats[li])
-            sw = LayerSweep(
-                structure_id=s["id"], layer_idx=li,
-                material_name=mats[li].name, material_category=cat,
-                base_thickness_nm=int(thicks[li]),
-                achieved_lab=tuple(base_lab),
-                sweep_delta_nm=deltas, sweep_delta_e=delta_es,
-            )
-            all_sweeps.append(sw)
-            slope = local_slope(deltas, delta_es)
-            neg1, pos1 = delta_nm_at_delta_e(deltas, delta_es, 1.0)
-            neg2, pos2 = delta_nm_at_delta_e(deltas, delta_es, 2.0)
-            neg5, pos5 = delta_nm_at_delta_e(deltas, delta_es, 5.0)
-            per_layer_stats.append({
-                "structure_id": s["id"],
-                "layer_idx": li,
-                "material_name": mats[li].name,
-                "material_category": cat,
-                "base_thickness_nm": int(thicks[li]),
-                "achieved_lab": list(base_lab),
-                "local_slope_dE_per_nm": slope,
-                "dnm_de1_neg": neg1, "dnm_de1_pos": pos1,
-                "dnm_de2_neg": neg2, "dnm_de2_pos": pos2,
-                "dnm_de5_neg": neg5, "dnm_de5_pos": pos5,
-            })
+        if len(thicks) == 0:
+            continue
+        li = len(thicks) - 1              # outermost layer
+        deltas, delta_es = sweep_one_layer(
+            sim, mats, thicks, li, base_lab,
+            args.sweep_max_nm, args.sweep_step_nm,
+        )
+        cat = _classify(mats[li])
+        sw = LayerSweep(
+            structure_id=s["id"], structure_source=s["structure_source"],
+            layer_idx=li,
+            material_name=mats[li].name, material_category=cat,
+            base_thickness_nm=int(thicks[li]),
+            achieved_lab=tuple(base_lab),
+            sweep_delta_nm=deltas, sweep_delta_e=delta_es,
+        )
+        all_sweeps.append(sw)
+        slope = local_slope(deltas, delta_es)
+        neg2, pos2 = delta_nm_at_delta_e(deltas, delta_es, 2.0)
+        neg3, pos3 = delta_nm_at_delta_e(deltas, delta_es, 3.0)
+        neg5, pos5 = delta_nm_at_delta_e(deltas, delta_es, 5.0)
+        per_layer_stats.append({
+            "structure_id": s["id"],
+            "structure_source": s["structure_source"],
+            "layer_idx": li,
+            "material_name": mats[li].name,
+            "material_category": cat,
+            "base_thickness_nm": int(thicks[li]),
+            "achieved_lab": list(base_lab),
+            "local_slope_dE_per_nm": slope,
+            "dnm_de2_neg": neg2, "dnm_de2_pos": pos2,
+            "dnm_de3_neg": neg3, "dnm_de3_pos": pos3,
+            "dnm_de5_neg": neg5, "dnm_de5_pos": pos5,
+        })
     print(f"[INFO] Sweep done in {time.time() - t0:.1f}s "
-          f"({len(all_sweeps)} layer-sweeps)")
+          f"({len(all_sweeps)} layer-sweeps — 1 per structure)")
 
-    # 3. Grid comparison.
+    # 3. Grid comparison — overall AND per structure_source.
     grids = [
         ("linear 5 nm  (current)",     linear_grid_bin_width(5.0)),
         ("linear 2 nm",                linear_grid_bin_width(2.0)),
@@ -575,51 +694,82 @@ def main() -> None:
         ("log-nm ratio 1.10",          log_grid_bin_width(1.10)),
         ("log-nm ratio 1.05",          log_grid_bin_width(1.05)),
     ]
-    grid_results = [evaluate_grid(per_layer_stats, fn, name) for name, fn in grids]
-    print("\n[grid comparison]")
-    header = ("grid                       n     median ΔE   p95 ΔE    "
-              "max ΔE   > 1 ΔE   > 2 ΔE")
-    print(header)
-    print("-" * len(header))
-    rows = []
-    for g in grid_results:
-        if "median_snap_dE" not in g:
-            continue
-        line = (f"{g['grid']:26s}  {g['n_layers']:4d}   "
-                f"{g['median_snap_dE']:7.3f}    "
-                f"{g['p95_snap_dE']:7.3f}   "
-                f"{g['max_snap_dE']:7.3f}   "
-                f"{g['n_layers_over_1']:5d}    "
-                f"{g['n_layers_over_2']:5d}")
-        print(line)
-        rows.append(line)
+
+    def _print_grid_table(subset, title):
+        # Columns updated: ΔE 2 and ΔE 3 thresholds (was 1 and 2).
+        header = ("grid                       n     median ΔE   p95 ΔE    "
+                  "max ΔE   > 2 ΔE   > 3 ΔE")
+        print(f"\n[grid comparison — {title}]")
+        print(header)
+        print("-" * len(header))
+        rows = []
+        results = []
+        for name, fn in grids:
+            g = evaluate_grid(subset, fn, name, threshold_de=(2.0, 3.0))
+            results.append(g)
+            if "median_snap_dE" not in g:
+                continue
+            line = (f"{g['grid']:26s}  {g['n_layers']:4d}   "
+                    f"{g['median_snap_dE']:7.3f}    "
+                    f"{g['p95_snap_dE']:7.3f}   "
+                    f"{g['max_snap_dE']:7.3f}   "
+                    f"{g['n_layers_over_2']:5d}    "
+                    f"{g['n_layers_over_3']:5d}")
+            print(line)
+            rows.append(line)
+        block = header + "\n" + "-" * len(header) + "\n" + "\n".join(rows)
+        return results, block
+
+    results_all, table_all = _print_grid_table(per_layer_stats, "all sources")
+    hc_subset = [r for r in per_layer_stats
+                 if r["structure_source"] == "high_chroma_search"]
+    rand_subset = [r for r in per_layer_stats
+                   if r["structure_source"] == "random"]
+    results_hc, table_hc = _print_grid_table(hc_subset, "high_chroma_search")
+    results_rand, table_rand = _print_grid_table(rand_subset, "random")
+
     (args.output_dir / "grid_comparison.txt").write_text(
-        header + "\n" + "-" * len(header) + "\n" + "\n".join(rows) + "\n"
+        "=== ALL SOURCES ===\n" + table_all + "\n\n"
+        "=== HIGH-CHROMA SEARCH ===\n" + table_hc + "\n\n"
+        "=== RANDOM ===\n" + table_rand + "\n"
     )
 
     # 4. Plots.
     plot_example_curves(all_sweeps, args.output_dir / "curves_examples.png")
     plot_slope_by_bin(per_layer_stats, args.output_dir / "sensitivity_by_bin.png")
-    plot_delta_nm_for_de1(per_layer_stats,
-                          args.output_dir / "delta_e_1_by_bin.png")
-    plot_grid_comparison(grid_results, args.output_dir / "grid_comparison.png")
-    print(f"\n[plots] wrote 4 PNGs to {args.output_dir}")
+    plot_delta_nm_for_de(per_layer_stats, target_de=2.0,
+                         out_path=args.output_dir / "delta_e_2_by_bin.png")
+    plot_delta_nm_for_de(per_layer_stats, target_de=3.0,
+                         out_path=args.output_dir / "delta_e_3_by_bin.png")
+    plot_grid_comparison(results_all,
+                         args.output_dir / "grid_comparison.png",
+                         suptitle="Grid snap cost — outermost layer, all sources")
+    plot_grid_comparison_split(
+        {"high_chroma_search": results_hc, "random": results_rand},
+        args.output_dir / "grid_comparison_by_source.png",
+    )
+    print(f"\n[plots] wrote 5 PNGs to {args.output_dir}")
 
     # 5. Persist raw + aggregate data as JSON for later re-plotting.
     payload = {
         "config": {
-            "n_structures": args.n_structures,
+            "n_structures_per_source": args.n_structures,
             "sweep_max_nm": args.sweep_max_nm,
             "sweep_step_nm": args.sweep_step_nm,
+            "layer_probed": "outermost (air-side)",
+            "de_thresholds_reported": [2.0, 3.0, 5.0],
             "high_chroma_candidate_count": args.high_chroma_candidate_count,
             "high_chroma_refine_iters": args.high_chroma_refine_iters,
             "seed": args.seed,
         },
-        "grids": grid_results,
+        "grids_all_sources": results_all,
+        "grids_high_chroma_search": results_hc,
+        "grids_random": results_rand,
         "per_layer": per_layer_stats,
         "sweeps": [
             {
                 "structure_id": s.structure_id,
+                "structure_source": s.structure_source,
                 "layer_idx": s.layer_idx,
                 "material_name": s.material_name,
                 "material_category": s.material_category,
