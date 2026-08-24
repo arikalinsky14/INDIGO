@@ -27,8 +27,10 @@ from src.optical_sim import OpticalSimulator
 from src.synthetic_materials import generate_synthetic_pool
 
 
-# Thickness grid (nm), unchanged from CHROMA-Lite.
-THICKNESS_RANGE_NM = np.arange(5, 201, 5)
+# Thickness grid (nm). Must match src.materials_vocab.THICKNESSES — the
+# vocab token layout depends on every sampled thickness being a legal
+# grid point. Grid is 2 nm as of the sensitivity-driven refinement.
+THICKNESS_RANGE_NM = np.arange(2, 201, 2)
 
 
 @dataclass

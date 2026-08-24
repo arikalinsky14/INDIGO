@@ -27,7 +27,7 @@ the row.
 
 Snap-to-grid caveat. Stage 2 optimises thicknesses continuously in nm,
 but the model's vocabulary (`src/materials_vocab.THICKNESSES`) is a
-40-bin 5 nm grid; a training row's `layer_thicknesses` must be
+100-bin 2 nm grid; a training row's `layer_thicknesses` must be
 grid-legal ints or `encode_layer()` raises `ValueError` at
 tokenisation. Every path that leaves this module snaps to the grid AND
 re-simulates the achieved Lab at the snapped values (so the stored

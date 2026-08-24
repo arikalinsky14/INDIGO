@@ -23,8 +23,11 @@ Differences from original CHROMA-Lite vocab
   structures, not by the model.
 - M_MAX is configurable. Defaults to 32 — comfortably larger than the JLL
   library, with room for user-supplied custom materials.
-- The thickness grid is preserved unchanged (5..200 nm in 5 nm steps),
-  inherited from the original codebase.
+- The thickness grid is 2..200 nm in 2 nm steps (100 bins). This is
+  finer than the original 5 nm grid — the scripts/thickness_sensitivity
+  study showed p95 snap-ΔE drops ~2.5× at 2 nm vs 5 nm, and the model's
+  head-Linear grows only ~+60 k params (0.09 % of the cross-attn model),
+  so the accuracy win comes essentially free.
 
 Decoding requires the pool
 --------------------------
@@ -53,7 +56,8 @@ from src.material_features import MaterialNK
 M_MAX: int = 32
 
 # Thickness grid (nm) — unchanged from original CHROMA-Lite.
-THICKNESSES: List[int] = list(range(5, 201, 5))  # [5, 10, ..., 200]
+THICKNESSES: List[int] = list(range(2, 201, 2))  # [2, 4, ..., 200] — 2 nm grid
+_THICKNESS_STEP_NM: int = 2                      # step of the token grid
 NUM_THICKNESSES: int = len(THICKNESSES)
 MAX_THICKNESS_NM: int = 200
 
@@ -79,7 +83,7 @@ def encode_layer(slot_idx: int, thickness_nm: int) -> int:
     slot_idx : int
         Which slot of the material pool this layer uses, ∈ [0, M_MAX).
     thickness_nm : int
-        Layer thickness in nm. Must be one of THICKNESSES (5..200, step 5).
+        Layer thickness in nm. Must be one of THICKNESSES (2..200, step 2).
 
     Returns
     -------
@@ -89,9 +93,10 @@ def encode_layer(slot_idx: int, thickness_nm: int) -> int:
         raise ValueError(f"slot_idx {slot_idx} out of range [0, {M_MAX})")
     if thickness_nm not in THICKNESSES:
         raise ValueError(
-            f"thickness {thickness_nm} not in valid grid {THICKNESSES[0]}..{THICKNESSES[-1]} step 5"
+            f"thickness {thickness_nm} not in valid grid "
+            f"{THICKNESSES[0]}..{THICKNESSES[-1]} step {_THICKNESS_STEP_NM}"
         )
-    thickness_idx = (thickness_nm - 5) // 5
+    thickness_idx = (thickness_nm - _THICKNESS_STEP_NM) // _THICKNESS_STEP_NM
     return slot_idx * NUM_THICKNESSES + thickness_idx
 
 
@@ -153,8 +158,8 @@ def normalize_thickness(thickness_nm: int) -> float:
 
 def denormalize_thickness(thickness_norm: float) -> int:
     """Recover nm thickness from normalised value, snapped to the valid grid."""
-    raw_nm = round(thickness_norm * MAX_THICKNESS_NM / 5) * 5
-    return max(5, min(MAX_THICKNESS_NM, int(raw_nm)))
+    raw_nm = round(thickness_norm * MAX_THICKNESS_NM / _THICKNESS_STEP_NM) * _THICKNESS_STEP_NM
+    return max(_THICKNESS_STEP_NM, min(MAX_THICKNESS_NM, int(raw_nm)))
 
 
 # ============================================================================

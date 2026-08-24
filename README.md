@@ -84,7 +84,7 @@ All modules use **absolute imports from `src.*`** per project convention.
          decode using user's pool: pool[slot_idx].name and the thickness
 ```
 
-`VOCAB_SIZE = M_MAX * NUM_THICKNESSES + 1 = 32 * 40 + 1 = 1281`
+`VOCAB_SIZE = M_MAX * NUM_THICKNESSES + 1 = 32 * 100 + 1 = 3201`
 (vs. 1001 in original CHROMA-Lite).
 
 ## Backbone architectures — `head_mode`
