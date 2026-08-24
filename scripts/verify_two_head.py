@@ -438,6 +438,16 @@ def main() -> None:
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Report which JAX backend we landed on, so a GPU-vs-CPU A/B run is
+    # unambiguous in the log (no guessing whether JAX_PLATFORMS took hold).
+    try:
+        import jax
+        _devs = jax.devices()
+        print(f"[env] JAX platform : {_devs[0].platform}")
+        print(f"[env] JAX devices  : {len(_devs)}  ({_devs})")
+    except Exception as exc:
+        print(f"[env] JAX device introspection failed: {exc}")
+
     # 1. Dry-run shard generation
     print("=" * 78)
     print("[1/3] Generating dry-run shard end-to-end")
