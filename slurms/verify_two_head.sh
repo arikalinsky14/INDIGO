@@ -72,8 +72,9 @@ module load python/pytorch_251_311_cu124
 
 source "$HOME/envs/llm-env/bin/activate"
 
-# Force JAX to CPU — the search path uses jax.grad but the smp queue's
-# mock GPU would just slow it down.
+# Force JAX to CPU on smp queue. See slurms/thickness_sensitivity.sh for
+# why JAX_PLATFORMS alone isn't enough on the pytorch_251_311_cu124 module.
+export CUDA_VISIBLE_DEVICES=""
 export JAX_PLATFORMS=cpu
 
 mkdir -p "$(dirname "$OUTPUT_DIR")"

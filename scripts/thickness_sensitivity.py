@@ -4,12 +4,15 @@ Thickness Sensitivity Study — Outermost Layer, High-Chroma vs Random
 ====================================================================
 
 Purpose: measure how ΔE_00 responds to thickness perturbations of the
-LAYER THAT ACTUALLY DRIVES REFLECTED COLOUR (the outermost, air-side
-layer), so we can decide the token grid's granularity. First-pass sweeps
-of every layer showed interior layers are essentially "hidden" behind
-the topmost and contributed ΔE ≈ 0 across the full ±20 nm sweep — they
-just dragged aggregate stats toward zero. Restricting to the outermost
-layer eliminates the noise and always yields a signal.
+LAYER THAT ACTUALLY DRIVES REFLECTED COLOUR, so we can decide the token
+grid's granularity. First-pass sweeps of every layer showed interior
+layers are "hidden" behind the topmost and dragged aggregate stats
+toward zero. Restricting to the outermost layer helped, but some
+structures have an OPAQUE outer layer (e.g. a metal thicker than a few
+skin depths) whose thickness also doesn't move the colour. So we walk
+from the air side inward until we find a layer whose sweep produces
+measurable ΔE — that's the topmost colour-determining layer, and the
+one whose grid resolution actually matters.
 
 We also compare high-chroma-search structures against undirected-random
 ones — if directed-search structures cluster on more sensitive operating
@@ -629,28 +632,50 @@ def main() -> None:
         })
     print(f"[INFO] random done in {time.time() - t0:.1f}s")
 
-    # 2. Sweep ONLY the outermost (last-deposited, air-side) layer of each
-    # structure. Rationale: earlier full-stack sweeps showed interior layers
-    # are essentially "hidden" behind the topmost — most of them gave ΔE ≈ 0
-    # across ± 20 nm and dragged all aggregate statistics toward 0. The
-    # outermost layer always contributes to reflected colour, so it's the
-    # cleanest layer to probe for a grid decision.
-    print(f"[INFO] Sweeping OUTERMOST layer only, ± {args.sweep_max_nm} nm at "
-          f"{args.sweep_step_nm} nm resolution…")
+    # 2. Sweep the topmost COLOUR-DETERMINING layer of each structure.
+    #
+    # A flat outermost-layer sweep means the top layer is opaque (e.g. a
+    # thick metal past a few skin depths — adding thickness to that just
+    # piles more metal on a stack that already reflects as bulk metal, so
+    # colour doesn't move). For those we walk inward until we find a layer
+    # whose sweep actually produces measurable ΔE — that's the layer whose
+    # thickness genuinely controls the observed colour, and therefore the
+    # one whose grid resolution matters.
+    OPAQUE_MAX_DE = 0.05    # sweep max-ΔE below this → treat top as opaque
+    print(f"[INFO] Sweeping topmost colour-determining layer per structure, "
+          f"± {args.sweep_max_nm} nm at {args.sweep_step_nm} nm resolution…")
+    print(f"[INFO]   (walks inward from the air side if sweep max-ΔE < "
+          f"{OPAQUE_MAX_DE})")
     t0 = time.time()
     all_sweeps: List[LayerSweep] = []
     per_layer_stats: List[Dict] = []
+    n_fully_opaque = 0
+    n_walked_inward = 0
     for s in structures:
         mats = s["materials"]
         thicks = s["thicknesses_nm"]
         base_lab = s["achieved_lab"]
         if len(thicks) == 0:
             continue
-        li = len(thicks) - 1              # outermost layer
-        deltas, delta_es = sweep_one_layer(
-            sim, mats, thicks, li, base_lab,
-            args.sweep_max_nm, args.sweep_step_nm,
-        )
+        # Walk from air-side (last) inward until we find a layer whose
+        # sweep produces measurable ΔE.
+        picked = None
+        for li in range(len(thicks) - 1, -1, -1):
+            deltas, delta_es = sweep_one_layer(
+                sim, mats, thicks, li, base_lab,
+                args.sweep_max_nm, args.sweep_step_nm,
+            )
+            if delta_es and max(delta_es) >= OPAQUE_MAX_DE:
+                picked = (li, deltas, delta_es)
+                if li != len(thicks) - 1:
+                    n_walked_inward += 1
+                break
+        if picked is None:
+            # Fully opaque stack — no layer's thickness moves the colour
+            # within ± sweep_max_nm. Grid resolution is irrelevant here.
+            n_fully_opaque += 1
+            continue
+        li, deltas, delta_es = picked
         cat = _classify(mats[li])
         sw = LayerSweep(
             structure_id=s["id"], structure_source=s["structure_source"],
@@ -669,6 +694,7 @@ def main() -> None:
             "structure_id": s["id"],
             "structure_source": s["structure_source"],
             "layer_idx": li,
+            "layer_depth_from_top": len(thicks) - 1 - li,
             "material_name": mats[li].name,
             "material_category": cat,
             "base_thickness_nm": int(thicks[li]),
@@ -679,7 +705,9 @@ def main() -> None:
             "dnm_de5_neg": neg5, "dnm_de5_pos": pos5,
         })
     print(f"[INFO] Sweep done in {time.time() - t0:.1f}s "
-          f"({len(all_sweeps)} layer-sweeps — 1 per structure)")
+          f"({len(all_sweeps)} layer-sweeps; "
+          f"{n_walked_inward} structures needed to skip an opaque top layer; "
+          f"{n_fully_opaque} structures were fully opaque and dropped)")
 
     # 3. Grid comparison — overall AND per structure_source.
     grids = [

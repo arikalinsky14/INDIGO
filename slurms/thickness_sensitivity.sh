@@ -67,8 +67,15 @@ module load python/pytorch_251_311_cu124
 
 source "$HOME/envs/llm-env/bin/activate"
 
-# Force JAX to CPU — high_chroma_search uses jax.grad but the smp queue's
-# GPU is minimal / not intended for this workload.
+# Force JAX to CPU on smp queue.
+#
+# JAX_PLATFORMS alone isn't enough: the PyTorch module pulls in CUDA
+# libraries, JAX detects CUDA at import time and tries to initialise its
+# xla_cuda12 plugin BEFORE checking JAX_PLATFORMS, then fails with
+# "operation cuInit(0) failed: Unknown CUDA error 303" because there's
+# no driver on smp. Hiding all devices with CUDA_VISIBLE_DEVICES="" makes
+# JAX skip the plugin init entirely and go straight to CPU.
+export CUDA_VISIBLE_DEVICES=""
 export JAX_PLATFORMS=cpu
 
 mkdir -p "$(dirname "$OUTPUT_DIR")"
