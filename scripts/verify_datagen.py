@@ -69,9 +69,6 @@ from src.material_features import (
     CANONICAL_FREQ_HZ, CANONICAL_LAMBDA_NM, MaterialNK,
     load_jll_directory,
 )
-from src.materials_vocab import (
-    MAX_THICKNESS_NM, MIN_THICKNESS_NM,
-)
 from src.synthetic_materials import (
     interpolate_real, parametric_lorentz, perturb_real,
 )
