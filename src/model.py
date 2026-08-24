@@ -15,9 +15,10 @@ CHROMA-Lite. Key architectural changes:
    Padded slots are zeroed via a mask so they contribute nothing.
 
 3. The output head produces logits over a slot-indexed vocabulary
-   (M_MAX × NUM_THICKNESSES + EOS = 1281 tokens by default). At inference
-   the user-supplied pool dictates which slots are valid; an output mask
-   suppresses logits for unused slots before softmax.
+   (M_MAX × NUM_THICKNESSES + EOS = 3201 tokens on the 2 nm grid;
+   32 × 100 + 1). At inference the user-supplied pool dictates which slots
+   are valid; an output mask suppresses logits for unused slots before
+   softmax.
 
 The main backbone remains a feedforward MLP. The MLP-beats-transformer
 finding from the original CHROMA-Lite ablations is task-agnostic enough to

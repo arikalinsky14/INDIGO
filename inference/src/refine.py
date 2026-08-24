@@ -80,7 +80,7 @@ from inference.src.simulate import (
 # Bounds construction from the constraint set
 # ----------------------------------------------------------------------------
 
-_THICKNESS_FLOOR_NM = 5.0   # matches the 5 nm grid floor
+_THICKNESS_FLOOR_NM = 2.0   # matches src.materials_vocab.THICKNESSES[0]
 
 
 def _build_thickness_bounds(constraint_set: ConstraintSet, L: int

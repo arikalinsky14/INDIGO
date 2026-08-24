@@ -33,7 +33,7 @@ set -euo pipefail
 #   Backbone input  = RGB (3) + M_MAX*encoder_out + M_MAX*MAX_LAYERS + 1
 #                  -> Dense(d_model) -> ReLU -> Dropout
 #                  -> [Dense(d_model) -> ReLU -> Dropout] x (n_layers - 1)
-#                  -> Dense(vocab_size=1281 = M_MAX*NUM_THICKNESSES + EOS)
+#                  -> Dense(vocab_size=3201 = M_MAX*NUM_THICKNESSES + EOS)
 #
 # USAGE EXAMPLES:
 #
@@ -317,7 +317,7 @@ echo "  encoder out:     ${ENCODER_OUT}"
 echo "  d_model:         ${D_MODEL}"
 echo "  n_layers:        ${N_LAYERS}"
 echo "  dropout:         ${DROPOUT}"
-echo "  Output dim:      1281 (M_MAX=32 * NUM_THICKNESSES=40 + EOS)"
+echo "  Output dim:      3201 (M_MAX=32 * NUM_THICKNESSES=100 + EOS)"
 echo
 echo "Performance:"
 echo "  bf16 autocast:   $([ "${BF16}" = "1" ] && echo on || echo off)"
