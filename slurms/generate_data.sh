@@ -70,6 +70,13 @@ mkdir -p job-outputs
 
 # Force JAX/XLA to CPU so workers don't contend for the GPU. The optical
 # simulator runs faster per-call on CPU than on GPU for unbatched calls.
+#
+# JAX_PLATFORMS alone isn't sufficient on the pytorch_251_311_cu124 module:
+# the CUDA plugin runs cuInit(0) at import time BEFORE reading the env var,
+# so on an smp node (no GPU) every worker prints a "CUDA error 303" trace
+# before falling back to CPU. Setting CUDA_VISIBLE_DEVICES="" hides all
+# devices from the plugin so it skips discovery cleanly.
+export CUDA_VISIBLE_DEVICES=""
 export JAX_PLATFORMS=cpu
 
 echo "============================================================================"
