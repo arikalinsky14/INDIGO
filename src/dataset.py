@@ -7,8 +7,10 @@ carries its own material pool. The pool is stored with each row so the
 model never sees a fixed material vocabulary.
 
 Mirrors the structure of the original CHROMA-Lite `ThinFilmDataset`:
-deterministic file scanning, deterministic 99.5/0.5 train/validation
-split, worker-safe sharding for `num_workers > 0`. The schema is
+deterministic file scanning, deterministic 99.95/0.05 train/validation
+split (5k rows out of 10M — enough for a low-variance loss estimate,
+small enough that the training loss is essentially unaffected), and
+worker-safe sharding for `num_workers > 0`. The schema is
 different — see §6.1 of the build spec — but the iteration logic is the
 same.
 
@@ -264,7 +266,7 @@ class FlexThinFilmDataset(IterableDataset):
         self.row_idxs = torch.tensor(row_idxs, dtype=torch.int32)
 
         perm = make_permutation(total_rows, seed)
-        splits = {"train": (0.0, 0.995), "validation": (0.995, 1.0)}
+        splits = {"train": (0.0, 0.9995), "validation": (0.9995, 1.0)}
         if split not in splits:
             raise ValueError(f"unknown split {split!r}; expected one of {list(splits)}")
         start_frac, end_frac = splits[split]

@@ -29,8 +29,9 @@ import contextlib
 import json
 import math
 import sys
+import time
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import torch
 
@@ -194,6 +195,52 @@ def set_lr(optimizer: torch.optim.Optimizer, lr: float) -> None:
         pg["lr"] = lr
 
 
+def evaluate_validation(
+    model,
+    val_loader,
+    device,
+    loss_fn,
+    bf16: bool,
+) -> Tuple[float, float]:
+    """Compute val loss + accuracy. Restores the model's train() state on exit."""
+    was_training = model.training
+    model.eval()
+    amp_ctx = (
+        torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
+        if bf16 and device.type == "cuda"
+        else _nullcontext()
+    )
+    total_loss = 0.0
+    total_correct = 0
+    total_samples = 0
+    try:
+        with torch.no_grad():
+            for batch in val_loader:
+                batch_on_device = {k: v.to(device) for k, v in batch.items()}
+                with amp_ctx:
+                    losses = loss_fn(model, batch_on_device)
+                count = batch_on_device["lab"].size(0)
+                total_loss += losses["loss"].item() * count
+                total_correct += int(losses["accuracy"].item() * count)
+                total_samples += count
+    finally:
+        if was_training:
+            model.train()
+    denom = max(total_samples, 1)
+    return total_loss / denom, total_correct / denom
+
+
+def append_history(history_path: Path, entry: Dict[str, Any]) -> None:
+    """Append one JSON line to <save_dir>/history.jsonl. Never raises — a
+    history-write failure must not kill training."""
+    try:
+        with open(history_path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except OSError as exc:
+        print(f"[History] WARN: failed to append to {history_path}: {exc}",
+              flush=True)
+
+
 def save_checkpoint(model, config, optimizer, step, loss, save_dir: Path, lr=None):
     save_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -260,13 +307,21 @@ def run_one_epoch(
     config: "ModelConfig | None" = None,
     loss_fn=compute_loss,
     bf16: bool = False,
+    checkpoint_hook: "Optional[Callable[[int, float, float], None]]" = None,
+    epoch: "int | None" = None,
 ) -> Dict[str, float]:
     """Run one epoch of training. Shared by `scripts/training.py` (single
     full run) and `scripts/lr_tuning.py` (one trial per candidate LR).
 
-    Per-step loss logging fires every `log_every` steps when `verbose=True`.
-    Pass `save_dir`/`save_every`/`config` to enable mid-epoch checkpointing
-    (the lr_tuning case leaves these `None`).
+    Per-step loss logging fires every `log_every` steps when `verbose=True`,
+    including EMA'd step-time / samples-per-sec measured between log ticks.
+
+    Checkpointing: if `checkpoint_hook` is supplied it's called on every
+    `save_every`-th step as `checkpoint_hook(step, last_loss, current_lr)` —
+    the hook owns everything (val eval, history write, actual save call).
+    If `checkpoint_hook` is None but `save_dir`/`save_every`/`config` are
+    set, we fall back to a plain `save_checkpoint(...)` (the lr_tuning path
+    leaves all four None, so nothing writes).
     """
     model.train()
     epoch_loss = 0.0
@@ -282,6 +337,11 @@ def run_one_epoch(
         if bf16 and device.type == "cuda"
         else _nullcontext()
     )
+
+    last_log_step = global_step
+    last_log_time = time.perf_counter()
+    samples_since_log = 0
+
     for batch in loader:
         current_lr = get_lr_schedule(global_step, total_steps, base_lr, warmup_fraction)
         set_lr(optimizer, current_lr)
@@ -302,24 +362,36 @@ def run_one_epoch(
         epoch_acc += losses["accuracy"].item()
         n_batches += 1
         global_step += 1
+        samples_since_log += int(batch["lab"].size(0))
 
         if verbose and global_step % log_every == 0:
             phase = "warmup" if global_step <= warmup_steps else "decay"
+            now = time.perf_counter()
+            elapsed = max(now - last_log_time, 1e-9)
+            steps_delta = max(global_step - last_log_step, 1)
+            ms_per_step = 1000.0 * elapsed / steps_delta
+            ex_per_s = samples_since_log / elapsed
             print(
                 f"  Step {global_step}/{total_steps}: "
                 f"loss={last_loss:.4f}, "
                 f"acc={losses['accuracy'].item():.3f}, "
-                f"lr={current_lr:.2e} [{phase}]",
+                f"lr={current_lr:.2e} [{phase}] "
+                f"dt={ms_per_step:.1f}ms/step ({ex_per_s:.0f} ex/s)",
                 flush=True,
             )
+            last_log_time = now
+            last_log_step = global_step
+            samples_since_log = 0
 
-        if save_dir is not None and save_every and config is not None \
-                and global_step % save_every == 0:
-            save_checkpoint(
-                model, config, optimizer, global_step,
-                last_loss, save_dir / f"step_{global_step}",
-                lr=current_lr,
-            )
+        if global_step % (save_every or 0) == 0 and (save_every or 0) > 0:
+            if checkpoint_hook is not None:
+                checkpoint_hook(global_step, last_loss, current_lr)
+            elif save_dir is not None and config is not None:
+                save_checkpoint(
+                    model, config, optimizer, global_step,
+                    last_loss, save_dir / f"step_{global_step}",
+                    lr=current_lr,
+                )
 
     return {
         "global_step": global_step,
@@ -341,6 +413,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--limit-examples", type=int, default=None,
                         help="Limit to first N examples (for testing/debugging)")
+    parser.add_argument("--limit-val-examples", type=int, default=5000,
+                        help="Cap on val examples per checkpoint eval "
+                             "(default: 5000, the full 0.05%% val split). "
+                             "Set to 0 to skip val eval entirely.")
     parser.add_argument("--streaming", action=argparse.BooleanOptionalAction,
                         default=False,
                         help="Stream the dataset shard-by-shard (one parquet "
@@ -475,6 +551,39 @@ def main() -> None:
         **loader_kw,
     )
 
+    # ---- Validation dataset (small held-out slice from the same DATA_DIR).
+    # 5k examples at the default 99.95/0.05 split (see src/dataset.py). Used
+    # for the per-save-tick val-loss line in history.jsonl and for early
+    # divergence detection during long runs. Set --limit-val-examples 0 to
+    # skip. Val workers are capped at 2: this loader is iterated only every
+    # `save-every` steps, so a large worker pool sits idle 99% of the time.
+    val_loader = None
+    if args.limit_val_examples and args.limit_val_examples > 0:
+        val_dataset = FlexThinFilmDataset(
+            data_dir,
+            seed=args.seed,
+            split="validation",
+            verbose=False,
+            limit_examples=args.limit_val_examples,
+            streaming=args.streaming,
+        )
+        val_workers = min(2, args.num_workers)
+        val_loader_kw = {}
+        if val_workers > 0:
+            val_loader_kw["prefetch_factor"] = args.prefetch_factor
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=args.batch_size,
+            collate_fn=active_collate,
+            num_workers=val_workers,
+            pin_memory=True,
+            **val_loader_kw,
+        )
+        print(f"[INFO] Val split: {len(val_dataset):,} examples "
+              f"(evaluated on every checkpoint save)")
+    else:
+        print("[INFO] Val eval disabled (--limit-val-examples 0)")
+
     config = ModelConfig(
         feature_mode=args.feature_mode,
         encoder_hidden=args.encoder_hidden,
@@ -578,6 +687,40 @@ def main() -> None:
     print(f"[INFO] Logging every {args.log_every} step(s) "
           f"(verbose={args.verbose})")
 
+    # -- Checkpoint hook: eval val, append history.jsonl, save. Called from
+    # inside run_one_epoch at every save_every step and from main() at the
+    # per-epoch and final saves. Everything the hook needs (loaders, device,
+    # loss_fn, bf16 flag) is captured in this closure, so run_one_epoch only
+    # needs to know (step, train_loss, lr).
+    history_path = save_dir / "history.jsonl"
+    print(f"[INFO] Training history: {history_path.resolve()}", flush=True)
+
+    def _save_and_log(step: int, train_loss: float, lr: float,
+                      subdir: Path, *, epoch: "int | None" = None) -> None:
+        val_loss = float("nan")
+        val_acc = float("nan")
+        if val_loader is not None:
+            val_loss, val_acc = evaluate_validation(
+                model, val_loader, device, loss_fn, bf16=args.bf16,
+            )
+        save_checkpoint(model, config, optimizer, step, train_loss,
+                        subdir, lr=lr)
+        append_history(history_path, {
+            "step": step,
+            "epoch": epoch,
+            "train_loss": train_loss,
+            "val_loss": val_loss,
+            "val_acc": val_acc,
+            "lr": lr,
+            "wall_time_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        })
+        if val_loader is not None:
+            print(f"[Val] step={step} val_loss={val_loss:.4f} "
+                  f"val_acc={val_acc:.3f}", flush=True)
+
+    def mid_epoch_hook(step: int, train_loss: float, lr: float) -> None:
+        _save_and_log(step, train_loss, lr, save_dir / f"step_{step}")
+
     avg_loss = float("nan")
     final_lr = args.lr
     for epoch in range(start_epoch, args.epochs):
@@ -598,6 +741,8 @@ def main() -> None:
             config=config,
             loss_fn=loss_fn,
             bf16=args.bf16,
+            checkpoint_hook=mid_epoch_hook,
+            epoch=epoch,
         )
         global_step = epoch_out["global_step"]
         avg_loss = epoch_out["avg_loss"]
@@ -606,14 +751,14 @@ def main() -> None:
         print(f"[Epoch {epoch + 1}/{args.epochs}] loss={avg_loss:.4f}, "
               f"acc={avg_acc:.3f}, final_lr={final_lr:.2e}")
 
-        save_checkpoint(model, config, optimizer, global_step, avg_loss,
-                        save_dir / "latest", lr=final_lr)
+        _save_and_log(global_step, avg_loss, final_lr,
+                      save_dir / "latest", epoch=epoch)
 
     # Belt-and-suspenders: explicit save after the epoch loop exits, even if
     # args.epochs is somehow 0 or run_one_epoch returned early. Overwrites
     # the per-epoch "latest" with identical content if everything ran.
-    save_checkpoint(model, config, optimizer, global_step, avg_loss,
-                    save_dir / "final", lr=final_lr)
+    _save_and_log(global_step, avg_loss, final_lr,
+                  save_dir / "final", epoch=args.epochs - 1)
 
     print("[INFO] Training complete!")
     print(f"[INFO] Final checkpoint:  {save_dir / 'final'}", flush=True)

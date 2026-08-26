@@ -38,7 +38,7 @@ set -euo pipefail
 # After all three complete:
 #
 #   python scripts/fit_lr_scaling.py \
-#       --head-mode "${HEAD_MODE:-mlp}" \
+#       --head-mode "${HEAD_MODE:-cross_attn}" \
 #       --target-examples 10000000 --plot
 #
 # Each run writes outputs/lr_search/<head_mode>/lr_search_ep1_lim<N>.json, so
@@ -96,10 +96,11 @@ ENCODER_DROPOUT="${ENCODER_DROPOUT:-0.1}"
 D_MODEL="${D_MODEL:-1024}"
 N_LAYERS="${N_LAYERS:-8}"
 DROPOUT="${DROPOUT:-0.1}"
-HEAD_MODE="${HEAD_MODE:-mlp}"                    # 'mlp' or 'cross_attn' — MUST
-                                                 # match the architecture you
-                                                 # plan to train (optimal LR is
-                                                 # head-dependent).
+HEAD_MODE="${HEAD_MODE:-cross_attn}"             # PRODUCTION default: 'cross_attn'
+                                                 # (matches slurms/training.sh
+                                                 # default). Flip to 'mlp' for the
+                                                 # ablation baseline — optimal LR
+                                                 # differs across heads.
 N_HEADS="${N_HEADS:-8}"                          # Attention heads (cross_attn only)
 
 # Cross-attn depth knobs. Default slot encoder of 4 (8 is overkill on ≤32 set
