@@ -383,7 +383,10 @@ def run_one_epoch(
             last_log_step = global_step
             samples_since_log = 0
 
-        if global_step % (save_every or 0) == 0 and (save_every or 0) > 0:
+        # `save_every` is truthy (int > 0) only when the caller enabled saves.
+        # Short-circuit BEFORE the modulo so lr_tuning.py (save_every=None)
+        # doesn't crash with ZeroDivisionError.
+        if save_every and global_step % save_every == 0:
             if checkpoint_hook is not None:
                 checkpoint_hook(global_step, last_loss, current_lr)
             elif save_dir is not None and config is not None:
