@@ -116,10 +116,9 @@ ENCODER_DROPOUT="${ENCODER_DROPOUT:-0.1}"
 D_MODEL="${D_MODEL:-1024}"
 N_LAYERS="${N_LAYERS:-8}"
 DROPOUT="${DROPOUT:-0.1}"
-HEAD_MODE="${HEAD_MODE:-mlp}"              # 'mlp' or 'cross_attn' — MUST
-                                           # match the trained checkpoint
-                                           # (used for both architecture
-                                           # build and tag-based lookup).
+HEAD_MODE="${HEAD_MODE:-cross_attn}"       # PRODUCTION default matches
+                                           # slurms/training.sh. Flip to 'mlp'
+                                           # only for the ablation baseline.
 N_HEADS="${N_HEADS:-8}"                    # Attention heads (cross_attn only)
 if [[ "${HEAD_MODE}" == "cross_attn" ]]; then
   SLOT_ENCODER_LAYERS="${SLOT_ENCODER_LAYERS:-4}"
@@ -129,15 +128,13 @@ fi
 DECODER_LAYERS="${DECODER_LAYERS:-1}"
 
 # -------------------- Optimization (used to identify model) --------------------
-LR="${LR:-4.42e-5}"                        # Learning rate (for checkpoint lookup)
-BATCH_SIZE="${BATCH_SIZE:-256}"            # MUST match the training run's
-                                           # batch size — it's part of the
-                                           # checkpoint-lookup tag, not just an
-                                           # inference-time knob. Default 256
-                                           # mirrors slurms/training.sh; override
-                                           # only if your training run used a
-                                           # different bs.
-EPOCHS="${EPOCHS:-1}"                      # Epochs (for checkpoint lookup)
+LR="${LR:-6e-5}"                           # PRODUCTION default (LR sweep on the
+                                           # 10M-row set landed 6e-5 in the safe
+                                           # corridor below the stability cliff).
+BATCH_SIZE="${BATCH_SIZE:-512}"            # PRODUCTION default. MUST match the
+                                           # training run's batch size — it's
+                                           # part of the checkpoint-lookup tag.
+EPOCHS="${EPOCHS:-1}"                      # PRODUCTION default: single-pass run.
 
 # -------------------- Evaluation Settings --------------------
 CHECKPOINT="${CHECKPOINT:-}"               # Explicit checkpoint path (overrides tag lookup)
