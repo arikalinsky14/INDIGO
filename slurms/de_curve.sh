@@ -169,13 +169,24 @@ done
 
 echo
 echo "======================================================================"
-echo " DONE  evaluated=${N_DONE}  missing_steps=${N_MISSING}"
+echo " Per-checkpoint eval done  evaluated=${N_DONE}  missing_steps=${N_MISSING}"
 echo " JSONs in: ${OUT_DIR}"
-echo " Plot with the snippet in the README, or:"
-echo "   python -c 'import json,glob,matplotlib.pyplot as plt;"
-echo "     rows=[(int(p.split(\"step_\")[-1].split(\".json\")[0]),json.load(open(p)))"
-echo "           for p in sorted(glob.glob(\"${OUT_DIR}/eval_step_*.json\"))];"
-echo "     s=[r[0] for r in rows]; m=[r[1][\"metrics\"][\"ciede2000_mean\"] for r in rows];"
-echo "     plt.plot(s,m,\"o-\"); plt.xlabel(\"step\"); plt.ylabel(\"val ΔE mean\");"
-echo "     plt.savefig(\"${OUT_DIR}/de_curve.png\",dpi=150,bbox_inches=\"tight\")'"
+echo "======================================================================"
+
+# Plot the ΔE-vs-step curve as the final step of the SAME SLURM job so
+# nothing needs to be run interactively on the login node.
+LABEL="${LABEL:-$(basename "${OUT_DIR}")}"
+TITLE="${TITLE:-INDIGO ΔE₀₀ vs training step (${EVAL_SPLIT} @ limit=${LIMIT_EXAMPLES})}"
+
+echo
+echo "[plot] launching scripts/plot_de_curve.py..."
+python scripts/plot_de_curve.py \
+    --input-dir "${OUT_DIR}" \
+    --label     "${LABEL}" \
+    --title     "${TITLE}" \
+    --output    "${OUT_DIR}/de_curve.png"
+
+echo
+echo "======================================================================"
+echo " DONE  — plot at ${OUT_DIR}/de_curve.png"
 echo "======================================================================"
