@@ -56,6 +56,11 @@ base thickness t is half the local bin width, multiplied by the local
 Outputs
 -------
     <out>/sensitivity.json                     raw sweep results + aggregates
+    <out>/per_layer.csv                        one row per swept layer (summary
+                                               stats: local slope, Δnm-to-ΔE₂/₃/₅)
+    <out>/sweeps_long.csv                      one row per (structure, layer, Δnm)
+                                               probe point — the raw ΔE grid, long-
+                                               format, ideal for pandas/plotting
     <out>/curves_examples.png                  outermost-layer ΔE(Δnm), sample
     <out>/sensitivity_by_bin.png               |dΔE/dnm| by base-thickness bin
     <out>/delta_e_2_by_bin.png                 Δnm for ΔE=2, split by source
@@ -71,6 +76,7 @@ for more density.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import sys
@@ -84,7 +90,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-_repo_root = Path(__file__).resolve().parent.parent
+# File lives at <repo>/analyses/thickness_sensitivity/thickness_sensitivity.py
+# — walk up three parents to reach <repo>.
+_repo_root = Path(__file__).resolve().parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
@@ -810,6 +818,67 @@ def main() -> None:
     }
     (args.output_dir / "sensitivity.json").write_text(json.dumps(payload, indent=2))
     print(f"[json] wrote {args.output_dir / 'sensitivity.json'}")
+
+    # 6. CSV exports for hand-off / downstream analysis. Two tables:
+    #      per_layer.csv       — one row per swept layer, summary stats only.
+    #      sweeps_long.csv     — one row per (layer, Δnm) probe point.
+    #    JSON stays the source of truth; CSV mirrors a subset in a shape that
+    #    loads into pandas/Excel without JSON parsing.
+    per_layer_csv = args.output_dir / "per_layer.csv"
+    with open(per_layer_csv, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            "structure_id", "structure_source",
+            "layer_idx", "layer_depth_from_top",
+            "material_name", "material_category",
+            "base_thickness_nm",
+            "L_base", "a_base", "b_base",
+            "local_slope_dE_per_nm",
+            "dnm_de2_neg", "dnm_de2_pos",
+            "dnm_de3_neg", "dnm_de3_pos",
+            "dnm_de5_neg", "dnm_de5_pos",
+        ])
+        writer.writeheader()
+        for r in per_layer_stats:
+            L, a, b = r["achieved_lab"]
+            writer.writerow({
+                "structure_id":         r["structure_id"],
+                "structure_source":     r["structure_source"],
+                "layer_idx":            r["layer_idx"],
+                "layer_depth_from_top": r["layer_depth_from_top"],
+                "material_name":        r["material_name"],
+                "material_category":    r["material_category"],
+                "base_thickness_nm":    r["base_thickness_nm"],
+                "L_base": L, "a_base": a, "b_base": b,
+                "local_slope_dE_per_nm": r["local_slope_dE_per_nm"],
+                "dnm_de2_neg": r["dnm_de2_neg"], "dnm_de2_pos": r["dnm_de2_pos"],
+                "dnm_de3_neg": r["dnm_de3_neg"], "dnm_de3_pos": r["dnm_de3_pos"],
+                "dnm_de5_neg": r["dnm_de5_neg"], "dnm_de5_pos": r["dnm_de5_pos"],
+            })
+    print(f"[csv]  wrote {per_layer_csv} ({len(per_layer_stats)} rows)")
+
+    sweeps_long_csv = args.output_dir / "sweeps_long.csv"
+    n_rows = 0
+    with open(sweeps_long_csv, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            "structure_id", "structure_source",
+            "layer_idx", "material_name", "material_category",
+            "base_thickness_nm",
+            "delta_nm", "delta_e",
+        ])
+        writer.writeheader()
+        for s in all_sweeps:
+            for dnm, de in zip(s.sweep_delta_nm, s.sweep_delta_e):
+                writer.writerow({
+                    "structure_id":     s.structure_id,
+                    "structure_source": s.structure_source,
+                    "layer_idx":        s.layer_idx,
+                    "material_name":    s.material_name,
+                    "material_category": s.material_category,
+                    "base_thickness_nm": s.base_thickness_nm,
+                    "delta_nm": dnm, "delta_e": de,
+                })
+                n_rows += 1
+    print(f"[csv]  wrote {sweeps_long_csv} ({n_rows} rows)")
 
 
 if __name__ == "__main__":

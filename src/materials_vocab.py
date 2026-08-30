@@ -24,7 +24,7 @@ Differences from original CHROMA-Lite vocab
 - M_MAX is configurable. Defaults to 32 — comfortably larger than the JLL
   library, with room for user-supplied custom materials.
 - The thickness grid is 2..200 nm in 2 nm steps (100 bins). This is
-  finer than the original 5 nm grid — the scripts/thickness_sensitivity
+  finer than the original 5 nm grid — the analyses/thickness_sensitivity
   study showed p95 snap-ΔE drops ~2.5× at 2 nm vs 5 nm, and the model's
   head-Linear grows only ~+60 k params (0.09 % of the cross-attn model),
   so the accuracy win comes essentially free.
