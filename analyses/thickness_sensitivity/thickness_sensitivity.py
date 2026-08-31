@@ -770,23 +770,7 @@ def main() -> None:
         "=== RANDOM ===\n" + table_rand + "\n"
     )
 
-    # 4. Plots.
-    plot_example_curves(all_sweeps, args.output_dir / "curves_examples.png")
-    plot_slope_by_bin(per_layer_stats, args.output_dir / "sensitivity_by_bin.png")
-    plot_delta_nm_for_de(per_layer_stats, target_de=2.0,
-                         out_path=args.output_dir / "delta_e_2_by_bin.png")
-    plot_delta_nm_for_de(per_layer_stats, target_de=3.0,
-                         out_path=args.output_dir / "delta_e_3_by_bin.png")
-    plot_grid_comparison(results_all,
-                         args.output_dir / "grid_comparison.png",
-                         suptitle="Grid snap cost — outermost layer, all sources")
-    plot_grid_comparison_split(
-        {"high_chroma_search": results_hc, "random": results_rand},
-        args.output_dir / "grid_comparison_by_source.png",
-    )
-    print(f"\n[plots] wrote 5 PNGs to {args.output_dir}")
-
-    # 5. Persist raw + aggregate data as JSON for later re-plotting.
+    # 4. Persist raw + aggregate data as JSON for later re-plotting.
     payload = {
         "config": {
             "n_structures_per_source": args.n_structures,
@@ -819,7 +803,7 @@ def main() -> None:
     (args.output_dir / "sensitivity.json").write_text(json.dumps(payload, indent=2))
     print(f"[json] wrote {args.output_dir / 'sensitivity.json'}")
 
-    # 6. CSV exports for hand-off / downstream analysis. Two tables:
+    # 5. CSV exports for hand-off / downstream analysis. Two tables:
     #      per_layer.csv       — one row per swept layer, summary stats only.
     #      sweeps_long.csv     — one row per (layer, Δnm) probe point.
     #    JSON stays the source of truth; CSV mirrors a subset in a shape that
@@ -879,6 +863,26 @@ def main() -> None:
                 })
                 n_rows += 1
     print(f"[csv]  wrote {sweeps_long_csv} ({n_rows} rows)")
+
+    # 6. Plots — deliberately LAST so a timeout during plotting can't
+    # destroy the raw data. All plot inputs live in memory already and
+    # are mirrored to disk in sensitivity.json + the CSVs, so a
+    # subsequent no-compute re-run can rebuild any missing PNG from
+    # those files without re-running the sweep.
+    plot_example_curves(all_sweeps, args.output_dir / "curves_examples.png")
+    plot_slope_by_bin(per_layer_stats, args.output_dir / "sensitivity_by_bin.png")
+    plot_delta_nm_for_de(per_layer_stats, target_de=2.0,
+                         out_path=args.output_dir / "delta_e_2_by_bin.png")
+    plot_delta_nm_for_de(per_layer_stats, target_de=3.0,
+                         out_path=args.output_dir / "delta_e_3_by_bin.png")
+    plot_grid_comparison(results_all,
+                         args.output_dir / "grid_comparison.png",
+                         suptitle="Grid snap cost — outermost layer, all sources")
+    plot_grid_comparison_split(
+        {"high_chroma_search": results_hc, "random": results_rand},
+        args.output_dir / "grid_comparison_by_source.png",
+    )
+    print(f"\n[plots] wrote 5 PNGs to {args.output_dir}")
 
 
 if __name__ == "__main__":
