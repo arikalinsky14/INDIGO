@@ -35,6 +35,16 @@ set -euo pipefail
 # gen + stackrt_n_k on L40S). 20 checkpoints × 1000 val = ~100 min.
 #
 # Env knobs (all optional):
+#   MODE           default: both. One of {compute, plot, both}:
+#                    * compute — run per-checkpoint evaluate.py, write JSONs,
+#                                SKIP plot. Use when you'll plot later or
+#                                overlay with other splits.
+#                    * plot    — SKIP the compute loop, just re-plot from
+#                                existing eval_step_*.json in OUT_DIR. Cheap;
+#                                consider using slurms/plot_de_curve.sh
+#                                (smp queue) instead to avoid burning a GPU
+#                                allocation.
+#                    * both    — compute JSONs then plot. Default.
 #   CKPT_DIR       required — directory holding step_XXXX/ subdirs
 #                  (e.g. outputs/prod/1ep_bs512_lr6e-5)
 #   OUT_DIR        default: $CKPT_DIR/de_curve
@@ -49,10 +59,24 @@ set -euo pipefail
 # Model hyperparams inherit prod defaults (cross_attn, LR=6e-5, bs=512).
 # Override if you're evaluating a non-prod checkpoint.
 #
-# Example — the standard prod run's val ΔE curve:
-#   CKPT_DIR=/ix1/ohinder/ajk245/Github/INDIGO/outputs/prod/1ep_bs512_lr6e-5 \
-#       sbatch slurms/de_curve.sh
+# Examples:
+#   # Full pipeline — compute + plot (default):
+#   CKPT_DIR=<checkpoint_dir> sbatch slurms/de_curve.sh
+#
+#   # Compute-only — save the plot step for after you have all splits:
+#   MODE=compute CKPT_DIR=<checkpoint_dir> sbatch slurms/de_curve.sh
+#
+#   # Plot-only — re-render from JSONs already on disk:
+#   MODE=plot CKPT_DIR=<checkpoint_dir> sbatch slurms/de_curve.sh
+#   # (or use slurms/plot_de_curve.sh on smp — no wasted GPU allocation)
 # ============================================================================
+
+: "${MODE:=both}"
+case "${MODE}" in
+    compute|plot|both) ;;
+    *)  echo "ERROR: MODE must be compute|plot|both (got: ${MODE})" >&2
+        exit 2 ;;
+esac
 
 if [[ -z "${CKPT_DIR:-}" ]]; then
     echo "ERROR: set CKPT_DIR=<path/to/save_dir> before sbatch" >&2
@@ -91,6 +115,7 @@ mkdir -p job-outputs "${OUT_DIR}"
 
 echo "======================================================================"
 echo " INDIGO ΔE training-curve builder — Job ${SLURM_JOB_ID:-local}"
+echo " MODE:           ${MODE}"
 echo " CKPT_DIR:       ${CKPT_DIR}"
 echo " OUT_DIR:        ${OUT_DIR}"
 echo " EVAL_DIR:       ${EVAL_DIR}"
@@ -102,76 +127,97 @@ python --version
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 echo
 
-# Common evaluate.py args (identify architecture; no --checkpoint here —
-# each iteration adds its own).
-COMMON_ARGS=(
-    --data-dir "${EVAL_DIR}"
-    --split "${EVAL_SPLIT}"
-    --limit-examples "${LIMIT_EXAMPLES}"
-    --feature-mode "${FEATURE_MODE}"
-    --encoder-hidden "${ENCODER_HIDDEN}"
-    --encoder-out "${ENCODER_OUT}"
-    --encoder-dropout "${ENCODER_DROPOUT}"
-    --d-model "${D_MODEL}"
-    --n-layers "${N_LAYERS}"
-    --dropout "${DROPOUT}"
-    --head-mode "${HEAD_MODE}"
-    --n-heads "${N_HEADS}"
-    --slot-encoder-layers "${SLOT_ENCODER_LAYERS}"
-    --decoder-layers "${DECODER_LAYERS}"
-    --lr "${LR}"
-    --batch-size "${BATCH_SIZE}"
-    --epochs "${EPOCHS}"
-    --num-workers 2
-    --streaming
-    --no-swatch
-)
-
 N_DONE=0
 N_MISSING=0
-for STEP in $(seq "${STEP_START}" "${STEP_STEP}" "${STEP_STOP}"); do
-    CKPT="${CKPT_DIR}/step_${STEP}"
-    if [[ ! -d "${CKPT}" ]]; then
-        # Skip silently — the caller may set STEP_STOP > actual last save.
-        N_MISSING=$((N_MISSING + 1))
-        continue
+if [[ "${MODE}" == "plot" ]]; then
+    echo "[mode=plot] skipping per-checkpoint compute — plotting existing JSONs only"
+    # For plot-only, count what's already on disk so the summary line makes sense.
+    if [[ -d "${OUT_DIR}" ]]; then
+        N_DONE=$(find "${OUT_DIR}" -maxdepth 1 -name 'eval_step_*.json' | wc -l)
     fi
-    OUTFILE="${OUT_DIR}/eval_step_${STEP}.json"
-    if [[ -f "${OUTFILE}" ]]; then
-        echo "[skip] step_${STEP}: ${OUTFILE} already exists"
-        N_DONE=$((N_DONE + 1))
-        continue
+    if [[ "${N_DONE}" -eq 0 ]]; then
+        echo "ERROR: MODE=plot but no eval_step_*.json in ${OUT_DIR}." >&2
+        echo "       Run MODE=compute (or MODE=both) first." >&2
+        exit 3
     fi
-    echo
-    echo "---- step_${STEP} ----------------------------------------------"
-    python scripts/evaluate.py \
-        --checkpoint "${CKPT}" \
-        --output "${OUTFILE}" \
-        "${COMMON_ARGS[@]}"
-    N_DONE=$((N_DONE + 1))
-done
+else
+    # Common evaluate.py args (identify architecture; no --checkpoint here —
+    # each iteration adds its own).
+    COMMON_ARGS=(
+        --data-dir "${EVAL_DIR}"
+        --split "${EVAL_SPLIT}"
+        --limit-examples "${LIMIT_EXAMPLES}"
+        --feature-mode "${FEATURE_MODE}"
+        --encoder-hidden "${ENCODER_HIDDEN}"
+        --encoder-out "${ENCODER_OUT}"
+        --encoder-dropout "${ENCODER_DROPOUT}"
+        --d-model "${D_MODEL}"
+        --n-layers "${N_LAYERS}"
+        --dropout "${DROPOUT}"
+        --head-mode "${HEAD_MODE}"
+        --n-heads "${N_HEADS}"
+        --slot-encoder-layers "${SLOT_ENCODER_LAYERS}"
+        --decoder-layers "${DECODER_LAYERS}"
+        --lr "${LR}"
+        --batch-size "${BATCH_SIZE}"
+        --epochs "${EPOCHS}"
+        --num-workers 2
+        --streaming
+        --no-swatch
+    )
 
-# Also evaluate the two roll-up checkpoints if present.
-for TAG in latest final; do
-    CKPT="${CKPT_DIR}/${TAG}"
-    if [[ -d "${CKPT}" ]]; then
-        OUTFILE="${OUT_DIR}/eval_${TAG}.json"
-        if [[ ! -f "${OUTFILE}" ]]; then
-            echo
-            echo "---- ${TAG} ---------------------------------------------"
-            python scripts/evaluate.py \
-                --checkpoint "${CKPT}" \
-                --output "${OUTFILE}" \
-                "${COMMON_ARGS[@]}"
+    for STEP in $(seq "${STEP_START}" "${STEP_STEP}" "${STEP_STOP}"); do
+        CKPT="${CKPT_DIR}/step_${STEP}"
+        if [[ ! -d "${CKPT}" ]]; then
+            # Skip silently — the caller may set STEP_STOP > actual last save.
+            N_MISSING=$((N_MISSING + 1))
+            continue
         fi
-    fi
-done
+        OUTFILE="${OUT_DIR}/eval_step_${STEP}.json"
+        if [[ -f "${OUTFILE}" ]]; then
+            echo "[skip] step_${STEP}: ${OUTFILE} already exists"
+            N_DONE=$((N_DONE + 1))
+            continue
+        fi
+        echo
+        echo "---- step_${STEP} ----------------------------------------------"
+        python scripts/evaluate.py \
+            --checkpoint "${CKPT}" \
+            --output "${OUTFILE}" \
+            "${COMMON_ARGS[@]}"
+        N_DONE=$((N_DONE + 1))
+    done
+
+    # Also evaluate the two roll-up checkpoints if present.
+    for TAG in latest final; do
+        CKPT="${CKPT_DIR}/${TAG}"
+        if [[ -d "${CKPT}" ]]; then
+            OUTFILE="${OUT_DIR}/eval_${TAG}.json"
+            if [[ ! -f "${OUTFILE}" ]]; then
+                echo
+                echo "---- ${TAG} ---------------------------------------------"
+                python scripts/evaluate.py \
+                    --checkpoint "${CKPT}" \
+                    --output "${OUTFILE}" \
+                    "${COMMON_ARGS[@]}"
+            fi
+        fi
+    done
+fi
 
 echo
 echo "======================================================================"
 echo " Per-checkpoint eval done  evaluated=${N_DONE}  missing_steps=${N_MISSING}"
 echo " JSONs in: ${OUT_DIR}"
 echo "======================================================================"
+
+if [[ "${MODE}" == "compute" ]]; then
+    echo
+    echo "[mode=compute] skipping plot. Fire it later with:"
+    echo "  MODE=plot CKPT_DIR=${CKPT_DIR} OUT_DIR=${OUT_DIR} sbatch slurms/de_curve.sh"
+    echo "  (or, on smp: INPUT_DIR=${OUT_DIR} sbatch slurms/plot_de_curve.sh)"
+    exit 0
+fi
 
 # Plot the ΔE-vs-step curve as the final step of the SAME SLURM job so
 # nothing needs to be run interactively on the login node.
