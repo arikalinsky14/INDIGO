@@ -169,15 +169,15 @@ Produces `results/` in the repo (60 structures per source, ±10 nm
 at 1 nm resolution). Enough to see the qualitative shape; not
 enough for tight per-bin CIs.
 
-### Large hand-off experiment (~30 min on CPU)
+### Large hand-off experiment (~6-8 h on CPU, 12 h SBATCH window)
 
 ```bash
-N_STRUCTURES=500 SWEEP_MAX_NM=15 SWEEP_STEP_NM=0.5 \
+N_STRUCTURES=2000 SWEEP_MAX_NM=15 SWEEP_STEP_NM=0.5 \
     OUTPUT_DIR=analyses/thickness_sensitivity/results_large \
     sbatch analyses/thickness_sensitivity/run.sh
 ```
 
-- **500 per source** — statistically-meaningful bin counts for both
+- **2000 per source** — statistically-meaningful bin counts for both
   the HC and random subsets, and for the by-material splits.
 - **±15 nm** — captures ΔE₅ crossings even for less-sensitive layers,
   so `dnm_de5_{neg,pos}` is populated more often than at ±10 nm.
@@ -185,9 +185,15 @@ N_STRUCTURES=500 SWEEP_MAX_NM=15 SWEEP_STEP_NM=0.5 \
   local-slope estimate at Δnm=0 (central finite difference over ±0.5
   nm) less noisy.
 
-Approximate cost: `500 × 2 sources × (2·15/0.5 + 1) = 61,000`
-optical-sim evaluations. At ~30 ms per stack sim on smp CPU,
-~30 min wall.
+Approximate cost:
+
+- **HC directed search dominates** — ~5-10 s per structure at
+  `candidate_count=24`, `refine_iters=12` → ~5 h for the 2000 HC
+  half (random path is free).
+- **Sweep sims** — `2000 × 2 × (2·15/0.5 + 1) = 244,000` stack sims.
+  At ~30 ms per sim on smp CPU, ~2 h.
+- **Total** ~6-8 h. The 12 h `#SBATCH --time` in `run.sh` covers
+  variance and any HC-search retries.
 
 ### Overriding individual knobs
 
