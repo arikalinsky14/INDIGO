@@ -54,10 +54,18 @@ set -euo pipefail
 #   LIMIT_EXAMPLES default: 1000 (per checkpoint — trade cost for tightness)
 #   STEP_START     default: 1000
 #   STEP_STOP      default: 100000 (inclusive; script skips missing steps)
-#   STEP_STEP      default: 1000  (match SAVE_EVERY of the training run)
+#   STEP_STEP     default: 1000  (match SAVE_EVERY of the training run)
+#   SAMPLE_PREDICTIONS default: 0 (greedy argmax). Set to 1 for stochastic
+#                  sampling at TEMPERATURE. Seed is 42 inside evaluate.py so
+#                  runs across checkpoints stay comparable.
+#   TEMPERATURE    default: 1.0. Only used when SAMPLE_PREDICTIONS=1.
 #
 # Model hyperparams inherit prod defaults (cross_attn, LR=6e-5, bs=512).
 # Override if you're evaluating a non-prod checkpoint.
+#
+# When flipping sampling on, POINT OUT_DIR AT A DISTINCT DIRECTORY so the
+# sampled JSONs don't overwrite the greedy ones. Convention:
+#   OUT_DIR=$CKPT_DIR/de_curve_sample_t1  for TEMPERATURE=1.0.
 #
 # Examples:
 #   # Full pipeline — compute + plot (default):
@@ -91,6 +99,14 @@ fi
 : "${STEP_STOP:=100000}"
 : "${STEP_STEP:=1000}"
 
+# Sampling knobs. Default: SAMPLE_PREDICTIONS=0 → greedy argmax (deterministic,
+# what earlier curves used). SAMPLE_PREDICTIONS=1 → stochastic sampling at
+# TEMPERATURE. Seed is 42 inside evaluate.py, so runs across checkpoints are
+# apples-to-apples. Point sampled runs at a distinct OUT_DIR so they don't
+# clobber greedy JSONs (default suggestion: OUT_DIR=$CKPT_DIR/de_curve_sample_t${TEMPERATURE}).
+: "${SAMPLE_PREDICTIONS:=0}"
+: "${TEMPERATURE:=1.0}"
+
 : "${HEAD_MODE:=cross_attn}"
 : "${N_HEADS:=8}"
 : "${SLOT_ENCODER_LAYERS:=4}"
@@ -115,13 +131,14 @@ mkdir -p job-outputs "${OUT_DIR}"
 
 echo "======================================================================"
 echo " INDIGO ΔE training-curve builder — Job ${SLURM_JOB_ID:-local}"
-echo " MODE:           ${MODE}"
-echo " CKPT_DIR:       ${CKPT_DIR}"
-echo " OUT_DIR:        ${OUT_DIR}"
-echo " EVAL_DIR:       ${EVAL_DIR}"
-echo " EVAL_SPLIT:     ${EVAL_SPLIT}"
-echo " LIMIT_EXAMPLES: ${LIMIT_EXAMPLES}"
-echo " Step range:     ${STEP_START}..${STEP_STOP} step ${STEP_STEP}"
+echo " MODE:              ${MODE}"
+echo " CKPT_DIR:          ${CKPT_DIR}"
+echo " OUT_DIR:           ${OUT_DIR}"
+echo " EVAL_DIR:          ${EVAL_DIR}"
+echo " EVAL_SPLIT:        ${EVAL_SPLIT}"
+echo " LIMIT_EXAMPLES:    ${LIMIT_EXAMPLES}"
+echo " Step range:        ${STEP_START}..${STEP_STOP} step ${STEP_STEP}"
+echo " SAMPLE:            ${SAMPLE_PREDICTIONS} (temperature=${TEMPERATURE})"
 echo "======================================================================"
 python --version
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
@@ -165,6 +182,12 @@ else
         --streaming
         --no-swatch
     )
+    if [[ "${SAMPLE_PREDICTIONS}" == "1" ]]; then
+        COMMON_ARGS+=(--sample-predictions --temperature "${TEMPERATURE}")
+        echo "[sampling] stochastic sampling ON (temperature=${TEMPERATURE}, seed=42)"
+    else
+        echo "[sampling] greedy argmax (SAMPLE_PREDICTIONS=0)"
+    fi
 
     for STEP in $(seq "${STEP_START}" "${STEP_STEP}" "${STEP_STOP}"); do
         CKPT="${CKPT_DIR}/step_${STEP}"
