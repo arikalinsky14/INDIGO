@@ -9,7 +9,12 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=4
 
-#SBATCH --time=03:00:00
+# 12 h to cover the 2000-structure hand-off run: high-chroma directed
+# search dominates cost (~5-10 s per structure at candidate_count=24,
+# refine_iters=12) → ~5 h for 2000 HC + 2000 random, plus sweep sim
+# time (~2 h at ±15 nm, 0.5 nm step). Default 60-structure runs
+# finish in <10 min but pay the full 12 h reservation up front.
+#SBATCH --time=12:00:00
 #SBATCH --qos=short
 #SBATCH --mail-user=ajk245@pitt.edu
 #SBATCH --mail-type=END,FAIL
@@ -42,9 +47,9 @@ set -euo pipefail
 #
 # Example:
 #   sbatch analyses/thickness_sensitivity/run.sh
-#   # Large hand-off experiment: 500 structures per source, ±15 nm at
-#   # 0.5 nm resolution.
-#   N_STRUCTURES=500 SWEEP_MAX_NM=15 SWEEP_STEP_NM=0.5 \
+#   # Hand-off experiment: 2000 structures per source, ±15 nm at
+#   # 0.5 nm resolution. Wall ~6-8 h; 12 h SBATCH reservation.
+#   N_STRUCTURES=2000 SWEEP_MAX_NM=15 SWEEP_STEP_NM=0.5 \
 #       OUTPUT_DIR=analyses/thickness_sensitivity/results_large \
 #       sbatch analyses/thickness_sensitivity/run.sh
 # ============================================================================
