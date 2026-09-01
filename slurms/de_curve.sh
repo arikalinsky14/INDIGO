@@ -55,17 +55,21 @@ set -euo pipefail
 #   STEP_START     default: 1000
 #   STEP_STOP      default: 100000 (inclusive; script skips missing steps)
 #   STEP_STEP     default: 1000  (match SAVE_EVERY of the training run)
-#   SAMPLE_PREDICTIONS default: 0 (greedy argmax). Set to 1 for stochastic
-#                  sampling at TEMPERATURE. Seed is 42 inside evaluate.py so
-#                  runs across checkpoints stay comparable.
+#   SAMPLE_PREDICTIONS default: 1 (stochastic sampling at TEMPERATURE — the
+#                  more realistic reflection of inference behaviour than
+#                  greedy argmax). Set to 0 for the greedy-argmax curve.
+#                  Seed is 42 inside evaluate.py so runs across checkpoints
+#                  stay comparable.
 #   TEMPERATURE    default: 1.0. Only used when SAMPLE_PREDICTIONS=1.
 #
 # Model hyperparams inherit prod defaults (cross_attn, LR=6e-5, bs=512).
 # Override if you're evaluating a non-prod checkpoint.
 #
-# When flipping sampling on, POINT OUT_DIR AT A DISTINCT DIRECTORY so the
-# sampled JSONs don't overwrite the greedy ones. Convention:
-#   OUT_DIR=$CKPT_DIR/de_curve_sample_t1  for TEMPERATURE=1.0.
+# The default OUT_DIR ($CKPT_DIR/de_curve) now holds SAMPLED-@-T=1 JSONs.
+# When comparing sampled vs greedy on the same checkpoint, point the
+# non-default decoder at a distinct OUT_DIR (convention:
+# de_curve_greedy / de_curve_sample_t${TEMPERATURE}) so the sets don't
+# collide.
 #
 # Examples:
 #   # Full pipeline — compute + plot (default):
@@ -99,12 +103,14 @@ fi
 : "${STEP_STOP:=100000}"
 : "${STEP_STEP:=1000}"
 
-# Sampling knobs. Default: SAMPLE_PREDICTIONS=0 → greedy argmax (deterministic,
-# what earlier curves used). SAMPLE_PREDICTIONS=1 → stochastic sampling at
-# TEMPERATURE. Seed is 42 inside evaluate.py, so runs across checkpoints are
-# apples-to-apples. Point sampled runs at a distinct OUT_DIR so they don't
-# clobber greedy JSONs (default suggestion: OUT_DIR=$CKPT_DIR/de_curve_sample_t${TEMPERATURE}).
-: "${SAMPLE_PREDICTIONS:=0}"
+# Sampling knobs. Default: SAMPLE_PREDICTIONS=1 → stochastic sampling at
+# TEMPERATURE (matches how inference actually runs; the sampled ΔE curve
+# is a more faithful picture of end-user quality than the greedy one).
+# SAMPLE_PREDICTIONS=0 → greedy argmax. Seed is 42 inside evaluate.py, so
+# runs across checkpoints are apples-to-apples. When running BOTH decoders
+# on the same checkpoint, point each at a distinct OUT_DIR so they don't
+# clobber each other (convention: de_curve / de_curve_greedy).
+: "${SAMPLE_PREDICTIONS:=1}"
 : "${TEMPERATURE:=1.0}"
 
 : "${HEAD_MODE:=cross_attn}"
