@@ -28,6 +28,16 @@ set -euo pipefail
 # - Learning rate schedule: linear warmup + cosine decay
 # - Checkpoints saved to: data/checkpoints/<hparams_tag>/
 #
+# POST-TRAIN AUTO-CHAIN: on a successful exit, this wrapper submits
+# TWO follow-up SLURM jobs so the training + ΔE curves land on disk
+# with no manual step:
+#   * plot_training_curve.sh — CE loss (train+val) from history.jsonl
+#   * de_curve.sh            — per-checkpoint ΔE₀₀ on the val split
+# Requires SAVE_DIR to be set on the outer sbatch (so we know where the
+# checkpoints landed). Set AUTO_POST_TRAIN=0 to skip.
+# The evaluate.sh SLURM stays reserved for the final tier-A / tier-B
+# reports (loss + ΔE + color swatches).
+#
 # ARCHITECTURE:
 #   MaterialEncoder (shared per slot): [2, NUM_LAMBDA=128] -> [encoder_out]
 #   Backbone input  = RGB (3) + M_MAX*encoder_out + M_MAX*MAX_LAYERS + 1
@@ -361,6 +371,45 @@ echo "==========================================================================
 echo "Exit code: ${EXIT_CODE}"
 echo "Ended:     $(date)"
 echo "============================================================================"
+
+# ============================================================================
+# POST-TRAIN AUTO-CHAIN
+# ============================================================================
+# Fire the two curve-building SLURM jobs so the training + ΔE curves show up
+# on disk without any manual step. Only runs on a successful exit.
+#
+# Knobs:
+#   AUTO_POST_TRAIN  1 (default) = auto-fire follow-up plots.
+#                    0           = skip; run the plot SLURMs by hand.
+#
+# Prerequisite: SAVE_DIR must be set on the outer sbatch invocation so we
+# know where the checkpoints landed. If it's empty (auto-generated path
+# case) the auto-chain is skipped with a clear message.
+if [[ "${EXIT_CODE}" -eq 0 && "${AUTO_POST_TRAIN:-1}" == "1" ]]; then
+    if [[ -n "${SAVE_DIR:-}" && -d "${SAVE_DIR}" ]]; then
+        echo
+        echo "[post-train] AUTO_POST_TRAIN=1  SAVE_DIR=${SAVE_DIR}"
+        # 1. Training-loss curve from history.jsonl (smp, matplotlib only).
+        HISTORY_PATH="${SAVE_DIR}/history.jsonl"
+        if [[ -f "${HISTORY_PATH}" ]]; then
+            echo "[post-train] queueing plot_training_curve on ${HISTORY_PATH}"
+            HISTORY="${HISTORY_PATH}" \
+                sbatch --export=ALL,HISTORY slurms/plot_training_curve.sh || true
+        else
+            echo "[post-train] no history.jsonl at ${HISTORY_PATH} — skipping loss plot"
+        fi
+        # 2. ΔE-vs-step curve (gpu, ~2 h). Uses de_curve.sh's compute+plot
+        # pipeline against the same val split the training loop scored.
+        echo "[post-train] queueing de_curve on ${SAVE_DIR}"
+        CKPT_DIR="${SAVE_DIR}" \
+            sbatch --export=ALL,CKPT_DIR slurms/de_curve.sh || true
+    else
+        echo
+        echo "[post-train] SAVE_DIR unset or missing — skipping auto-chain."
+        echo "[post-train] Set SAVE_DIR=<dir> on the sbatch call, or set"
+        echo "[post-train] AUTO_POST_TRAIN=0 to silence this notice."
+    fi
+fi
 
 exit ${EXIT_CODE}
 
