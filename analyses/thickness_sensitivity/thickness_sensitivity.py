@@ -1,77 +1,97 @@
 #!/usr/bin/env python3
 """
-Thickness Sensitivity Study — Outermost Layer, High-Chroma vs Random
-====================================================================
+Thickness Sensitivity Study — Most-Sensitive Layer, Adaptive Probe
+==================================================================
 
 Purpose: measure how ΔE_00 responds to thickness perturbations of the
 LAYER THAT ACTUALLY DRIVES REFLECTED COLOUR, so we can decide the token
-grid's granularity. First-pass sweeps of every layer showed interior
-layers are "hidden" behind the topmost and dragged aggregate stats
-toward zero. Restricting to the outermost layer helped, but some
-structures have an OPAQUE outer layer (e.g. a metal thicker than a few
-skin depths) whose thickness also doesn't move the colour. So we walk
-from the air side inward until we find a layer whose sweep produces
-measurable ΔE — that's the topmost colour-determining layer, and the
-one whose grid resolution actually matters.
+grid's granularity.
 
-We also compare high-chroma-search structures against undirected-random
-ones — if directed-search structures cluster on more sensitive operating
-points, the grid decision is dominated by them.
+Method (one structure at a time)
+--------------------------------
 
-Two questions we're trying to answer:
+1. **Layer selection by finite-difference slope.** For each layer i,
+   perturb its thickness by ±SLOPE_PROBE_NM (default 0.5 nm), recompute
+   the achieved Lab, and record ΔE_00 on each side. Peak slope near
+   zero is `max(|ΔE_+|, |ΔE_-|) / SLOPE_PROBE_NM`. Pick the layer with
+   the highest peak slope — this is the layer whose thickness the model
+   is most sensitive to, and therefore the one whose grid resolution
+   matters most.
 
-  1. What Δnm perturbation moves the achieved colour by ΔE ≈ 2 or 3?
-     ΔE ≈ 1 was too close to numerical noise to be a useful threshold;
-     ΔE 2-3 are what colour scientists call "clearly perceptible".
+   Costs 2·N_layers simulator calls per structure. Replaces the previous
+   "walk from air side inward until non-opaque" heuristic, which could
+   pick a mildly-sensitive top layer while a highly-sensitive interior
+   layer went unmeasured.
 
-  2. Does sensitivity vary systematically with the layer's BASE thickness?
-     If the effect is monotone in base thickness, a log-nm (or piecewise)
-     grid with finer spacing at small t would spend tokens where they
-     matter. First run showed sensitivity is NOT monotone — log grids
-     actually hurt at large t — so we keep this as a diagnostic.
+2. **Adaptive doubling probe on the chosen layer.** For each side
+   (+ and −) independently:
 
-Method
-------
-* Generate N high-chroma structures via the directed-search path AND N
-  undirected-random structures via `sim.sample_structure()`.
-* For each structure, sweep the OUTERMOST layer's thickness in
-  ±sweep_max_nm around its stored value at sweep_step_nm resolution,
-  re-simulate the full stack, and record ΔE_00 vs the base achieved Lab.
-* Aggregate per (base-thickness bin, structure_source) and report:
-    - Local slope |dΔE/dnm| at Δnm ≈ 0 (via central finite difference).
-    - Δnm needed to reach ΔE = 2, 3, 5 (the "resolvability").
-    - Grid comparison per source: expected snap ΔE per candidate grid.
+     a. Doubling phase: probe outward through the schedule
+        0.5 → 1 → 2 → 4 → 8 → 16 → 32 → 64 → 128 nm, stopping as soon
+        as ΔE reaches the highest reported threshold (5.0) OR the
+        perturbed thickness would fall outside [MIN_THICKNESS_NM,
+        MAX_THICKNESS_NM].
+
+     b. Bisection phase: for each threshold (ΔE = 2, 3, 5), find the
+        smallest probe with ΔE ≥ threshold. Bisect [previous, that
+        probe] until the interval is narrower than BISECT_TOL_NM
+        (default 0.05 nm). That upper endpoint is the reported Δnm.
+
+   If NO probe reached a threshold (e.g. a fully opaque metal layer),
+   the crossing is marked **right-censored** at MAX_PROBE_NM (default
+   128 nm). The structure is kept and counted — this is a key
+   difference from the previous version, which dropped opaque
+   structures entirely and biased the distribution of "min Δnm
+   needed" toward sensitive layers.
+
+   Costs ~7–9 doubling probes + ~4–6 bisection probes per threshold,
+   with probes shared across thresholds where possible. Typical total:
+   15–25 sims per side, ~30–50 per layer. Compare to a fixed ±15 nm /
+   0.25 nm sweep grid at 121 sims per layer.
+
+3. **Cross-structure parallelism.** The per-structure sweep is
+   embarrassingly parallel; a `ProcessPoolExecutor` with per-worker
+   simulator initialisation gives ~N_JOBS× speedup. The HC directed
+   search stays serial (it has its own RNG state; parallelising it
+   would change the sampled structures).
 
 Grid-comparison analysis
 ------------------------
+
 Given a candidate grid, the worst-case snapping error for a layer at
 base thickness t is half the local bin width, multiplied by the local
-|dΔE/dnm|. We compute this for several grids and print a table:
-    - linear 5 nm         (current default)
+|dΔE/dnm| (which we now measure precisely, via the ±0.5 nm probe used
+for layer selection). We report p50 / p95 / max snap ΔE per grid:
+
+    - linear 5 nm         (original default)
     - linear 2 nm         (2.5x finer, uniform)
     - linear 1 nm         (5x finer, uniform)
+    - piecewise 1/2/5 nm  (finest at small t)
     - log-nm (ratio 1.10) (~50 bins, geometric)
     - log-nm (ratio 1.05) (~100 bins, geometric)
 
 Outputs
 -------
-    <out>/sensitivity.json                     raw sweep results + aggregates
-    <out>/per_layer.csv                        one row per swept layer (summary
-                                               stats: local slope, Δnm-to-ΔE₂/₃/₅)
-    <out>/sweeps_long.csv                      one row per (structure, layer, Δnm)
-                                               probe point — the raw ΔE grid, long-
-                                               format, ideal for pandas/plotting
-    <out>/curves_examples.png                  outermost-layer ΔE(Δnm), sample
+    <out>/sensitivity.json                     raw probes + crossings + aggregates
+    <out>/per_layer.csv                        one row per chosen layer (summary
+                                               stats: local slope, Δnm-to-ΔE₂/₃/₅,
+                                               censoring flags)
+    <out>/sweeps_long.csv                      one row per (structure, probe) point
+    <out>/curves_examples.png                  ΔE(Δnm), sample of structures
     <out>/sensitivity_by_bin.png               |dΔE/dnm| by base-thickness bin
-    <out>/delta_e_2_by_bin.png                 Δnm for ΔE=2, split by source
-    <out>/delta_e_3_by_bin.png                 Δnm for ΔE=3, split by source
+    <out>/delta_e_2_by_bin.png                 Δnm for ΔE=2, split by source,
+                                               with per-bin censored fraction
+    <out>/delta_e_3_by_bin.png                 Δnm for ΔE=3, same
     <out>/grid_comparison.png                  snap ΔE per grid, all sources
     <out>/grid_comparison_by_source.png        p95 snap ΔE, HC vs random
-    <out>/grid_comparison.txt                  printable tables (both sources)
+    <out>/grid_comparison.txt                  printable tables
 
-Wallclock: default N=60 per source (120 total sweeps), ±10 nm × 1 nm
-step ≈ 2500 evals ≈ 4-8 min on CPU. Bump --n-structures / --sweep-max-nm
-for more density.
+Right-censoring: when a threshold isn't reached within MAX_PROBE_NM
+(128 nm), the crossing is reported as MAX_PROBE_NM with cens_de*_*
+= 1. The delta_nm plots exclude censored points from the box and
+annotate the fraction censored above each box; the grid comparison
+uses the local slope (always defined) so opaque layers correctly
+contribute near-zero snap cost regardless of censoring.
 """
 from __future__ import annotations
 
@@ -81,9 +101,9 @@ import json
 import math
 import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib
 matplotlib.use("Agg")
@@ -97,6 +117,21 @@ if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
 from src.material_features import MaterialNK, load_jll_directory
+
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+DOUBLING_SCHEDULE_NM: Tuple[float, ...] = (
+    0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0,
+)
+MAX_PROBE_NM: float = 128.0
+THRESHOLDS_DE: Tuple[float, ...] = (2.0, 3.0, 5.0)
+BISECT_TOL_NM: float = 0.05
+SLOPE_PROBE_NM: float = 0.5
+MIN_THICKNESS_NM: float = 1.0
+MAX_THICKNESS_NM: float = 300.0
 
 
 # ============================================================================
@@ -152,12 +187,6 @@ _KNOWN_METALS = {"Ag", "Al", "Au", "Cu", "Ni", "Cr", "W", "Pt", "Ti"}
 
 
 def _classify(mat: MaterialNK) -> str:
-    """Cheap category tag from material name + k magnitude in the visible.
-
-    We stratify by (metal / dielectric / other) since sensitivity trends
-    differ sharply: a 20 nm Ag layer swings colour hard on ±1 nm, while
-    a 100 nm SiO2 layer tolerates ±10 nm.
-    """
     if mat.name in _KNOWN_METALS:
         return "metal"
     k_avg = float(np.mean(np.abs(mat.k)))
@@ -169,122 +198,274 @@ def _classify(mat: MaterialNK) -> str:
 
 
 # ============================================================================
-# One-structure sweep
+# Adaptive probe (doubling + bisection)
+# ============================================================================
+
+def _eval_probe(
+    sim, mats: List[MaterialNK], thicks: List[float], layer_idx: int,
+    sign: int, d: float, base_lab: Tuple[float, float, float],
+    cache: Dict[float, float],
+    min_nm: float = MIN_THICKNESS_NM, max_nm: float = MAX_THICKNESS_NM,
+) -> float:
+    """Evaluate ΔE at `thicks[layer_idx] += sign*d`. NaN if out of bounds.
+
+    Cached by unsigned d so callers can seed the cache with a prior
+    probe (e.g. the ±0.5 slope probe used for layer selection).
+    """
+    if d in cache:
+        return cache[d]
+    t_new = float(thicks[layer_idx]) + sign * d
+    if t_new < min_nm or t_new > max_nm:
+        cache[d] = float("nan")
+        return float("nan")
+    thicks_new = list(thicks)
+    thicks_new[layer_idx] = t_new
+    lab = sim.compute_lab(mats, thicks_new)
+    de = _ciede2000(base_lab, lab)
+    cache[d] = de
+    return de
+
+
+def probe_direction(
+    sim, mats: List[MaterialNK], thicks: List[float], layer_idx: int,
+    base_lab: Tuple[float, float, float], sign: int,
+    seed_probes: Optional[Dict[float, float]] = None,
+    schedule: Tuple[float, ...] = DOUBLING_SCHEDULE_NM,
+    thresholds: Tuple[float, ...] = THRESHOLDS_DE,
+    bisect_tol: float = BISECT_TOL_NM,
+    cap_nm: float = MAX_PROBE_NM,
+    min_nm: float = MIN_THICKNESS_NM, max_nm: float = MAX_THICKNESS_NM,
+) -> Dict[str, Any]:
+    """Adaptive one-sided probe of a layer's ΔE(Δnm) curve.
+
+    Doubling stops at the first probe with ΔE ≥ max(thresholds), or at
+    the schedule ceiling, or at a boundary hit. Bisection then refines
+    each threshold's crossing to ±bisect_tol precision.
+
+    Returns:
+        probes:     dict{d: de} — every ΔE evaluated (unsigned d, NaN if
+                    the perturbed thickness fell outside bounds)
+        crossings:  dict{thresh: dnm} — dnm at which ΔE first reaches
+                    threshold (== cap_nm if censored)
+        censored:   dict{thresh: bool}
+        max_de_seen: float — for diagnostics
+    """
+    cache: Dict[float, float] = dict(seed_probes) if seed_probes else {}
+    highest = max(thresholds)
+
+    def _eval(d: float) -> float:
+        return _eval_probe(sim, mats, thicks, layer_idx, sign, d,
+                           base_lab, cache, min_nm, max_nm)
+
+    # Doubling phase.
+    for d in schedule:
+        de = _eval(d)
+        if math.isnan(de):
+            break
+        if de >= highest:
+            break
+
+    def _valid_sorted() -> List[Tuple[float, float]]:
+        return sorted(
+            (d, v) for d, v in cache.items() if not math.isnan(v)
+        )
+
+    crossings: Dict[float, float] = {}
+    censored: Dict[float, bool] = {}
+    for thresh in thresholds:
+        pts = _valid_sorted()
+        lo, hi = 0.0, None
+        for d, de in pts:
+            if de < thresh:
+                lo = d
+            elif hi is None:
+                hi = d
+                break
+        if hi is None:
+            crossings[thresh] = cap_nm
+            censored[thresh] = True
+            continue
+        while hi - lo > bisect_tol:
+            mid = 0.5 * (lo + hi)
+            mid_de = _eval(mid)
+            if math.isnan(mid_de):
+                break
+            if mid_de < thresh:
+                lo = mid
+            else:
+                hi = mid
+        crossings[thresh] = hi
+        censored[thresh] = False
+
+    max_de = max(
+        (v for v in cache.values() if not math.isnan(v)), default=0.0
+    )
+    return {
+        "probes": dict(cache),
+        "crossings": crossings,
+        "censored": censored,
+        "max_de_seen": max_de,
+    }
+
+
+def choose_layer_by_slope(
+    sim, mats: List[MaterialNK], thicks: List[float],
+    base_lab: Tuple[float, float, float],
+    probe_d_nm: float = SLOPE_PROBE_NM,
+    min_nm: float = MIN_THICKNESS_NM, max_nm: float = MAX_THICKNESS_NM,
+) -> Tuple[Optional[int], List[float], List[Dict[int, float]]]:
+    """Peak-slope layer selection via ±probe_d_nm finite difference.
+
+    Returns:
+        chosen_idx  — layer with the largest max(|de_+|, |de_-|) / probe_d,
+                      or None if all layers hit thickness bounds on both sides
+        slopes      — per-layer peak slope (NaN if no valid side)
+        probes      — per-layer dict{sign: de} for the sides that were valid
+    """
+    n = len(thicks)
+    slopes: List[float] = [float("nan")] * n
+    probes: List[Dict[int, float]] = [{} for _ in range(n)]
+    for i in range(n):
+        base = float(thicks[i])
+        for sign in (+1, -1):
+            t_new = base + sign * probe_d_nm
+            if not (min_nm <= t_new <= max_nm):
+                continue
+            thicks_new = list(thicks)
+            thicks_new[i] = t_new
+            lab = sim.compute_lab(mats, thicks_new)
+            probes[i][sign] = _ciede2000(base_lab, lab)
+        if probes[i]:
+            slopes[i] = max(abs(v) for v in probes[i].values()) / probe_d_nm
+    valid = [(s, i) for i, s in enumerate(slopes) if math.isfinite(s)]
+    if not valid:
+        return None, slopes, probes
+    _, chosen = max(valid)
+    return chosen, slopes, probes
+
+
+# ============================================================================
+# One-structure sweep (layer selection + adaptive probe)
 # ============================================================================
 
 @dataclass
-class LayerSweep:
+class StructureSweep:
     structure_id: int
-    structure_source: str        # 'high_chroma_search' | 'random'
-    layer_idx: int
+    structure_source: str
+    chosen_layer_idx: int
+    layer_depth_from_top: int
     material_name: str
     material_category: str
     base_thickness_nm: int
     achieved_lab: Tuple[float, float, float]
+    local_slope_dE_per_nm: float
+    all_layer_slopes: List[float]
+    max_de_seen_neg: float
+    max_de_seen_pos: float
+    crossings_neg: Dict[float, float]
+    crossings_pos: Dict[float, float]
+    censored_neg: Dict[float, bool]
+    censored_pos: Dict[float, bool]
+    # Merged bi-directional probe list (signed dnm), sorted ascending.
     sweep_delta_nm: List[float]
     sweep_delta_e: List[float]
 
 
-def sweep_one_layer(
-    sim, materials: List[MaterialNK], thicknesses_nm: List[int],
-    layer_idx: int, base_lab: Tuple[float, float, float],
-    sweep_max_nm: float, sweep_step_nm: float,
-    min_nm: float = 1.0, max_nm: float = 300.0,
-) -> Tuple[List[float], List[float]]:
-    """Sweep one layer's thickness ± sweep_max_nm and record ΔE_00."""
-    base = thicknesses_nm[layer_idx]
-    deltas = np.arange(-sweep_max_nm, sweep_max_nm + 1e-9, sweep_step_nm)
-    delta_es: List[float] = []
-    valid_deltas: List[float] = []
-    for d in deltas:
-        t_new = base + float(d)
-        if t_new < min_nm or t_new > max_nm:
-            continue
-        thicks_perturbed = list(thicknesses_nm)
-        thicks_perturbed[layer_idx] = t_new
-        lab = sim.compute_lab(materials, thicks_perturbed)
-        delta_es.append(_ciede2000(base_lab, lab))
-        valid_deltas.append(float(d))
-    return valid_deltas, delta_es
+def sweep_structure(
+    sim, structure: Dict,
+    schedule: Tuple[float, ...] = DOUBLING_SCHEDULE_NM,
+    thresholds: Tuple[float, ...] = THRESHOLDS_DE,
+    bisect_tol: float = BISECT_TOL_NM,
+    cap_nm: float = MAX_PROBE_NM,
+    slope_probe_nm: float = SLOPE_PROBE_NM,
+) -> Optional[StructureSweep]:
+    """Layer-select by slope, then adaptive-probe the chosen layer both ways.
 
-
-# ============================================================================
-# Sensitivity metrics
-# ============================================================================
-
-def local_slope(deltas: List[float], delta_es: List[float]) -> float:
-    """|dΔE/dnm| at Δnm ≈ 0 via central finite difference on the two
-    innermost points bracketing 0."""
-    d = np.asarray(deltas, dtype=np.float64)
-    de = np.asarray(delta_es, dtype=np.float64)
-    below = np.where(d < 0)[0]
-    above = np.where(d > 0)[0]
-    if len(below) == 0 or len(above) == 0:
-        return float("nan")
-    b = below[-1]  # closest below 0
-    a = above[0]   # closest above 0
-    return float(abs((de[a] - de[b]) / (d[a] - d[b])))
-
-
-def delta_nm_at_delta_e(
-    deltas: List[float], delta_es: List[float], target_de: float,
-) -> Tuple[Optional[float], Optional[float]]:
-    """Smallest |Δnm| (negative / positive side) at which ΔE crosses target.
-
-    Returns (dnm_negative, dnm_positive). None on a side means the sweep
-    range didn't reach target ΔE on that side (i.e. the layer tolerated
-    at least sweep_max_nm without hitting the threshold).
+    Returns None only when the structure has ZERO layers where any
+    thickness perturbation is in bounds — vanishingly rare (would
+    require every layer at base = MIN_THICKNESS_NM = MAX_THICKNESS_NM).
+    Opaque layers do NOT return None; they return finite slopes near
+    zero and censored crossings.
     """
-    d = np.asarray(deltas, dtype=np.float64)
-    de = np.asarray(delta_es, dtype=np.float64)
-    neg_mask = d < 0
-    pos_mask = d > 0
-    neg = None
-    pos = None
-    # Walk outward from 0 on each side and find the first crossing.
-    for side_mask, out_side in ((neg_mask, "neg"), (pos_mask, "pos")):
-        d_side = d[side_mask]
-        de_side = de[side_mask]
-        # Sort by |d| ascending so we walk out from 0.
-        order = np.argsort(np.abs(d_side))
-        for j in order:
-            if de_side[j] >= target_de:
-                if out_side == "neg":
-                    neg = float(abs(d_side[j]))
-                else:
-                    pos = float(d_side[j])
-                break
-    return neg, pos
+    mats = structure["materials"]
+    thicks = structure["thicknesses_nm"]
+    base_lab = tuple(structure["achieved_lab"])
+    if not thicks:
+        return None
+
+    chosen, slopes, slope_probes = choose_layer_by_slope(
+        sim, mats, thicks, base_lab, probe_d_nm=slope_probe_nm,
+    )
+    if chosen is None:
+        return None
+
+    seed_pos = ({slope_probe_nm: slope_probes[chosen][+1]}
+                if +1 in slope_probes[chosen] else None)
+    seed_neg = ({slope_probe_nm: slope_probes[chosen][-1]}
+                if -1 in slope_probes[chosen] else None)
+
+    pos = probe_direction(
+        sim, mats, thicks, chosen, base_lab, sign=+1,
+        seed_probes=seed_pos, schedule=schedule, thresholds=thresholds,
+        bisect_tol=bisect_tol, cap_nm=cap_nm,
+    )
+    neg = probe_direction(
+        sim, mats, thicks, chosen, base_lab, sign=-1,
+        seed_probes=seed_neg, schedule=schedule, thresholds=thresholds,
+        bisect_tol=bisect_tol, cap_nm=cap_nm,
+    )
+
+    sweep_delta_nm: List[float] = []
+    sweep_delta_e: List[float] = []
+    for d, de in sorted(neg["probes"].items(), reverse=True):
+        if not math.isnan(de):
+            sweep_delta_nm.append(-d)
+            sweep_delta_e.append(de)
+    sweep_delta_nm.append(0.0)
+    sweep_delta_e.append(0.0)
+    for d, de in sorted(pos["probes"].items()):
+        if not math.isnan(de):
+            sweep_delta_nm.append(d)
+            sweep_delta_e.append(de)
+
+    return StructureSweep(
+        structure_id=structure["id"],
+        structure_source=structure["structure_source"],
+        chosen_layer_idx=chosen,
+        layer_depth_from_top=len(thicks) - 1 - chosen,
+        material_name=mats[chosen].name,
+        material_category=_classify(mats[chosen]),
+        base_thickness_nm=int(thicks[chosen]),
+        achieved_lab=tuple(base_lab),
+        local_slope_dE_per_nm=slopes[chosen],
+        all_layer_slopes=list(slopes),
+        max_de_seen_neg=neg["max_de_seen"],
+        max_de_seen_pos=pos["max_de_seen"],
+        crossings_neg=neg["crossings"],
+        crossings_pos=pos["crossings"],
+        censored_neg=neg["censored"],
+        censored_pos=pos["censored"],
+        sweep_delta_nm=sweep_delta_nm,
+        sweep_delta_e=sweep_delta_e,
+    )
 
 
 # ============================================================================
 # Grid comparison
 # ============================================================================
-#
-# For each candidate grid we compute the expected snapping error contribution:
-# a layer at base t has local slope s = |dΔE/dnm|. Under grid G with local
-# bin width w(t), the worst-case ΔE cost is s · w(t)/2 (uniform on bin) and
-# the RMS cost is s · w(t)/√12. We report both p50 and p95 across layers,
-# using the local bin width appropriate for each grid.
 
-
-def linear_grid_bin_width(step_nm: float) -> callable:
-    """Return a function w(t) = step_nm regardless of t."""
+def linear_grid_bin_width(step_nm: float):
     return lambda t: step_nm
 
 
 def log_grid_bin_width(ratio: float, t_min: float = 5.0,
-                       t_max: float = 200.0) -> callable:
-    """Return w(t) for a geometric grid where successive bins scale by
-    `ratio` (e.g. 1.10 → each bin is 10 % wider than the previous)."""
+                       t_max: float = 200.0):
     def w(t: float) -> float:
-        # Local bin width for a geometric grid is roughly t · (ratio − 1).
         return max(0.5, float(t) * (ratio - 1.0))
     return w
 
 
-def piecewise_grid_bin_width(pieces: List[Tuple[float, float, float]]) -> callable:
-    """pieces = [(lo, hi, step), ...]. Overlaps use the last matching piece."""
+def piecewise_grid_bin_width(pieces: List[Tuple[float, float, float]]):
     def w(t: float) -> float:
         step = pieces[-1][2]
         for lo, hi, s in pieces:
@@ -296,35 +477,24 @@ def piecewise_grid_bin_width(pieces: List[Tuple[float, float, float]]) -> callab
 
 def evaluate_grid(
     per_layer_stats: List[Dict],
-    bin_width_fn: callable,
+    bin_width_fn,
     name: str,
     threshold_de: Tuple[float, ...] = (2.0, 3.0),
-    max_thickness_nm: float = 200.0,
 ) -> Dict[str, float]:
-    """Estimate p50/p95/max ΔE snapping cost per layer for a grid.
-
-    threshold_de : tuple of ΔE thresholds; each produces a
-                   `n_layers_over_<int(t)>` count so callers can pick
-                   the perceptibility level they care about.
-    """
     costs = []
-    counts_used = 0
     for r in per_layer_stats:
         slope = r["local_slope_dE_per_nm"]
         base = r["base_thickness_nm"]
         if not math.isfinite(slope) or slope <= 0:
             continue
         w = bin_width_fn(base)
-        # Worst-case snap error ≈ w/2 · slope.
-        cost_max = 0.5 * w * slope
-        costs.append(cost_max)
-        counts_used += 1
+        costs.append(0.5 * w * slope)
     if not costs:
         return {"grid": name, "n_layers": 0}
     arr = np.asarray(costs)
     out: Dict[str, float] = {
         "grid": name,
-        "n_layers": counts_used,
+        "n_layers": int(len(costs)),
         "median_snap_dE": float(np.median(arr)),
         "p95_snap_dE": float(np.percentile(arr, 95)),
         "max_snap_dE": float(arr.max()),
@@ -338,12 +508,12 @@ def evaluate_grid(
 # Plotting
 # ============================================================================
 
-def plot_example_curves(sweeps: List[LayerSweep], out_path: Path,
+def plot_example_curves(sweeps: List[StructureSweep], out_path: Path,
                         n_examples: int = 12) -> None:
-    """A grid of per-layer ΔE(Δnm) curves for a random sample of layers."""
     rng = np.random.default_rng(0)
     if len(sweeps) > n_examples:
-        chosen = rng.choice(len(sweeps), size=n_examples, replace=False).tolist()
+        chosen = rng.choice(len(sweeps), size=n_examples,
+                            replace=False).tolist()
     else:
         chosen = list(range(len(sweeps)))
     ncols = 4
@@ -355,10 +525,11 @@ def plot_example_curves(sweeps: List[LayerSweep], out_path: Path,
         ax = axes[ax_i // ncols][ax_i % ncols]
         ax.plot(s.sweep_delta_nm, s.sweep_delta_e,
                 color={"metal": "tab:red", "absorbing": "tab:orange",
-                       "dielectric": "tab:blue"}.get(s.material_category, "gray"),
-                lw=1.4)
-        ax.axhline(1.0, color="k", lw=0.5, alpha=0.4)
-        ax.axhline(2.0, color="k", lw=0.5, alpha=0.2)
+                       "dielectric": "tab:blue"}.get(
+                           s.material_category, "gray"),
+                marker="o", markersize=3, lw=1.4)
+        ax.axhline(2.0, color="k", lw=0.5, alpha=0.4)
+        ax.axhline(3.0, color="k", lw=0.5, alpha=0.2)
         ax.set_title(f"{s.material_name} @ {s.base_thickness_nm} nm "
                      f"({s.material_category})", fontsize=8)
         ax.tick_params(labelsize=7)
@@ -366,11 +537,10 @@ def plot_example_curves(sweeps: List[LayerSweep], out_path: Path,
             ax.set_xlabel("Δt (nm)", fontsize=8)
         if ax_i % ncols == 0:
             ax.set_ylabel("ΔE_00", fontsize=8)
-    # Hide unused axes.
     for j in range(len(chosen), nrows * ncols):
         axes[j // ncols][j % ncols].axis("off")
-    fig.suptitle("Per-layer ΔE vs Δthickness (dashed = ΔE=1 / ΔE=2)",
-                 fontsize=11)
+    fig.suptitle("Adaptive probe of most-sensitive layer  "
+                 "(dashed = ΔE=2 / ΔE=3)", fontsize=11)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -382,7 +552,6 @@ def _bin_label(lo: float, hi: float) -> str:
 
 def plot_slope_by_bin(per_layer_stats: List[Dict], out_path: Path,
                       bin_edges=(5, 20, 40, 80, 120, 200)) -> None:
-    """Violin/box of local slope |dΔE/dnm| grouped by base-thickness bin."""
     edges = list(bin_edges)
     groups: List[List[float]] = [[] for _ in range(len(edges) - 1)]
     for r in per_layer_stats:
@@ -391,12 +560,12 @@ def plot_slope_by_bin(per_layer_stats: List[Dict], out_path: Path,
         if not math.isfinite(s):
             continue
         for i in range(len(edges) - 1):
-            if edges[i] <= t < edges[i + 1] or (i == len(edges) - 2 and t == edges[-1]):
+            if edges[i] <= t < edges[i + 1] or (i == len(edges) - 2
+                                                and t == edges[-1]):
                 groups[i].append(s)
                 break
     fig, ax = plt.subplots(figsize=(8, 4))
     positions = np.arange(len(groups))
-    # Use boxplot for cleaner tails than violin on small n.
     data = [g if g else [0.0] for g in groups]
     ax.boxplot(data, positions=positions, widths=0.6, showfliers=False,
                patch_artist=True,
@@ -407,11 +576,12 @@ def plot_slope_by_bin(per_layer_stats: List[Dict], out_path: Path,
     ax.set_xticks(positions)
     ax.set_xticklabels([_bin_label(edges[i], edges[i + 1])
                         for i in range(len(edges) - 1)])
-    ax.set_ylabel("|dΔE/dnm|  (ΔE_00 per nm perturbation)")
+    ax.set_ylabel("|dΔE/dnm|  (peak slope near Δnm=0)")
     ax.set_xlabel("base thickness bin")
-    ax.set_title("Local thickness sensitivity by base-thickness region")
+    ax.set_title("Local thickness sensitivity of the most-sensitive layer "
+                 "per structure")
     ax.axhline(0.2, color="tab:red", lw=0.7, linestyle=":",
-               label="0.2 ΔE/nm (5 nm grid gives ~0.5 ΔE snap-error)")
+               label="0.2 ΔE/nm (5 nm grid → ~0.5 ΔE snap-error)")
     ax.legend(loc="upper right", fontsize=8)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -424,49 +594,69 @@ def plot_delta_nm_for_de(
     out_path: Path,
     bin_edges=(5, 20, 40, 80, 120, 200),
     split_by_source: bool = True,
+    cap_nm: float = MAX_PROBE_NM,
 ) -> None:
-    """For each base-thickness bin, boxplot of Δnm needed to reach ΔE=target_de.
+    """Δnm to reach ΔE=target_de, per base-thickness bin, split by source.
 
-    When split_by_source=True, plots high_chroma_search and random side by
-    side within each bin so you can eyeball whether directed-search
-    structures are systematically more/less sensitive than random ones.
+    Censored rows (crossing did not occur within cap_nm on either side)
+    are excluded from the box body but their fraction is annotated
+    above each box as `⌐N%` — the "N% of structures in this bin were
+    still under ΔE=target at ±cap_nm" reading.
     """
     edges = list(bin_edges)
     de_key_neg = f"dnm_de{int(target_de)}_neg"
     de_key_pos = f"dnm_de{int(target_de)}_pos"
+    cens_key_neg = f"cens_de{int(target_de)}_neg"
+    cens_key_pos = f"cens_de{int(target_de)}_pos"
     sources = ["high_chroma_search", "random"] if split_by_source else [None]
-    # groups[source_idx][bin_idx] -> list of dnm values
     groups = {src: [[] for _ in range(len(edges) - 1)] for src in sources}
+    counts = {src: [0 for _ in range(len(edges) - 1)] for src in sources}
+    censored_counts = {src: [0 for _ in range(len(edges) - 1)] for src in sources}
     for r in per_layer_stats:
-        vals = []
-        for side in (de_key_neg, de_key_pos):
-            v = r.get(side)
-            if v is not None and math.isfinite(v):
-                vals.append(v)
-        if not vals:
-            continue
         t = r["base_thickness_nm"]
-        smallest = min(vals)
         src = r.get("structure_source") if split_by_source else None
         if src not in groups:
             continue
+        bin_i = None
         for i in range(len(edges) - 1):
-            if edges[i] <= t < edges[i + 1] or (i == len(edges) - 2 and t == edges[-1]):
-                groups[src][i].append(smallest)
+            if edges[i] <= t < edges[i + 1] or (i == len(edges) - 2
+                                                and t == edges[-1]):
+                bin_i = i
                 break
+        if bin_i is None:
+            continue
+        counts[src][bin_i] += 1
+        cens_neg = bool(r.get(cens_key_neg))
+        cens_pos = bool(r.get(cens_key_pos))
+        # Take the smallest crossing across sides, only counting sides
+        # that actually crossed. If both sides are censored, the whole
+        # row is censored.
+        cands = []
+        if not cens_neg:
+            v = r.get(de_key_neg)
+            if v is not None and math.isfinite(v):
+                cands.append(v)
+        if not cens_pos:
+            v = r.get(de_key_pos)
+            if v is not None and math.isfinite(v):
+                cands.append(v)
+        if not cands:
+            censored_counts[src][bin_i] += 1
+        else:
+            groups[src][bin_i].append(min(cands))
 
-    fig, ax = plt.subplots(figsize=(9, 4))
+    fig, ax = plt.subplots(figsize=(9.5, 4.4))
     n_bins = len(edges) - 1
     positions_center = np.arange(n_bins)
+    colors = {"high_chroma_search": "#c86b6b", "random": "#7ea3d9"}
+
     if split_by_source:
-        colors = {"high_chroma_search": "#c86b6b", "random": "#7ea3d9"}
         widths = 0.35
         offsets = {"high_chroma_search": -widths / 2 - 0.02,
                    "random": +widths / 2 + 0.02}
         for src in sources:
             data = [g if g else [0.0] for g in groups[src]]
-            n_each = [len(g) for g in groups[src]]
-            bp = ax.boxplot(
+            ax.boxplot(
                 data, positions=positions_center + offsets[src],
                 widths=widths, showfliers=False, patch_artist=True,
                 boxprops=dict(facecolor=colors[src], alpha=0.55,
@@ -476,13 +666,31 @@ def plot_delta_nm_for_de(
             for i, g in enumerate(groups[src]):
                 ax.scatter([positions_center[i] + offsets[src]] * len(g),
                            g, s=5, color="k", alpha=0.35)
+            n_each = [len(g) for g in groups[src]]
             ax.plot([], [], color=colors[src], lw=6, alpha=0.7,
                     label=f"{src}  (n per bin = "
                           f"{','.join(str(x) for x in n_each)})")
+        # Annotate % censored above each box.
+        for src in sources:
+            for i in range(n_bins):
+                total = counts[src][i]
+                if total == 0:
+                    continue
+                cens = censored_counts[src][i]
+                if cens == 0:
+                    continue
+                frac = 100.0 * cens / total
+                x = positions_center[i] + offsets[src]
+                ax.annotate(
+                    f"⌐{frac:.0f}%",
+                    xy=(x, ax.get_ylim()[1] * 0.97 if ax.get_ylim()[1] > 0 else 1),
+                    ha="center", va="top", fontsize=7,
+                    color="#555",
+                )
     else:
         data = [g if g else [0.0] for g in groups[None]]
-        ax.boxplot(data, positions=positions_center, widths=0.6, showfliers=False,
-                   patch_artist=True,
+        ax.boxplot(data, positions=positions_center, widths=0.6,
+                   showfliers=False, patch_artist=True,
                    boxprops=dict(facecolor="#f5e2df", edgecolor="#653"),
                    medianprops=dict(color="#653"))
         for i, g in enumerate(groups[None]):
@@ -498,8 +706,12 @@ def plot_delta_nm_for_de(
                         for i in range(n_bins)])
     ax.set_ylabel(f"Δnm needed to reach ΔE = {target_de:g}")
     ax.set_xlabel("base thickness bin")
-    ax.set_title(f"Perceptibility distance: smallest Δnm on the OUTERMOST layer "
-                 f"that changes colour by ΔE={target_de:g}")
+    ax.set_title(
+        f"Perceptibility distance: smallest Δnm on the MOST-SENSITIVE layer "
+        f"that changes colour by ΔE={target_de:g}\n"
+        f"(⌐N% = fraction of that bin still under ΔE={target_de:g} at "
+        f"±{cap_nm:g} nm — right-censored, not plotted in the box)"
+    )
     ax.legend(loc="upper right", fontsize=8)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -529,10 +741,8 @@ def plot_grid_comparison(grid_results: List[Dict], out_path: Path,
 
 
 def plot_grid_comparison_split(
-    grid_results_by_source: Dict[str, List[Dict]],
-    out_path: Path,
+    grid_results_by_source: Dict[str, List[Dict]], out_path: Path,
 ) -> None:
-    """Side-by-side p95 snap ΔE per grid, split by structure_source."""
     sources = list(grid_results_by_source.keys())
     all_grid_names = [g["grid"] for g in grid_results_by_source[sources[0]]]
     x = np.arange(len(all_grid_names))
@@ -558,6 +768,46 @@ def plot_grid_comparison_split(
 
 
 # ============================================================================
+# Multiprocessing worker
+# ============================================================================
+#
+# The per-structure sweep is embarrassingly parallel: each structure's
+# sweep depends only on its own materials + thicknesses. We spawn N_JOBS
+# workers, each with its own RandomLayerSimulation constructed in the
+# initializer (so JLL loading + JAX warmup happen once per worker).
+#
+# The HC directed search and random-structure generation stay serial —
+# both consume the main-process RNG state, and parallelising them would
+# change which structures come out.
+
+_WORKER_STATE: Dict[str, Any] = {}
+
+
+def _init_worker(
+    jll_dir_str: str, seed: int, p_real: float, lam: float,
+    min_layers: int, max_layers: int, incidence_angle: float,
+) -> None:
+    global _WORKER_STATE
+    from create_dataset.src.pool_sampler import split_jll_real
+    from create_dataset.src.random_layer import (
+        LayerCountConfig, RandomLayerSimulation,
+    )
+    jll = load_jll_directory(Path(jll_dir_str))
+    active, _ = split_jll_real(jll)
+    layer_count = LayerCountConfig(
+        lam=lam, min_layers=min_layers, max_layers=max_layers,
+    )
+    _WORKER_STATE["sim"] = RandomLayerSimulation(
+        held_in_real=active, layer_count=layer_count,
+        incidence_angle=incidence_angle, p_real=p_real, seed=seed,
+    )
+
+
+def _worker_sweep(structure: Dict) -> Optional[StructureSweep]:
+    return sweep_structure(_WORKER_STATE["sim"], structure)
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -567,14 +817,23 @@ def main() -> None:
     ap.add_argument("--n-structures", type=int, default=60,
                     help="how many structures PER SOURCE to generate + probe. "
                          "Total sweeps = 2 * n_structures (high_chroma + random).")
-    ap.add_argument("--sweep-max-nm", type=float, default=10.0,
-                    help="sweep ± this many nm around the outermost layer's base t")
-    ap.add_argument("--sweep-step-nm", type=float, default=1.0,
-                    help="Δnm resolution of the sweep")
+    ap.add_argument("--cap-nm", type=float, default=MAX_PROBE_NM,
+                    help="largest |Δnm| in the doubling schedule. Crossings "
+                         "not found by this reach are marked right-censored.")
+    ap.add_argument("--slope-probe-nm", type=float, default=SLOPE_PROBE_NM,
+                    help="±probe distance for the per-layer finite-difference "
+                         "slope used for layer selection.")
+    ap.add_argument("--bisect-tol-nm", type=float, default=BISECT_TOL_NM,
+                    help="stop bisecting a threshold when the bracket is "
+                         "narrower than this.")
     ap.add_argument("--high-chroma-candidate-count", type=int, default=24)
     ap.add_argument("--high-chroma-refine-iters", type=int, default=12)
     ap.add_argument("--jll-materials-dir", type=Path, default=None)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--n-jobs", type=int, default=1,
+                    help="parallel workers for the sweep phase. HC search "
+                         "and random-gen stay serial. Set to --cpus-per-task "
+                         "from your SLURM allocation.")
     args = ap.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -595,10 +854,18 @@ def main() -> None:
     active, _ = split_jll_real(real_pool)
     print(f"[INFO] {len(active)} active real materials loaded from {jll_dir}")
 
-    layer_count = LayerCountConfig(lam=4.5, min_layers=2, max_layers=10)
+    lam = 4.5
+    min_layers = 2
+    max_layers = 10
+    p_real = 0.15
+    incidence_angle = 0
+
+    layer_count = LayerCountConfig(
+        lam=lam, min_layers=min_layers, max_layers=max_layers,
+    )
     sim = RandomLayerSimulation(
         held_in_real=active, layer_count=layer_count,
-        incidence_angle=0, p_real=0.15, seed=args.seed,
+        incidence_angle=incidence_angle, p_real=p_real, seed=args.seed,
     )
     rng = np.random.default_rng(args.seed)
     target_cfg = HighChromaTargetConfig()
@@ -640,84 +907,67 @@ def main() -> None:
         })
     print(f"[INFO] random done in {time.time() - t0:.1f}s")
 
-    # 2. Sweep the topmost COLOUR-DETERMINING layer of each structure.
-    #
-    # A flat outermost-layer sweep means the top layer is opaque (e.g. a
-    # thick metal past a few skin depths — adding thickness to that just
-    # piles more metal on a stack that already reflects as bulk metal, so
-    # colour doesn't move). For those we walk inward until we find a layer
-    # whose sweep actually produces measurable ΔE — that's the layer whose
-    # thickness genuinely controls the observed colour, and therefore the
-    # one whose grid resolution matters.
-    OPAQUE_MAX_DE = 0.05    # sweep max-ΔE below this → treat top as opaque
-    print(f"[INFO] Sweeping topmost colour-determining layer per structure, "
-          f"± {args.sweep_max_nm} nm at {args.sweep_step_nm} nm resolution…")
-    print(f"[INFO]   (walks inward from the air side if sweep max-ΔE < "
-          f"{OPAQUE_MAX_DE})")
+    # 2. Adaptive sweep: pick most-sensitive layer per structure, then
+    #    doubling+bisection on both sides.
+    print(f"[INFO] Adaptive sweep: layer selection by ±{args.slope_probe_nm} nm "
+          f"slope; doubling schedule up to ±{args.cap_nm} nm; bisect tol "
+          f"{args.bisect_tol_nm} nm; thresholds ΔE ∈ {THRESHOLDS_DE}. "
+          f"Workers: {args.n_jobs}.")
     t0 = time.time()
-    all_sweeps: List[LayerSweep] = []
-    per_layer_stats: List[Dict] = []
-    n_fully_opaque = 0
-    n_walked_inward = 0
-    for s in structures:
-        mats = s["materials"]
-        thicks = s["thicknesses_nm"]
-        base_lab = s["achieved_lab"]
-        if len(thicks) == 0:
-            continue
-        # Walk from air-side (last) inward until we find a layer whose
-        # sweep produces measurable ΔE.
-        picked = None
-        for li in range(len(thicks) - 1, -1, -1):
-            deltas, delta_es = sweep_one_layer(
-                sim, mats, thicks, li, base_lab,
-                args.sweep_max_nm, args.sweep_step_nm,
-            )
-            if delta_es and max(delta_es) >= OPAQUE_MAX_DE:
-                picked = (li, deltas, delta_es)
-                if li != len(thicks) - 1:
-                    n_walked_inward += 1
-                break
-        if picked is None:
-            # Fully opaque stack — no layer's thickness moves the colour
-            # within ± sweep_max_nm. Grid resolution is irrelevant here.
-            n_fully_opaque += 1
-            continue
-        li, deltas, delta_es = picked
-        cat = _classify(mats[li])
-        sw = LayerSweep(
-            structure_id=s["id"], structure_source=s["structure_source"],
-            layer_idx=li,
-            material_name=mats[li].name, material_category=cat,
-            base_thickness_nm=int(thicks[li]),
-            achieved_lab=tuple(base_lab),
-            sweep_delta_nm=deltas, sweep_delta_e=delta_es,
-        )
-        all_sweeps.append(sw)
-        slope = local_slope(deltas, delta_es)
-        neg2, pos2 = delta_nm_at_delta_e(deltas, delta_es, 2.0)
-        neg3, pos3 = delta_nm_at_delta_e(deltas, delta_es, 3.0)
-        neg5, pos5 = delta_nm_at_delta_e(deltas, delta_es, 5.0)
-        per_layer_stats.append({
-            "structure_id": s["id"],
-            "structure_source": s["structure_source"],
-            "layer_idx": li,
-            "layer_depth_from_top": len(thicks) - 1 - li,
-            "material_name": mats[li].name,
-            "material_category": cat,
-            "base_thickness_nm": int(thicks[li]),
-            "achieved_lab": list(base_lab),
-            "local_slope_dE_per_nm": slope,
-            "dnm_de2_neg": neg2, "dnm_de2_pos": pos2,
-            "dnm_de3_neg": neg3, "dnm_de3_pos": pos3,
-            "dnm_de5_neg": neg5, "dnm_de5_pos": pos5,
-        })
-    print(f"[INFO] Sweep done in {time.time() - t0:.1f}s "
-          f"({len(all_sweeps)} layer-sweeps; "
-          f"{n_walked_inward} structures needed to skip an opaque top layer; "
-          f"{n_fully_opaque} structures were fully opaque and dropped)")
 
-    # 3. Grid comparison — overall AND per structure_source.
+    if args.n_jobs > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(
+            max_workers=args.n_jobs,
+            initializer=_init_worker,
+            initargs=(str(jll_dir), args.seed, p_real, lam,
+                      min_layers, max_layers, incidence_angle),
+        ) as pool:
+            raw_results = list(pool.map(_worker_sweep, structures,
+                                         chunksize=1))
+    else:
+        raw_results = [sweep_structure(sim, s) for s in structures]
+
+    all_sweeps: List[StructureSweep] = [
+        r for r in raw_results if r is not None
+    ]
+    n_dropped_empty = len(structures) - len(all_sweeps)
+    n_censored_both_sides = sum(
+        1 for s in all_sweeps
+        if all(s.censored_neg.values()) and all(s.censored_pos.values())
+    )
+    print(f"[INFO] Sweep done in {time.time() - t0:.1f}s "
+          f"({len(all_sweeps)} sweeps; "
+          f"{n_dropped_empty} structures had no in-bounds layer; "
+          f"{n_censored_both_sides} sweeps are fully censored — "
+          f"no threshold reached within ±{args.cap_nm:g} nm on either side)")
+
+    # 3. Flatten to per_layer_stats records.
+    per_layer_stats: List[Dict] = []
+    for s in all_sweeps:
+        row: Dict[str, Any] = {
+            "structure_id": s.structure_id,
+            "structure_source": s.structure_source,
+            "chosen_layer_idx": s.chosen_layer_idx,
+            "layer_depth_from_top": s.layer_depth_from_top,
+            "material_name": s.material_name,
+            "material_category": s.material_category,
+            "base_thickness_nm": s.base_thickness_nm,
+            "achieved_lab": list(s.achieved_lab),
+            "local_slope_dE_per_nm": s.local_slope_dE_per_nm,
+            "all_layer_slopes": s.all_layer_slopes,
+            "max_de_seen_neg": s.max_de_seen_neg,
+            "max_de_seen_pos": s.max_de_seen_pos,
+        }
+        for thresh in THRESHOLDS_DE:
+            key_int = int(thresh)
+            row[f"dnm_de{key_int}_neg"] = s.crossings_neg[thresh]
+            row[f"dnm_de{key_int}_pos"] = s.crossings_pos[thresh]
+            row[f"cens_de{key_int}_neg"] = bool(s.censored_neg[thresh])
+            row[f"cens_de{key_int}_pos"] = bool(s.censored_pos[thresh])
+        per_layer_stats.append(row)
+
+    # 4. Grid comparison — overall AND per structure_source.
     grids = [
         ("linear 5 nm  (current)",     linear_grid_bin_width(5.0)),
         ("linear 2 nm",                linear_grid_bin_width(2.0)),
@@ -732,14 +982,13 @@ def main() -> None:
     ]
 
     def _print_grid_table(subset, title):
-        # Columns updated: ΔE 2 and ΔE 3 thresholds (was 1 and 2).
         header = ("grid                       n     median ΔE   p95 ΔE    "
                   "max ΔE   > 2 ΔE   > 3 ΔE")
         print(f"\n[grid comparison — {title}]")
         print(header)
         print("-" * len(header))
-        rows = []
-        results = []
+        rows: List[str] = []
+        results: List[Dict] = []
         for name, fn in grids:
             g = evaluate_grid(subset, fn, name, threshold_de=(2.0, 3.0))
             results.append(g)
@@ -770,16 +1019,19 @@ def main() -> None:
         "=== RANDOM ===\n" + table_rand + "\n"
     )
 
-    # 4. Persist raw + aggregate data as JSON for later re-plotting.
-    payload = {
+    # 5. Persist raw + aggregate data as JSON.
+    payload: Dict[str, Any] = {
         "config": {
             "n_structures_per_source": args.n_structures,
-            "sweep_max_nm": args.sweep_max_nm,
-            "sweep_step_nm": args.sweep_step_nm,
-            "layer_probed": "outermost (air-side)",
-            "de_thresholds_reported": [2.0, 3.0, 5.0],
+            "layer_selection": "most_sensitive_by_slope",
+            "slope_probe_nm": args.slope_probe_nm,
+            "cap_nm": args.cap_nm,
+            "bisect_tol_nm": args.bisect_tol_nm,
+            "doubling_schedule_nm": list(DOUBLING_SCHEDULE_NM),
+            "de_thresholds_reported": list(THRESHOLDS_DE),
             "high_chroma_candidate_count": args.high_chroma_candidate_count,
             "high_chroma_refine_iters": args.high_chroma_refine_iters,
+            "n_jobs": args.n_jobs,
             "seed": args.seed,
         },
         "grids_all_sources": results_all,
@@ -790,7 +1042,7 @@ def main() -> None:
             {
                 "structure_id": s.structure_id,
                 "structure_source": s.structure_source,
-                "layer_idx": s.layer_idx,
+                "chosen_layer_idx": s.chosen_layer_idx,
                 "material_name": s.material_name,
                 "material_category": s.material_category,
                 "base_thickness_nm": s.base_thickness_nm,
@@ -800,44 +1052,56 @@ def main() -> None:
             } for s in all_sweeps
         ],
     }
-    (args.output_dir / "sensitivity.json").write_text(json.dumps(payload, indent=2))
+    (args.output_dir / "sensitivity.json").write_text(
+        json.dumps(payload, indent=2)
+    )
     print(f"[json] wrote {args.output_dir / 'sensitivity.json'}")
 
-    # 5. CSV exports for hand-off / downstream analysis. Two tables:
-    #      per_layer.csv       — one row per swept layer, summary stats only.
-    #      sweeps_long.csv     — one row per (layer, Δnm) probe point.
-    #    JSON stays the source of truth; CSV mirrors a subset in a shape that
-    #    loads into pandas/Excel without JSON parsing.
+    # 6. CSV exports. per_layer.csv is the flat summary. sweeps_long.csv
+    #    is one row per (structure, probe) point — variable count per
+    #    structure since the adaptive probe visits different Δnm's.
     per_layer_csv = args.output_dir / "per_layer.csv"
-    with open(per_layer_csv, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            "structure_id", "structure_source",
-            "layer_idx", "layer_depth_from_top",
-            "material_name", "material_category",
-            "base_thickness_nm",
-            "L_base", "a_base", "b_base",
-            "local_slope_dE_per_nm",
-            "dnm_de2_neg", "dnm_de2_pos",
-            "dnm_de3_neg", "dnm_de3_pos",
-            "dnm_de5_neg", "dnm_de5_pos",
+    fieldnames = [
+        "structure_id", "structure_source",
+        "chosen_layer_idx", "layer_depth_from_top",
+        "material_name", "material_category",
+        "base_thickness_nm",
+        "L_base", "a_base", "b_base",
+        "local_slope_dE_per_nm",
+        "max_de_seen_neg", "max_de_seen_pos",
+    ]
+    for thresh in THRESHOLDS_DE:
+        k = int(thresh)
+        fieldnames.extend([
+            f"dnm_de{k}_neg", f"dnm_de{k}_pos",
+            f"cens_de{k}_neg", f"cens_de{k}_pos",
         ])
+
+    with open(per_layer_csv, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for r in per_layer_stats:
             L, a, b = r["achieved_lab"]
-            writer.writerow({
+            row = {
                 "structure_id":         r["structure_id"],
                 "structure_source":     r["structure_source"],
-                "layer_idx":            r["layer_idx"],
+                "chosen_layer_idx":     r["chosen_layer_idx"],
                 "layer_depth_from_top": r["layer_depth_from_top"],
                 "material_name":        r["material_name"],
                 "material_category":    r["material_category"],
                 "base_thickness_nm":    r["base_thickness_nm"],
                 "L_base": L, "a_base": a, "b_base": b,
                 "local_slope_dE_per_nm": r["local_slope_dE_per_nm"],
-                "dnm_de2_neg": r["dnm_de2_neg"], "dnm_de2_pos": r["dnm_de2_pos"],
-                "dnm_de3_neg": r["dnm_de3_neg"], "dnm_de3_pos": r["dnm_de3_pos"],
-                "dnm_de5_neg": r["dnm_de5_neg"], "dnm_de5_pos": r["dnm_de5_pos"],
-            })
+                "max_de_seen_neg":       r["max_de_seen_neg"],
+                "max_de_seen_pos":       r["max_de_seen_pos"],
+            }
+            for thresh in THRESHOLDS_DE:
+                k = int(thresh)
+                row[f"dnm_de{k}_neg"]  = r[f"dnm_de{k}_neg"]
+                row[f"dnm_de{k}_pos"]  = r[f"dnm_de{k}_pos"]
+                row[f"cens_de{k}_neg"] = int(bool(r[f"cens_de{k}_neg"]))
+                row[f"cens_de{k}_pos"] = int(bool(r[f"cens_de{k}_pos"]))
+            writer.writerow(row)
     print(f"[csv]  wrote {per_layer_csv} ({len(per_layer_stats)} rows)")
 
     sweeps_long_csv = args.output_dir / "sweeps_long.csv"
@@ -845,7 +1109,7 @@ def main() -> None:
     with open(sweeps_long_csv, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=[
             "structure_id", "structure_source",
-            "layer_idx", "material_name", "material_category",
+            "chosen_layer_idx", "material_name", "material_category",
             "base_thickness_nm",
             "delta_nm", "delta_e",
         ])
@@ -855,7 +1119,7 @@ def main() -> None:
                 writer.writerow({
                     "structure_id":     s.structure_id,
                     "structure_source": s.structure_source,
-                    "layer_idx":        s.layer_idx,
+                    "chosen_layer_idx": s.chosen_layer_idx,
                     "material_name":    s.material_name,
                     "material_category": s.material_category,
                     "base_thickness_nm": s.base_thickness_nm,
@@ -864,25 +1128,26 @@ def main() -> None:
                 n_rows += 1
     print(f"[csv]  wrote {sweeps_long_csv} ({n_rows} rows)")
 
-    # 6. Plots — deliberately LAST so a timeout during plotting can't
-    # destroy the raw data. All plot inputs live in memory already and
-    # are mirrored to disk in sensitivity.json + the CSVs, so a
-    # subsequent no-compute re-run can rebuild any missing PNG from
-    # those files without re-running the sweep.
+    # 7. Plots — deliberately LAST so a timeout during plotting can't
+    #    destroy the raw data (JSON + CSVs).
     plot_example_curves(all_sweeps, args.output_dir / "curves_examples.png")
-    plot_slope_by_bin(per_layer_stats, args.output_dir / "sensitivity_by_bin.png")
+    plot_slope_by_bin(per_layer_stats,
+                      args.output_dir / "sensitivity_by_bin.png")
     plot_delta_nm_for_de(per_layer_stats, target_de=2.0,
-                         out_path=args.output_dir / "delta_e_2_by_bin.png")
+                         out_path=args.output_dir / "delta_e_2_by_bin.png",
+                         cap_nm=args.cap_nm)
     plot_delta_nm_for_de(per_layer_stats, target_de=3.0,
-                         out_path=args.output_dir / "delta_e_3_by_bin.png")
+                         out_path=args.output_dir / "delta_e_3_by_bin.png",
+                         cap_nm=args.cap_nm)
     plot_grid_comparison(results_all,
                          args.output_dir / "grid_comparison.png",
-                         suptitle="Grid snap cost — outermost layer, all sources")
+                         suptitle="Grid snap cost — most-sensitive layer, "
+                                   "all sources")
     plot_grid_comparison_split(
         {"high_chroma_search": results_hc, "random": results_rand},
         args.output_dir / "grid_comparison_by_source.png",
     )
-    print(f"\n[plots] wrote 5 PNGs to {args.output_dir}")
+    print(f"\n[plots] wrote 6 PNGs to {args.output_dir}")
 
 
 if __name__ == "__main__":
