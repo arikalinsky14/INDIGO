@@ -110,6 +110,14 @@ source "$HOME/envs/llm-env/bin/activate"
 export CUDA_VISIBLE_DEVICES=""
 export JAX_PLATFORMS=cpu
 
+# Unbuffered stdout: SLURM redirects Python's stdout to a file, and
+# Python defaults to block-buffering (~4 KB) when the stream isn't a
+# TTY. Without this, [INFO] progress lines don't appear until the
+# buffer fills or the process exits — the job looks stuck for hours
+# even though HC search is running normally. bash `echo` lines from
+# this script are unaffected (they flush on newline via the shell).
+export PYTHONUNBUFFERED=1
+
 mkdir -p "$(dirname "$OUTPUT_DIR")"
 
 python analyses/thickness_sensitivity/thickness_sensitivity.py \
