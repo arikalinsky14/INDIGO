@@ -69,6 +69,11 @@ set -euo pipefail
 #   N_STRUCTURES=2000 BISECT_TOL_NM=0.02 SLOPE_PROBE_NM=0.25 \
 #       OUTPUT_DIR=analyses/thickness_sensitivity/results_fine \
 #       sbatch analyses/thickness_sensitivity/run.sh
+#
+#   # Replot from an existing sensitivity.json — no sim, ~10s wallclock.
+#   REPLOT_ONLY=1 \
+#       OUTPUT_DIR=analyses/thickness_sensitivity/results_large \
+#       sbatch analyses/thickness_sensitivity/run.sh
 # ============================================================================
 
 : "${OUTPUT_DIR:=analyses/thickness_sensitivity/results}"
@@ -80,6 +85,10 @@ set -euo pipefail
 : "${HIGH_CHROMA_CANDIDATE_COUNT:=24}"
 : "${HIGH_CHROMA_REFINE_ITERS:=12}"
 : "${SEED:=0}"
+: "${REPLOT_ONLY:=0}"    # 1 = skip sim, regenerate every plot from
+                         # <OUTPUT_DIR>/sensitivity.json. Cheap: runs in
+                         # ~10s on smp, no HC search / sweep. Use to
+                         # add or restyle plots without re-simulating.
 
 echo "======================================================================"
 echo " INDIGO thickness sensitivity study (adaptive probe)"
@@ -120,16 +129,24 @@ export PYTHONUNBUFFERED=1
 
 mkdir -p "$(dirname "$OUTPUT_DIR")"
 
-python analyses/thickness_sensitivity/thickness_sensitivity.py \
-    --output-dir "$OUTPUT_DIR" \
-    --n-structures "$N_STRUCTURES" \
-    --cap-nm "$CAP_NM" \
-    --slope-probe-nm "$SLOPE_PROBE_NM" \
-    --bisect-tol-nm "$BISECT_TOL_NM" \
-    --n-jobs "$N_JOBS" \
-    --high-chroma-candidate-count "$HIGH_CHROMA_CANDIDATE_COUNT" \
-    --high-chroma-refine-iters "$HIGH_CHROMA_REFINE_ITERS" \
-    --seed "$SEED"
+if [[ "${REPLOT_ONLY}" == "1" ]]; then
+    # Cheap: no sim, no HC search, just regenerate plots from an
+    # existing sensitivity.json. Runs in seconds.
+    python analyses/thickness_sensitivity/thickness_sensitivity.py \
+        --output-dir "$OUTPUT_DIR" \
+        --replot-only
+else
+    python analyses/thickness_sensitivity/thickness_sensitivity.py \
+        --output-dir "$OUTPUT_DIR" \
+        --n-structures "$N_STRUCTURES" \
+        --cap-nm "$CAP_NM" \
+        --slope-probe-nm "$SLOPE_PROBE_NM" \
+        --bisect-tol-nm "$BISECT_TOL_NM" \
+        --n-jobs "$N_JOBS" \
+        --high-chroma-candidate-count "$HIGH_CHROMA_CANDIDATE_COUNT" \
+        --high-chroma-refine-iters "$HIGH_CHROMA_REFINE_ITERS" \
+        --seed "$SEED"
+fi
 
 echo
 echo "Artefacts (see README.md for the full layout):"
@@ -139,7 +156,9 @@ echo "  $OUTPUT_DIR/sweeps_long.csv            one row per (structure, probe) po
 echo "  $OUTPUT_DIR/curves_examples.png        adaptive ΔE(Δnm) sample"
 echo "  $OUTPUT_DIR/sensitivity_by_bin.png     |dΔE/dnm| by base thickness"
 echo "  $OUTPUT_DIR/delta_e_2_by_bin.png       Δnm needed for ΔE=2  (+% censored)"
+echo "  $OUTPUT_DIR/delta_e_2_by_bin_log.png   same, log y-axis"
 echo "  $OUTPUT_DIR/delta_e_3_by_bin.png       Δnm needed for ΔE=3  (+% censored)"
+echo "  $OUTPUT_DIR/delta_e_3_by_bin_log.png   same, log y-axis"
 echo "  $OUTPUT_DIR/grid_comparison.png        snap-cost per candidate grid"
 echo "  $OUTPUT_DIR/grid_comparison_by_source.png  same, HC vs random"
 echo "  $OUTPUT_DIR/grid_comparison.txt        printable tables"
