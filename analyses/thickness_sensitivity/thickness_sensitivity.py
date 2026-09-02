@@ -916,9 +916,18 @@ def main() -> None:
     t0 = time.time()
 
     if args.n_jobs > 1:
+        import multiprocessing as mp
         from concurrent.futures import ProcessPoolExecutor
+        # SPAWN, not fork: the parent has already imported JAX for the
+        # HC search phase (its XLA runtime spins up background threads),
+        # and forking a multithreaded process deadlocks the child. Spawn
+        # gives each worker a fresh Python interpreter that re-imports
+        # JAX cleanly. Startup cost: ~10-30s per worker (one-time,
+        # amortised over hundreds of structures per worker).
+        mp_ctx = mp.get_context("spawn")
         with ProcessPoolExecutor(
             max_workers=args.n_jobs,
+            mp_context=mp_ctx,
             initializer=_init_worker,
             initargs=(str(jll_dir), args.seed, p_real, lam,
                       min_layers, max_layers, incidence_angle),
