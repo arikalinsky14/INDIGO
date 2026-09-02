@@ -595,6 +595,7 @@ def plot_delta_nm_for_de(
     bin_edges=(5, 20, 40, 80, 120, 200),
     split_by_source: bool = True,
     cap_nm: float = MAX_PROBE_NM,
+    y_scale: str = "linear",
 ) -> None:
     """Δnm to reach ΔE=target_de, per base-thickness bin, split by source.
 
@@ -602,6 +603,11 @@ def plot_delta_nm_for_de(
     are excluded from the box body but their fraction is annotated
     above each box as `⌐N%` — the "N% of structures in this bin were
     still under ΔE=target at ±cap_nm" reading.
+
+    y_scale: "linear" (default) or "log". Log scale compresses the
+        cap-adjacent tail so the sub-nm crossings that dominate the
+        distribution are readable — useful when many boxes bunch at
+        the bottom of a linear plot.
     """
     edges = list(bin_edges)
     de_key_neg = f"dnm_de{int(target_de)}_neg"
@@ -670,7 +676,8 @@ def plot_delta_nm_for_de(
             ax.plot([], [], color=colors[src], lw=6, alpha=0.7,
                     label=f"{src}  (n per bin = "
                           f"{','.join(str(x) for x in n_each)})")
-        # Annotate % censored above each box.
+        # Annotate % censored above each box. Use axes-fraction Y so the
+        # position works identically on linear and log y-axes.
         for src in sources:
             for i in range(n_bins):
                 total = counts[src][i]
@@ -683,7 +690,8 @@ def plot_delta_nm_for_de(
                 x = positions_center[i] + offsets[src]
                 ax.annotate(
                     f"⌐{frac:.0f}%",
-                    xy=(x, ax.get_ylim()[1] * 0.97 if ax.get_ylim()[1] > 0 else 1),
+                    xy=(x, 0.97),
+                    xycoords=("data", "axes fraction"),
                     ha="center", va="top", fontsize=7,
                     color="#555",
                 )
@@ -701,10 +709,20 @@ def plot_delta_nm_for_de(
                label="current grid spacing (5 nm)")
     ax.axhline(2.5, color="tab:green", lw=0.7, linestyle=":",
                label="candidate 2 nm grid (half-width)")
+
+    if y_scale == "log":
+        # Floor at the bisection tolerance (0.02 nm on fine runs, 0.05
+        # on defaults) so the smallest crossings still sit above the
+        # bottom edge. Ceiling at 2× cap_nm gives headroom above the
+        # censored fraction annotations.
+        ax.set_yscale("log")
+        ax.set_ylim(0.02, cap_nm * 2.0)
+
     ax.set_xticks(positions_center)
     ax.set_xticklabels([_bin_label(edges[i], edges[i + 1])
                         for i in range(n_bins)])
-    ax.set_ylabel(f"Δnm needed to reach ΔE = {target_de:g}")
+    ax.set_ylabel(f"Δnm needed to reach ΔE = {target_de:g}"
+                  + ("  (log scale)" if y_scale == "log" else ""))
     ax.set_xlabel("base thickness bin")
     ax.set_title(
         f"Perceptibility distance: smallest Δnm on the MOST-SENSITIVE layer "
@@ -808,6 +826,104 @@ def _worker_sweep(structure: Dict) -> Optional[StructureSweep]:
 
 
 # ============================================================================
+# Replot-only mode (regenerate plots from sensitivity.json)
+# ============================================================================
+
+def _replot_from_json(args: argparse.Namespace) -> None:
+    """Rebuild every plot from an existing sensitivity.json — no sim.
+
+    Reads:  <output-dir>/sensitivity.json
+    Writes: the full plot set (curves_examples, sensitivity_by_bin,
+            delta_e_{2,3}_by_bin{,_log}, grid_comparison{,_by_source}).
+
+    Useful for iterating on plot styling, adding new plot variants,
+    or reprocessing a run whose sim already finished.
+    """
+    json_path = args.output_dir / "sensitivity.json"
+    if not json_path.exists():
+        raise FileNotFoundError(
+            f"--replot-only expected {json_path} to exist. "
+            f"Run the study first (without --replot-only), or point "
+            f"--output-dir at a directory that already has one."
+        )
+    with open(json_path) as f:
+        payload = json.load(f)
+
+    per_layer_stats: List[Dict] = payload["per_layer"]
+    for r in per_layer_stats:
+        for thresh in THRESHOLDS_DE:
+            k = int(thresh)
+            for side in ("neg", "pos"):
+                r[f"cens_de{k}_{side}"] = bool(r.get(f"cens_de{k}_{side}"))
+
+    sweeps_by_id: Dict[int, Dict] = {
+        s["structure_id"]: s for s in payload.get("sweeps", [])
+    }
+    all_sweeps: List[StructureSweep] = []
+    for r in per_layer_stats:
+        raw = sweeps_by_id.get(r["structure_id"])
+        if raw is None:
+            continue
+        all_sweeps.append(StructureSweep(
+            structure_id=r["structure_id"],
+            structure_source=r["structure_source"],
+            chosen_layer_idx=r["chosen_layer_idx"],
+            layer_depth_from_top=r["layer_depth_from_top"],
+            material_name=r["material_name"],
+            material_category=r["material_category"],
+            base_thickness_nm=r["base_thickness_nm"],
+            achieved_lab=tuple(r["achieved_lab"]),
+            local_slope_dE_per_nm=r["local_slope_dE_per_nm"],
+            all_layer_slopes=r.get("all_layer_slopes", []),
+            max_de_seen_neg=r["max_de_seen_neg"],
+            max_de_seen_pos=r["max_de_seen_pos"],
+            crossings_neg={float(k): v for k, v in
+                           r.get("crossings_neg", {}).items()},
+            crossings_pos={float(k): v for k, v in
+                           r.get("crossings_pos", {}).items()},
+            censored_neg={float(k): v for k, v in
+                          r.get("censored_neg", {}).items()},
+            censored_pos={float(k): v for k, v in
+                          r.get("censored_pos", {}).items()},
+            sweep_delta_nm=raw["sweep_delta_nm"],
+            sweep_delta_e=raw["sweep_delta_e"],
+        ))
+
+    cap_nm = float(payload.get("config", {}).get("cap_nm", MAX_PROBE_NM))
+
+    results_all = payload.get("grids_all_sources", [])
+    results_hc = payload.get("grids_high_chroma_search", [])
+    results_rand = payload.get("grids_random", [])
+
+    plot_example_curves(all_sweeps, args.output_dir / "curves_examples.png")
+    plot_slope_by_bin(per_layer_stats,
+                      args.output_dir / "sensitivity_by_bin.png")
+    for thresh in (2.0, 3.0):
+        k = int(thresh)
+        plot_delta_nm_for_de(
+            per_layer_stats, target_de=thresh,
+            out_path=args.output_dir / f"delta_e_{k}_by_bin.png",
+            cap_nm=cap_nm, y_scale="linear",
+        )
+        plot_delta_nm_for_de(
+            per_layer_stats, target_de=thresh,
+            out_path=args.output_dir / f"delta_e_{k}_by_bin_log.png",
+            cap_nm=cap_nm, y_scale="log",
+        )
+    if results_all:
+        plot_grid_comparison(results_all,
+                             args.output_dir / "grid_comparison.png",
+                             suptitle="Grid snap cost — most-sensitive "
+                                       "layer, all sources")
+    if results_hc and results_rand:
+        plot_grid_comparison_split(
+            {"high_chroma_search": results_hc, "random": results_rand},
+            args.output_dir / "grid_comparison_by_source.png",
+        )
+    print(f"[replot] wrote plots to {args.output_dir}")
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -834,9 +950,18 @@ def main() -> None:
                     help="parallel workers for the sweep phase. HC search "
                          "and random-gen stay serial. Set to --cpus-per-task "
                          "from your SLURM allocation.")
+    ap.add_argument("--replot-only", action="store_true",
+                    help="Skip all generation and sweeping. Load "
+                         "<output-dir>/sensitivity.json and regenerate every "
+                         "plot from it. Use to iterate on plot styling or "
+                         "add new plot variants without re-running a sim.")
     args = ap.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.replot_only:
+        _replot_from_json(args)
+        return
 
     # Late imports (jax pulls in slowly).
     from create_dataset.src.compile_datasets import _find_jll_materials_dir
@@ -1142,12 +1267,18 @@ def main() -> None:
     plot_example_curves(all_sweeps, args.output_dir / "curves_examples.png")
     plot_slope_by_bin(per_layer_stats,
                       args.output_dir / "sensitivity_by_bin.png")
-    plot_delta_nm_for_de(per_layer_stats, target_de=2.0,
-                         out_path=args.output_dir / "delta_e_2_by_bin.png",
-                         cap_nm=args.cap_nm)
-    plot_delta_nm_for_de(per_layer_stats, target_de=3.0,
-                         out_path=args.output_dir / "delta_e_3_by_bin.png",
-                         cap_nm=args.cap_nm)
+    for thresh in (2.0, 3.0):
+        k = int(thresh)
+        plot_delta_nm_for_de(
+            per_layer_stats, target_de=thresh,
+            out_path=args.output_dir / f"delta_e_{k}_by_bin.png",
+            cap_nm=args.cap_nm, y_scale="linear",
+        )
+        plot_delta_nm_for_de(
+            per_layer_stats, target_de=thresh,
+            out_path=args.output_dir / f"delta_e_{k}_by_bin_log.png",
+            cap_nm=args.cap_nm, y_scale="log",
+        )
     plot_grid_comparison(results_all,
                          args.output_dir / "grid_comparison.png",
                          suptitle="Grid snap cost — most-sensitive layer, "
@@ -1156,7 +1287,7 @@ def main() -> None:
         {"high_chroma_search": results_hc, "random": results_rand},
         args.output_dir / "grid_comparison_by_source.png",
     )
-    print(f"\n[plots] wrote 6 PNGs to {args.output_dir}")
+    print(f"\n[plots] wrote 8 PNGs to {args.output_dir}")
 
 
 if __name__ == "__main__":
