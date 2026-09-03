@@ -222,6 +222,9 @@ class EvalResult:
     n_layers_pred: int
     ciede2000: Optional[float]
     is_valid: bool
+    # Optional: 'high_chroma_search' or 'random' when the parquet
+    # carries the column. None on legacy shards.
+    structure_source: Optional[str] = None
 
 
 def create_color_swatch(results: List[EvalResult], output_path: str, n: int = 10) -> None:
@@ -497,6 +500,7 @@ def main() -> None:
             n_layers_pred=len(pred_slots),
             ciede2000=ciede_value,
             is_valid=is_valid,
+            structure_source=example.structure_source,
         ))
 
         if (idx + 1) % 100 == 0:
@@ -546,6 +550,49 @@ def main() -> None:
         metrics["ciede2000_max"] = float(np.max(ciede_arr))
         metrics["ciede2000_n_computed"] = len(ciede_values)
 
+    # Per-source split: same autoregressive-mode metrics computed on the
+    # HC-search and undirected-random subsets, if the parquet carried the
+    # `structure_source` column. Silently skipped on legacy shards.
+    seen_sources = sorted({r.structure_source for r in results
+                            if r.structure_source is not None})
+    if seen_sources:
+        by_source: Dict[str, Dict[str, float]] = {}
+        for src in seen_sources:
+            src_rows = [r for r in results if r.structure_source == src]
+            n_src = len(src_rows)
+            n_valid_src = sum(1 for r in src_rows if r.is_valid)
+            n_eos_src = sum(1 for r in src_rows if r.stop_reason == "EOS")
+            n_exact_src = sum(
+                1 for r in src_rows
+                if r.pred_materials == r.gt_materials
+                and r.pred_thicknesses == r.gt_thicknesses
+            )
+            n_layers_match_src = sum(
+                1 for r in src_rows if r.n_layers_pred == r.n_layers_gt
+            )
+            layer_diffs_src = [abs(r.n_layers_pred - r.n_layers_gt)
+                                for r in src_rows]
+            src_metrics: Dict[str, float] = {
+                "n_examples": n_src,
+                "valid_rate": n_valid_src / n_src if n_src else 0.0,
+                "eos_rate": n_eos_src / n_src if n_src else 0.0,
+                "exact_match": n_exact_src / n_src if n_src else 0.0,
+                "layer_count_match": n_layers_match_src / n_src if n_src else 0.0,
+                "avg_layer_diff": (sum(layer_diffs_src) / n_src if n_src else 0.0),
+            }
+            ciede_src = [r.ciede2000 for r in src_rows if r.ciede2000 is not None]
+            if ciede_src:
+                arr = np.array(ciede_src)
+                src_metrics["ciede2000_mean"] = float(np.mean(arr))
+                src_metrics["ciede2000_median"] = float(np.median(arr))
+                src_metrics["ciede2000_q1"] = float(np.percentile(arr, 25))
+                src_metrics["ciede2000_q3"] = float(np.percentile(arr, 75))
+                src_metrics["ciede2000_min"] = float(np.min(arr))
+                src_metrics["ciede2000_max"] = float(np.max(arr))
+                src_metrics["ciede2000_n_computed"] = len(ciede_src)
+            by_source[src] = src_metrics
+        metrics["by_source"] = by_source
+
     print("\n" + "=" * 60)
     print("EVALUATION RESULTS")
     if args.sample_predictions:
@@ -569,6 +616,17 @@ def main() -> None:
         print(f"  Q3:     {metrics['ciede2000_q3']:.2f}")
         print(f"  Min:    {metrics['ciede2000_min']:.2f}")
         print(f"  Max:    {metrics['ciede2000_max']:.2f}")
+    if "by_source" in metrics:
+        print(f"\n--- Per-source breakdown ---")
+        for src, sm in metrics["by_source"].items():
+            print(f"  [{src}]  n={sm['n_examples']}  "
+                  f"valid={100 * sm['valid_rate']:.1f}%  "
+                  f"exact={100 * sm['exact_match']:.1f}%")
+            if "ciede2000_mean" in sm:
+                print(f"       ΔE mean={sm['ciede2000_mean']:.2f}  "
+                      f"median={sm['ciede2000_median']:.2f}  "
+                      f"p75={sm['ciede2000_q3']:.2f}  "
+                      f"(n={sm['ciede2000_n_computed']})")
     print("=" * 60)
 
     if args.output:

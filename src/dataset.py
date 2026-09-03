@@ -99,6 +99,10 @@ class TrainingExample:
     pool: List[MaterialNK]
     target_slots: List[int]
     target_thicknesses: List[int]
+    # Optional: 'high_chroma_search' or 'random' (or None on legacy
+    # parquets that predate the column). Populated for eval-time
+    # splits by source; ignored during training.
+    structure_source: Optional[str] = None
 
 
 # ============================================================================
@@ -174,6 +178,20 @@ _REQUIRED_COLUMNS = (
     "lab", "pool_size", "pool_n", "pool_k", "pool_names", "pool_sources",
     "layer_slots", "layer_thicknesses", "num_layers",
 )
+# Columns the loader will pick up if the parquet has them, but that
+# older parquets pre-date. Missing values become None on the
+# TrainingExample.
+_OPTIONAL_COLUMNS = ("structure_source",)
+
+
+def _columns_for_shard(path: str) -> List[str]:
+    """Return the intersection of _OPTIONAL_COLUMNS + _REQUIRED_COLUMNS
+    with what's actually in the parquet — so `pq.read_table` never asks
+    for a missing column."""
+    schema_names = set(pq.ParquetFile(path).schema_arrow.names)
+    cols = list(_REQUIRED_COLUMNS)
+    cols.extend(c for c in _OPTIONAL_COLUMNS if c in schema_names)
+    return cols
 
 
 def _maybe_json(value):
@@ -210,11 +228,16 @@ def _row_to_example(row: Dict[str, object]) -> TrainingExample:
             source=str(pool_sources[slot]),
         ))
 
+    structure_source = row.get("structure_source")
+    if structure_source is not None:
+        structure_source = str(structure_source)
+
     return TrainingExample(
         lab=normalize_lab(list(lab_list)),
         pool=pool,
         target_slots=[int(s) for s in layer_slots],
         target_thicknesses=[int(t) for t in layer_thicknesses],
+        structure_source=structure_source,
     )
 
 
@@ -266,7 +289,13 @@ class FlexThinFilmDataset(IterableDataset):
         self.row_idxs = torch.tensor(row_idxs, dtype=torch.int32)
 
         perm = make_permutation(total_rows, seed)
-        splits = {"train": (0.0, 0.9995), "validation": (0.9995, 1.0)}
+        # "all" reads every row — use for held-out tier_a/tier_b eval
+        # sets where there's no train/val split to honour.
+        splits = {
+            "train":      (0.0,    0.9995),
+            "validation": (0.9995, 1.0),
+            "all":        (0.0,    1.0),
+        }
         if split not in splits:
             raise ValueError(f"unknown split {split!r}; expected one of {list(splits)}")
         start_frac, end_frac = splits[split]
@@ -338,7 +367,7 @@ class FlexThinFilmDataset(IterableDataset):
                 if row_idxs is None or len(row_idxs) == 0:
                     continue
                 try:
-                    table = pq.read_table(f.path, columns=list(_REQUIRED_COLUMNS))
+                    table = pq.read_table(f.path, columns=_columns_for_shard(f.path))
                 except Exception as exc:
                     print(f"[WARN] Could not read {f.path}: {exc}")
                     continue
@@ -382,7 +411,9 @@ class FlexThinFilmDataset(IterableDataset):
             for fid, positions in file_to_positions.items():
                 file_meta = self._file_by_id[fid]
                 try:
-                    table = pq.read_table(file_meta.path, columns=list(_REQUIRED_COLUMNS))
+                    table = pq.read_table(
+                        file_meta.path, columns=_columns_for_shard(file_meta.path),
+                    )
                 except Exception as exc:
                     print(f"[WARN] Could not read {file_meta.path}: {exc}")
                     continue
