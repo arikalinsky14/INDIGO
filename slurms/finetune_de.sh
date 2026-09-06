@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=indigo-finetune-de
+#SBATCH --output=job-outputs/indigo-finetune-de.%j.out
+#SBATCH --error=job-outputs/indigo-finetune-de.%j.err
+
+#SBATCH --cluster=gpu
+#SBATCH --partition=l40s
+#SBATCH --gres=gpu:1
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+
+#SBATCH --time=24:00:00
+#SBATCH --qos=short
+#SBATCH --mail-user=ajk245@pitt.edu
+#SBATCH --mail-type=END,FAIL,TIME_LIMIT
+
+set -euo pipefail
+
+# ============================================================================
+# INDIGO Post-Training ΔE Finetune
+# ============================================================================
+#
+# Companion to slurms/training.sh but for the post-training ΔE finetune
+# stage. Full design is documented in analyses/de_finetune/README.md.
+#
+# Two experiments, selected by FREEZE_ENCODER:
+#   FREEZE_ENCODER=1   Experiment A — decoder-only (freeze pool encoder).
+#                      Default LR: 5e-6.
+#   FREEZE_ENCODER=0   Experiment B — full-model. Default LR: 1e-6.
+#
+# Required env vars:
+#   PRETRAINED_CHECKPOINT   path to the pretrained checkpoint dir
+#                           (recommend the val-optimal step, e.g.
+#                           .../step_13000/ — NOT .../latest/ if the
+#                           pretrain overfit past that point)
+#   SAVE_DIR                where finetune checkpoints land
+#
+# Optional env vars:
+#   DATA_DIR                default: data/finetune (must have HC=0.30
+#                           parquet shards — see slurms/generate_data.sh
+#                           command in analyses/de_finetune/README.md)
+#   FREEZE_ENCODER          default: 1
+#   LR                      default: 5e-6 if FREEZE_ENCODER=1 else 1e-6
+#   EPOCHS                  default: 3
+#   BATCH_SIZE              default: 128
+#   NUM_WORKERS             default: 4
+#   SAVE_EVERY              default: 500
+#   LOG_EVERY               default: 50
+#   LIMIT_EXAMPLES          default: unset (full dataset)
+#   LIMIT_VAL_EXAMPLES      default: 1000
+#   SEED                    default: 42
+#   RESUME                  optional; path to a finetune checkpoint to resume
+#
+# Model hyperparameters MUST match the pretrained checkpoint (defaults
+# below match the current prod cross_attn config).
+#
+# ============================================================================
+
+# -------------------- Environment --------------------
+module purge
+module load python/pytorch_251_311_cu124
+source "$HOME/envs/llm-env/bin/activate"
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+cd "${SLURM_SUBMIT_DIR}"
+mkdir -p job-outputs
+
+echo "============================================================================"
+echo "INDIGO ΔE FINETUNE - Job ${SLURM_JOB_ID:-local}"
+echo "============================================================================"
+echo "PWD:      $(pwd)"
+echo "Node:     $(hostname)"
+echo "Python:   $(which python)"
+echo "Started:  $(date)"
+
+python --version
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+echo
+
+# -------------------- Required inputs --------------------
+if [[ -z "${PRETRAINED_CHECKPOINT:-}" ]]; then
+    echo "ERROR: set PRETRAINED_CHECKPOINT=<path/to/step_N> before sbatch" >&2
+    exit 2
+fi
+if [[ -z "${SAVE_DIR:-}" ]]; then
+    echo "ERROR: set SAVE_DIR=<path/to/finetune/output> before sbatch" >&2
+    exit 2
+fi
+
+# -------------------- Defaults --------------------
+: "${DATA_DIR:=data/finetune}"
+: "${FREEZE_ENCODER:=1}"
+: "${EPOCHS:=3}"
+: "${BATCH_SIZE:=128}"
+: "${NUM_WORKERS:=4}"
+: "${SAVE_EVERY:=500}"
+: "${LOG_EVERY:=50}"
+: "${LIMIT_VAL_EXAMPLES:=1000}"
+: "${SEED:=42}"
+
+if [[ -z "${LR:-}" ]]; then
+    if [[ "${FREEZE_ENCODER}" == "1" ]]; then
+        LR="5e-6"
+    else
+        LR="1e-6"
+    fi
+fi
+
+# Model architecture (match pretrained checkpoint).
+: "${FEATURE_MODE:=raw_spectrum}"
+: "${ENCODER_HIDDEN:=128}"
+: "${ENCODER_OUT:=64}"
+: "${ENCODER_DROPOUT:=0.1}"
+: "${D_MODEL:=1024}"
+: "${N_LAYERS:=8}"
+: "${DROPOUT:=0.1}"
+: "${HEAD_MODE:=cross_attn}"
+: "${N_HEADS:=8}"
+: "${SLOT_ENCODER_LAYERS:=4}"
+: "${DECODER_LAYERS:=1}"
+
+# Optimisation.
+: "${WEIGHT_DECAY:=0.01}"
+: "${GRAD_CLIP:=1.0}"
+: "${WARMUP_FRACTION:=0.02}"
+: "${INCIDENCE_ANGLE:=0.0}"
+
+echo "============================================================================"
+echo "FINETUNE CONFIGURATION"
+echo "============================================================================"
+echo "PRETRAINED_CHECKPOINT : ${PRETRAINED_CHECKPOINT}"
+echo "SAVE_DIR              : ${SAVE_DIR}"
+echo "DATA_DIR              : ${DATA_DIR}"
+echo "FREEZE_ENCODER        : ${FREEZE_ENCODER}  ($([ "${FREEZE_ENCODER}" = "1" ] && echo "Experiment A: decoder-only" || echo "Experiment B: full-model"))"
+echo "LR                    : ${LR}"
+echo "EPOCHS                : ${EPOCHS}"
+echo "BATCH_SIZE            : ${BATCH_SIZE}"
+echo "NUM_WORKERS           : ${NUM_WORKERS}"
+echo "SAVE_EVERY / LOG_EVERY: ${SAVE_EVERY} / ${LOG_EVERY}"
+echo "SEED                  : ${SEED}"
+echo "============================================================================"
+
+# -------------------- Build command --------------------
+ARGS=(
+    --data-dir            "${DATA_DIR}"
+    --pretrained-checkpoint "${PRETRAINED_CHECKPOINT}"
+    --save-dir            "${SAVE_DIR}"
+    --seed                "${SEED}"
+    --limit-val-examples  "${LIMIT_VAL_EXAMPLES}"
+
+    --feature-mode        "${FEATURE_MODE}"
+    --encoder-hidden      "${ENCODER_HIDDEN}"
+    --encoder-out         "${ENCODER_OUT}"
+    --encoder-dropout     "${ENCODER_DROPOUT}"
+    --d-model             "${D_MODEL}"
+    --n-layers            "${N_LAYERS}"
+    --dropout             "${DROPOUT}"
+    --head-mode           "${HEAD_MODE}"
+    --n-heads             "${N_HEADS}"
+    --slot-encoder-layers "${SLOT_ENCODER_LAYERS}"
+    --decoder-layers      "${DECODER_LAYERS}"
+
+    --lr                  "${LR}"
+    --weight-decay        "${WEIGHT_DECAY}"
+    --grad-clip           "${GRAD_CLIP}"
+    --warmup-fraction     "${WARMUP_FRACTION}"
+    --epochs              "${EPOCHS}"
+    --batch-size          "${BATCH_SIZE}"
+    --num-workers         "${NUM_WORKERS}"
+
+    --save-every          "${SAVE_EVERY}"
+    --log-every           "${LOG_EVERY}"
+    --incidence-angle     "${INCIDENCE_ANGLE}"
+)
+
+if [[ "${FREEZE_ENCODER}" == "1" ]]; then
+    ARGS+=(--freeze-encoder)
+fi
+if [[ -n "${LIMIT_EXAMPLES:-}" ]]; then
+    ARGS+=(--limit-examples "${LIMIT_EXAMPLES}")
+fi
+if [[ -n "${RESUME:-}" ]]; then
+    ARGS+=(--resume "${RESUME}")
+fi
+
+CMD=(python scripts/finetune_de.py "${ARGS[@]}")
+
+echo "COMMAND:"
+printf '  %q ' "${CMD[@]}"
+echo
+echo "============================================================================"
+echo
+
+"${CMD[@]}"
+
+EXIT_CODE=$?
+echo
+echo "============================================================================"
+echo "FINETUNE COMPLETE   exit=${EXIT_CODE}   ended=$(date)"
+echo "============================================================================"
+exit ${EXIT_CODE}
+
+# ============================================================================
+# USAGE EXAMPLES
+# ============================================================================
+#
+# Experiment A (decoder-only) — start here:
+#   PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+#       SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_A_decoder_only \
+#       FREEZE_ENCODER=1 LR=5e-6 \
+#       sbatch slurms/finetune_de.sh
+#
+# Experiment B (full-model) — only if A shows lift:
+#   PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+#       SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_full_model \
+#       FREEZE_ENCODER=0 LR=1e-6 \
+#       sbatch slurms/finetune_de.sh
+#
+# Resume a finetune that timed out:
+#   PRETRAINED_CHECKPOINT=<same as original> \
+#       SAVE_DIR=<same as original> \
+#       RESUME=<SAVE_DIR>/latest \
+#       FREEZE_ENCODER=<same> LR=<same> \
+#       sbatch slurms/finetune_de.sh
+#
+# Fresh 1M finetune data (HC=0.30) — one-time smp job:
+#   TOTAL_ROWS=1000000 START_SHARD_ID=3000000 \
+#       OUTPUT_DIR=data/finetune \
+#       HIGH_CHROMA_PROB=0.30 \
+#       sbatch slurms/generate_data.sh
+# ============================================================================
