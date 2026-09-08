@@ -95,16 +95,38 @@ _JIT_PATCH_REASON: Optional[str] = None
 
 
 def _patch_jaxlayerlumos_asserts() -> None:
-    """Strip `assert thicknesses...` lines from every function in
-    jaxlayerlumos.jaxlayerlumos that has them. Rebuilds each patched
-    function in the library's own module namespace so its closures and
-    imports still resolve correctly."""
+    """Strip trace-hostile Python control flow from jaxlayerlumos so
+    @jax.jit can wrap the sim path.
+
+    Two patterns to remove:
+
+      1. `assert thicknesses[0] == 0` / `assert thicknesses[-1] == 0`
+         (invariant already guaranteed at our call site in _JAX_FORWARD).
+
+      2. In stackrt_eps_mu_theta, a Python-level `if` block that branches
+         on `jnp.isinf(jnp.real(eps_r[:, -1]))` — checks whether the last
+         layer is a perfect-absorber substrate and zeros out T_TE/T_TM if
+         so. Our substrate is fused silica (finite eps), so the branch
+         is never taken; and we ignore T_TE/T_TM anyway (we only use
+         reflectance). The library maintainer flagged this block with a
+         `TODO: it is needed?` comment.
+
+    Both patterns break jit because Python's assert and if want concrete
+    Python bools, but under tracing they see Tracer objects.
+
+    We rewrite each affected function via AST (parse -> prune -> unparse
+    -> exec into the library's module namespace). Prune predicates are
+    conservative — we only skip statements whose test refers to a name
+    we know is a traced array (`thicknesses` for asserts, `eps_r`/`mu_r`
+    for the if).
+    """
     global _JIT_PATCH_APPLIED, _JIT_PATCH_REASON
 
     if not _JAX_AVAILABLE:
         _JIT_PATCH_REASON = "jax unavailable"
         return
 
+    import ast
     import inspect
     import textwrap
 
@@ -113,6 +135,40 @@ def _patch_jaxlayerlumos_asserts() -> None:
     except Exception as e:
         _JIT_PATCH_REASON = f"cannot import jaxlayerlumos.jaxlayerlumos: {e}"
         return
+
+    class _TraceHostilePruner(ast.NodeTransformer):
+        def __init__(self) -> None:
+            self.pruned: list = []
+
+        def _test_src(self, node) -> str:
+            try:
+                return ast.unparse(node)
+            except Exception:
+                return ""
+
+        def visit_Assert(self, node: ast.Assert):
+            test_src = self._test_src(node.test)
+            # Guarantee-elsewhere: `assert thicknesses[0] == 0` and cousins.
+            if "thicknesses" in test_src:
+                self.pruned.append(f"assert {test_src}")
+                return None
+            return node
+
+        def visit_If(self, node: ast.If):
+            test_src = self._test_src(node.test)
+            # `if (jnp.all(jnp.isinf(...eps_r...)) and ...)` in
+            # stackrt_eps_mu_theta. Match on both key names to be
+            # specific.
+            if (
+                "jnp.isinf" in test_src
+                and "eps_r" in test_src
+                and "jnp.allclose" in test_src
+            ):
+                self.pruned.append(f"if {test_src[:80]}...")
+                return None
+            # Recurse into nested statements otherwise.
+            self.generic_visit(node)
+            return node
 
     patched_names: list = []
     failures: list = []
@@ -128,41 +184,62 @@ def _patch_jaxlayerlumos_asserts() -> None:
             src = inspect.getsource(obj)
         except (TypeError, OSError):
             continue
-        if "assert thicknesses" not in src:
+
+        # Cheap gate: only pay parse+prune cost if a hostile keyword is
+        # even present.
+        if (
+            "assert thicknesses" not in src
+            and not ("jnp.isinf" in src and "eps_r" in src)
+        ):
             continue
 
-        # Drop any line whose stripped form starts with `assert thicknesses`
-        # (catches both `assert thicknesses[0] == 0` and the symmetric
-        # `assert thicknesses[-1] == 0` if present).
         src_dedented = textwrap.dedent(src)
-        patched_src = "\n".join(
-            line for line in src_dedented.splitlines()
-            if not line.lstrip().startswith("assert thicknesses")
-        )
+        try:
+            tree = ast.parse(src_dedented)
+        except SyntaxError as e:
+            failures.append((name, f"parse: {e}"))
+            continue
+
+        pruner = _TraceHostilePruner()
+        new_tree = pruner.visit(tree)
+        ast.fix_missing_locations(new_tree)
+        if not pruner.pruned:
+            continue  # nothing to do for this one
+
+        try:
+            new_src = ast.unparse(new_tree)
+        except Exception as e:
+            failures.append((name, f"unparse: {e}"))
+            continue
+
         try:
             exec(
-                compile(patched_src, f"<jit-patched:{name}>", "exec"),
+                compile(new_src, f"<jit-patched:{name}>", "exec"),
                 _jll_mod.__dict__,
             )
-            patched_names.append(name)
+            patched_names.append((name, pruner.pruned))
         except Exception as e:
-            failures.append((name, str(e)))
+            failures.append((name, f"exec: {e}"))
 
     if failures:
         _JIT_PATCH_REASON = (
-            f"failed to patch: {failures}; patched anyway: {patched_names}"
+            f"failed: {failures}; patched anyway: "
+            f"{[n for n, _ in patched_names]}"
         )
-        # Even a partial patch may be enough; leave APPLIED true so callers
-        # can decide.
         _JIT_PATCH_APPLIED = bool(patched_names)
     elif patched_names:
         _JIT_PATCH_APPLIED = True
-        _JIT_PATCH_REASON = f"patched {len(patched_names)} function(s): {patched_names}"
+        _JIT_PATCH_REASON = (
+            f"patched {len(patched_names)} function(s): "
+            + "; ".join(
+                f"{n} ({', '.join(p)})" for n, p in patched_names
+            )
+        )
     else:
         _JIT_PATCH_APPLIED = False
         _JIT_PATCH_REASON = (
-            "no functions with `assert thicknesses` found in "
-            "jaxlayerlumos.jaxlayerlumos — library may have changed"
+            "no trace-hostile patterns found in jaxlayerlumos — "
+            "library may have changed"
         )
 
 
