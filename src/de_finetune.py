@@ -124,6 +124,16 @@ def ste_pick(
     dtype = logits_step.dtype
     bin_centers = _thickness_bin_centers(device, dtype)
 
+    # Sanitize -inf from the model's output mask. `apply_output_mask=True`
+    # writes -inf into padded-slot logits. The slot STE tolerates that
+    # (softmax over -inf entries drops them to 0), but the thickness STE
+    # multiplies slot_choice (0 at padded rows) by layer_logits (-inf at
+    # padded rows), and IEEE-754 gives 0 * -inf = NaN — which then
+    # contaminates every bin under sum, softmax, and every downstream op.
+    # Replace with a large-negative-but-finite floor: still ~0 probability
+    # under softmax, safe under multiplication.
+    logits_step = torch.nan_to_num(logits_step, neginf=-1e9, posinf=1e9)
+
     # Split the vocab: first M_MAX*NUM_THICKNESSES tokens are (slot, thickness)
     # pairs (row-major: token = slot * NUM_THICKNESSES + thickness_bin);
     # the last is EOS.
