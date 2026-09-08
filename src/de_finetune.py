@@ -124,6 +124,16 @@ def ste_pick(
     dtype = logits_step.dtype
     bin_centers = _thickness_bin_centers(device, dtype)
 
+    # Sanitize -inf from the model's output mask. `apply_output_mask=True`
+    # writes -inf into padded-slot logits. The slot STE tolerates that
+    # (softmax over -inf entries drops them to 0), but the thickness STE
+    # multiplies slot_choice (0 at padded rows) by layer_logits (-inf at
+    # padded rows), and IEEE-754 gives 0 * -inf = NaN — which then
+    # contaminates every bin under sum, softmax, and every downstream op.
+    # Replace with a large-negative-but-finite floor: still ~0 probability
+    # under softmax, safe under multiplication.
+    logits_step = torch.nan_to_num(logits_step, neginf=-1e9, posinf=1e9)
+
     # Split the vocab: first M_MAX*NUM_THICKNESSES tokens are (slot, thickness)
     # pairs (row-major: token = slot * NUM_THICKNESSES + thickness_bin);
     # the last is EOS.
@@ -289,6 +299,28 @@ def unfreeze_all(model) -> Dict[str, int]:
 
 
 # ============================================================================
+# NaN diagnostics — helps first-run debugging without spamming logs.
+# Set _NAN_DEBUG_LIMIT to 0 (or via env INDIGO_NAN_DEBUG=0) to silence.
+# ============================================================================
+
+import os as _os
+
+_NAN_DEBUG_LIMIT = int(_os.environ.get("INDIGO_NAN_DEBUG", "5"))
+_NAN_DEBUG_COUNT = 0
+
+
+def _log_nan(**fields) -> None:
+    """Print a compact one-shot dump for the first N NaN events per process."""
+    global _NAN_DEBUG_COUNT
+    if _NAN_DEBUG_COUNT >= _NAN_DEBUG_LIMIT:
+        return
+    _NAN_DEBUG_COUNT += 1
+    print(f"[NAN-DEBUG #{_NAN_DEBUG_COUNT}]", flush=True)
+    for k, v in fields.items():
+        print(f"    {k}: {v}", flush=True)
+
+
+# ============================================================================
 # Per-example rollout — internal helper
 # ============================================================================
 
@@ -365,6 +397,58 @@ def _rollout_one(
         )
         loss_k = ciede2000_torch(target_lab_denorm, predicted_lab)
         losses.append(loss_k)
+
+        # Diagnose first few NaN/Inf events so we can find the offending
+        # tensor. Silenced after _NAN_DEBUG_LIMIT dumps per process.
+        if not torch.isfinite(loss_k):
+            with torch.no_grad():
+                argmax_slot = int(extras["slot_argmax"].item())
+                argmax_thick_bin = int(extras["thickness_argmax"].item())
+                _log_nan(
+                    k=k,
+                    n_layers=n_layers,
+                    argmax_slot=argmax_slot,
+                    argmax_thick_bin=argmax_thick_bin,
+                    thickness_nm_k=float(thickness_nm_k.item()),
+                    target_lab=target_lab_denorm.detach().cpu().tolist(),
+                    predicted_lab=predicted_lab.detach().cpu().tolist(),
+                    predicted_lab_finite=bool(
+                        torch.isfinite(predicted_lab).all().item()
+                    ),
+                    n_layer_k_finite=bool(
+                        torch.isfinite(n_layer_k).all().item()
+                    ),
+                    k_layer_k_finite=bool(
+                        torch.isfinite(k_layer_k).all().item()
+                    ),
+                    n_layer_k_stats=[
+                        float(n_layer_k.min().item()),
+                        float(n_layer_k.max().item()),
+                        float(n_layer_k.mean().item()),
+                    ],
+                    k_layer_k_stats=[
+                        float(k_layer_k.min().item()),
+                        float(k_layer_k.max().item()),
+                        float(k_layer_k.mean().item()),
+                    ],
+                    gt_slots=gt_slots,
+                    gt_thicknesses=gt_thicknesses,
+                    prefix_n_finite=bool(
+                        torch.isfinite(gt_n_stack[:k]).all().item()
+                    ) if k > 0 else True,
+                    suffix_n_finite=bool(
+                        torch.isfinite(gt_n_stack[k + 1:]).all().item()
+                    ) if k + 1 < n_layers else True,
+                    thicknesses_full=thicknesses_full.detach().cpu().tolist(),
+                    argmax_slot_pool_n_finite=bool(
+                        torch.isfinite(pool_n[argmax_slot]).all().item()
+                    ),
+                    argmax_slot_pool_n_stats=[
+                        float(pool_n[argmax_slot].min().item()),
+                        float(pool_n[argmax_slot].max().item()),
+                        float(pool_n[argmax_slot].mean().item()),
+                    ],
+                )
 
         with torch.no_grad():
             per_pos_diag.append({
@@ -467,6 +551,26 @@ def finetune_de_loss(
             f"got shape {tuple(logits.shape)}. This finetune requires the "
             f"cross-attn head (packed decoder). Set HEAD_MODE=cross_attn."
         )
+
+    # One-shot sanity: log if the model's raw output is already NaN before
+    # STE / sim. Isolates model-forward bugs from sim / loss bugs.
+    if _NAN_DEBUG_COUNT < _NAN_DEBUG_LIMIT:
+        with torch.no_grad():
+            finite_share = float(torch.isfinite(logits).float().mean().item())
+        if finite_share < 1.0:
+            _log_nan(
+                where="model.forward output logits",
+                finite_share=finite_share,
+                logits_min=float(logits[torch.isfinite(logits)].min().item())
+                if torch.isfinite(logits).any() else float("nan"),
+                logits_max=float(logits[torch.isfinite(logits)].max().item())
+                if torch.isfinite(logits).any() else float("nan"),
+                batch_size=batch_size,
+                lab_finite=bool(torch.isfinite(lab).all().item()),
+                pool_features_finite=bool(
+                    torch.isfinite(pool_features).all().item()
+                ),
+            )
 
     # sim / STE work in float64 for numerical stability; convert on the
     # boundary so the model can keep bf16/fp32 for its heavy tensors.

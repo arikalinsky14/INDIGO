@@ -123,6 +123,20 @@ bins. Two questions:
 | **Material slot** | Categorical. Cannot physically interpolate — averaging two n/k spectra is nonsense. | **STE on argmax slot.** Forward: hard one-hot. Backward: softmax gradient. |
 | **Thickness bin** | Interference-optical. **The posterior can be multimodal**: 10 nm and 100 nm can both produce the target color, but 55 nm can produce a very different color. Averaging bins is unsafe. | **STE on argmax bin.** Forward: hard bin center in nm. Backward: softmax gradient over bins, ordinally aware via `bin_centers`. |
 
+**Aside — why thickness is a classifier at all (pretrain design choice).**
+A regression head over a continuous thickness scalar would be the natural
+first instinct. It's not what we do, because the posterior over
+`thickness | (target_lab, prefix)` is genuinely multimodal in
+interference optics. For a given target color and prefix, thicknesses
+of ~10 nm and ~100 nm can both hit ΔE ≈ 1, while the arithmetic mean
+(~55 nm) hits ΔE ≈ 8. A regressor trained on both examples would learn
+to output 55 — the mean of the two correct answers is a wrong answer.
+A classifier over bins can put probability on both modes and pick either
+one at decode time; the multimodality is preserved. Same reason we
+STE-on-argmax-bin here rather than passing a soft-averaged thickness to
+the sim — soft averaging would recreate the "mean of two good answers"
+problem inside every training step.
+
 Both use the identical trick: hard forward, soft backward, no averaging
 of physically-incompatible outputs. The forward pass always presents the
 simulator with a single-material, single-thickness stack — a physically
@@ -206,6 +220,77 @@ capability is the backward.
 - Teacher-forced prefix + STE-predicted layer k + teacher-forced suffix.
 - One sim call per example, one ΔE loss.
 - Monitoring hooks (slot-argmax-flip rate, thickness entropy).
+
+### 3.4 How the gradient reaches every (material, thickness) combo
+
+A common intuition trap: since the sim is called once per (example, k)
+with a single hard slot and a single hard thickness bin, it looks like
+only *that* one combo can be improved. In fact **every entry of the
+3201-way vocab receives a gradient at position k**, via a first-order
+linear projection of the sim's analytic gradient. Understanding this
+projection is the whole reason we're not paying a 3201× sim overhead.
+
+**One sim, three tensors of gradient.** `jax.vjp` gives us the analytic
+gradient at the single simulated point:
+
+```
+∂ΔE/∂n_layer_k[λ],   ∂ΔE/∂k_layer_k[λ],   ∂ΔE/∂thickness_k
+```
+
+(vectors of length `NUM_LAMBDA` and one scalar, all evaluated at the
+argmax combo we actually simulated).
+
+**Projection to every slot.** The layer-k n/k tensor is built as
+`n_layer_k = slot_choice @ pool_n` where `slot_choice` is the STE'd
+one-hot. In the backward, that linear map turns the sim gradient into
+a per-slot gradient:
+
+```
+∂ΔE/∂slot_choice[i]  ≈  ⟨∂ΔE/∂n_layer_k, pool_n[i]⟩
+                       + ⟨∂ΔE/∂k_layer_k, pool_k[i]⟩
+```
+
+That's a scalar per slot `i`: *"how does ΔE change if I nudge the
+current n/k a tiny bit toward material i's spectrum?"* It's not a
+literal simulation of material i — it's the sim's *local* gradient
+projected onto material i's spectral profile.
+
+**Projection to every thickness bin.** Same story with
+`thickness_nm = thick_choice @ bin_centers`:
+
+```
+∂ΔE/∂thick_choice[j]  ≈  ∂ΔE/∂thickness_k · bin_centers[j]
+```
+
+*"How does ΔE change if I nudge thickness toward bin j's center,
+using the local ∂ΔE/∂t I already have."*
+
+Then both per-vocab gradients flow through the softmax, back through
+the transformer, into every trainable parameter.
+
+**What this buys us (and where it can bite).**
+
+- **Cheap:** 1 sim per (example, k), not 3201. This is what makes 1M
+  examples × ~7 layers avg = ~7M sims per epoch tractable.
+- **Locally correct:** for materials whose n/k is close to the current
+  pick, or bins near the current thickness, the linearization is
+  accurate.
+- **Globally biased (classic STE):** for a material with wildly
+  different n/k, the linear projection can point in the wrong direction
+  ("looks like it would help" — but a full sim there might disagree).
+  This is the standard STE bias.
+- **Self-correcting under small LR:** as the argmax pick shifts during
+  training, the anchor point of the linearization shifts with it. Small
+  steps keep us in the locally-honest regime, and each step re-anchors.
+  This is why LR is 5e-6 / 1e-6 here — small enough that no single update
+  moves us out of the linear neighbourhood the sim gradient was valid in.
+
+**Mental model summary.** For each layer position, the sim runs once
+at the argmax combo, and its analytic gradient is *projected* onto every
+material and every thickness bin via their spectral profile and bin
+position. Every vocab entry gets a first-order linear estimate of
+"would picking me lower ΔE?" — cheap and locally-honest, with the STE
+bias absorbed by small LR + short finetune.
 
 ---
 
