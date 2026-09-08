@@ -74,6 +74,101 @@ except ImportError as e:
     _IMPORT_ERROR = str(e)
 
 
+# ============================================================================
+# Monkey-patch: strip trace-hostile asserts from jaxlayerlumos so we can
+# @jax.jit the forward. The library has Python-level assertions that check
+# invariants on the thicknesses array (e.g. `assert thicknesses[0] == 0`)
+# which raise TracerBoolConversionError under jit / vmap / jvp — Python's
+# assert wants a concrete bool, but a jitted call sees a Tracer.
+#
+# The invariants themselves are guaranteed at our call site (we prepend
+# air with thickness 0 and append substrate with thickness 0 ourselves
+# in _JAX_FORWARD below), so removing the asserts is safe. We rewrite the
+# offending functions' source at import time — a scoped, surgical monkey-
+# patch. If the library changes shape and the patch no longer applies,
+# we fall through to non-jit'd mode with a warning rather than crashing.
+# ============================================================================
+
+
+_JIT_PATCH_APPLIED: bool = False
+_JIT_PATCH_REASON: Optional[str] = None
+
+
+def _patch_jaxlayerlumos_asserts() -> None:
+    """Strip `assert thicknesses...` lines from every function in
+    jaxlayerlumos.jaxlayerlumos that has them. Rebuilds each patched
+    function in the library's own module namespace so its closures and
+    imports still resolve correctly."""
+    global _JIT_PATCH_APPLIED, _JIT_PATCH_REASON
+
+    if not _JAX_AVAILABLE:
+        _JIT_PATCH_REASON = "jax unavailable"
+        return
+
+    import inspect
+    import textwrap
+
+    try:
+        import jaxlayerlumos.jaxlayerlumos as _jll_mod
+    except Exception as e:
+        _JIT_PATCH_REASON = f"cannot import jaxlayerlumos.jaxlayerlumos: {e}"
+        return
+
+    patched_names: list = []
+    failures: list = []
+
+    for name in list(vars(_jll_mod).keys()):
+        obj = getattr(_jll_mod, name, None)
+        if not callable(obj):
+            continue
+        # Only patch functions defined IN this module (not re-exports).
+        if getattr(obj, "__module__", None) != _jll_mod.__name__:
+            continue
+        try:
+            src = inspect.getsource(obj)
+        except (TypeError, OSError):
+            continue
+        if "assert thicknesses" not in src:
+            continue
+
+        # Drop any line whose stripped form starts with `assert thicknesses`
+        # (catches both `assert thicknesses[0] == 0` and the symmetric
+        # `assert thicknesses[-1] == 0` if present).
+        src_dedented = textwrap.dedent(src)
+        patched_src = "\n".join(
+            line for line in src_dedented.splitlines()
+            if not line.lstrip().startswith("assert thicknesses")
+        )
+        try:
+            exec(
+                compile(patched_src, f"<jit-patched:{name}>", "exec"),
+                _jll_mod.__dict__,
+            )
+            patched_names.append(name)
+        except Exception as e:
+            failures.append((name, str(e)))
+
+    if failures:
+        _JIT_PATCH_REASON = (
+            f"failed to patch: {failures}; patched anyway: {patched_names}"
+        )
+        # Even a partial patch may be enough; leave APPLIED true so callers
+        # can decide.
+        _JIT_PATCH_APPLIED = bool(patched_names)
+    elif patched_names:
+        _JIT_PATCH_APPLIED = True
+        _JIT_PATCH_REASON = f"patched {len(patched_names)} function(s): {patched_names}"
+    else:
+        _JIT_PATCH_APPLIED = False
+        _JIT_PATCH_REASON = (
+            "no functions with `assert thicknesses` found in "
+            "jaxlayerlumos.jaxlayerlumos — library may have changed"
+        )
+
+
+_patch_jaxlayerlumos_asserts()
+
+
 def is_available() -> bool:
     return _JAX_AVAILABLE
 
@@ -369,6 +464,9 @@ def _smoke() -> None:
     if not _JAX_AVAILABLE:
         print(f"[smoke] jaxlayerlumos not installed ({_IMPORT_ERROR}); skipping.")
         return
+
+    print(f"[smoke] jaxlayerlumos assert-patch applied: {_JIT_PATCH_APPLIED}")
+    print(f"[smoke]   reason: {_JIT_PATCH_REASON}")
 
     from pathlib import Path
     from src.material_features import load_jll_directory
