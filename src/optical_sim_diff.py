@@ -67,7 +67,8 @@ try:
     import jax.numpy as jnp
     import scipy.constants as scic
     from jaxlayerlumos.jaxlayerlumos import stackrt_n_k
-    import jaxlayerlumos.colors.composite as jll_colors_composite
+    import jaxlayerlumos.colors.composite as jll_colors_composite  # noqa: F401 — kept so submodule loads for the patch walker
+    import jaxlayerlumos.colors.transform as jll_colors_transform
 
     _JAX_AVAILABLE = True
 except ImportError as e:
@@ -96,29 +97,35 @@ _JIT_PATCH_REASON: Optional[str] = None
 
 def _patch_jaxlayerlumos_asserts() -> None:
     """Strip trace-hostile Python control flow from jaxlayerlumos so
-    @jax.jit can wrap the sim path.
+    @jax.jit can wrap the sim + color path end-to-end.
 
-    Two patterns to remove:
+    Patterns removed:
 
-      1. `assert thicknesses[0] == 0` / `assert thicknesses[-1] == 0`
-         (invariant already guaranteed at our call site in _JAX_FORWARD).
+      1. **Every** ``assert`` statement in a patched function. The
+         library's asserts are input validation (shape checks, wavelength
+         range checks, thickness invariants). Under jit any assert whose
+         test produces a Tracer bool (comparisons on ``jnp.min``,
+         ``jnp.max``, element access, etc.) raises TracerBoolConversionError.
+         Purely-static asserts (``x.ndim == 2``) don't need to be stripped,
+         but stripping them is harmless because we control every input to
+         the sim path and don't rely on the library's runtime validation.
 
-      2. In stackrt_eps_mu_theta, a Python-level `if` block that branches
-         on `jnp.isinf(jnp.real(eps_r[:, -1]))` — checks whether the last
-         layer is a perfect-absorber substrate and zeros out T_TE/T_TM if
-         so. Our substrate is fused silica (finite eps), so the branch
-         is never taken; and we ignore T_TE/T_TM anyway (we only use
-         reflectance). The library maintainer flagged this block with a
-         `TODO: it is needed?` comment.
+      2. The specific ``if jnp.all(jnp.isinf(jnp.real(eps_r[:, -1]))) and ...``
+         block in ``stackrt_eps_mu_theta``. It zeros out T_TE/T_TM when
+         the last layer is a perfect absorber; irrelevant to us (fused
+         silica substrate, and we discard T anyway) but branches on a
+         traced value.
 
-    Both patterns break jit because Python's assert and if want concrete
-    Python bools, but under tracing they see Tracer objects.
+    Both patterns break jit because Python's ``assert`` and ``if`` want a
+    concrete Python bool. Under tracing they see a Tracer.
 
-    We rewrite each affected function via AST (parse -> prune -> unparse
-    -> exec into the library's module namespace). Prune predicates are
-    conservative — we only skip statements whose test refers to a name
-    we know is a traced array (`thicknesses` for asserts, `eps_r`/`mu_r`
-    for the if).
+    We walk **every** currently-loaded ``jaxlayerlumos.*`` submodule
+    (not just ``jaxlayerlumos.jaxlayerlumos``) because the color pipeline
+    lives in ``jaxlayerlumos.colors.*`` and has its own asserts. Each
+    affected function is re-parsed to AST, pruned, unparsed, and exec'd
+    back into its own module namespace so closures and imports still
+    resolve correctly. If pruning empties a function body we insert a
+    ``pass`` so the resulting source is valid Python.
     """
     global _JIT_PATCH_APPLIED, _JIT_PATCH_REASON
 
@@ -128,112 +135,122 @@ def _patch_jaxlayerlumos_asserts() -> None:
 
     import ast
     import inspect
+    import sys
     import textwrap
-
-    try:
-        import jaxlayerlumos.jaxlayerlumos as _jll_mod
-    except Exception as e:
-        _JIT_PATCH_REASON = f"cannot import jaxlayerlumos.jaxlayerlumos: {e}"
-        return
 
     class _TraceHostilePruner(ast.NodeTransformer):
         def __init__(self) -> None:
             self.pruned: list = []
 
-        def _test_src(self, node) -> str:
+        def _src(self, node) -> str:
             try:
                 return ast.unparse(node)
             except Exception:
                 return ""
 
         def visit_Assert(self, node: ast.Assert):
-            test_src = self._test_src(node.test)
-            # Guarantee-elsewhere: `assert thicknesses[0] == 0` and cousins.
-            if "thicknesses" in test_src:
-                self.pruned.append(f"assert {test_src}")
-                return None
-            return node
+            # Strip every assert in patched code. Library asserts are
+            # input validation we don't need — see docstring.
+            self.pruned.append(f"assert {self._src(node.test)[:80]}")
+            return None
 
         def visit_If(self, node: ast.If):
-            test_src = self._test_src(node.test)
-            # `if (jnp.all(jnp.isinf(...eps_r...)) and ...)` in
-            # stackrt_eps_mu_theta. Match on both key names to be
-            # specific.
+            test_src = self._src(node.test)
+            # The specific `if jnp.all(jnp.isinf(...eps_r...)) and ...`
+            # block in stackrt_eps_mu_theta.
             if (
                 "jnp.isinf" in test_src
-                and "eps_r" in test_src
+                and ("eps_r" in test_src or "mu_r" in test_src)
                 and "jnp.allclose" in test_src
             ):
                 self.pruned.append(f"if {test_src[:80]}...")
                 return None
-            # Recurse into nested statements otherwise.
             self.generic_visit(node)
             return node
 
-    patched_names: list = []
+        def _ensure_nonempty(self, node):
+            self.generic_visit(node)
+            if hasattr(node, "body") and not node.body:
+                node.body = [ast.Pass()]
+            return node
+
+        def visit_FunctionDef(self, node): return self._ensure_nonempty(node)
+        def visit_AsyncFunctionDef(self, node): return self._ensure_nonempty(node)
+        def visit_For(self, node): return self._ensure_nonempty(node)
+        def visit_AsyncFor(self, node): return self._ensure_nonempty(node)
+        def visit_While(self, node): return self._ensure_nonempty(node)
+        def visit_With(self, node): return self._ensure_nonempty(node)
+        def visit_AsyncWith(self, node): return self._ensure_nonempty(node)
+        def visit_Try(self, node): return self._ensure_nonempty(node)
+
+    # Find every jaxlayerlumos.* module currently loaded. Importing the
+    # sim + color entry points above should have pulled in everything we
+    # need; anything added later (unlikely) would just not be patched.
+    jll_modules = [
+        m for name, m in list(sys.modules.items())
+        if name == "jaxlayerlumos" or name.startswith("jaxlayerlumos.")
+        if m is not None
+    ]
+
+    patched: list = []
     failures: list = []
 
-    for name in list(vars(_jll_mod).keys()):
-        obj = getattr(_jll_mod, name, None)
-        if not callable(obj):
-            continue
-        # Only patch functions defined IN this module (not re-exports).
-        if getattr(obj, "__module__", None) != _jll_mod.__name__:
-            continue
-        try:
-            src = inspect.getsource(obj)
-        except (TypeError, OSError):
-            continue
+    for mod in jll_modules:
+        mod_name = getattr(mod, "__name__", "?")
+        for fn_name in list(vars(mod).keys()):
+            obj = getattr(mod, fn_name, None)
+            if not callable(obj):
+                continue
+            if getattr(obj, "__module__", None) != mod_name:
+                continue
+            try:
+                src = inspect.getsource(obj)
+            except (TypeError, OSError):
+                continue
 
-        # Cheap gate: only pay parse+prune cost if a hostile keyword is
-        # even present.
-        if (
-            "assert thicknesses" not in src
-            and not ("jnp.isinf" in src and "eps_r" in src)
-        ):
-            continue
+            # Cheap gate.
+            if "assert" not in src and "jnp.isinf" not in src:
+                continue
 
-        src_dedented = textwrap.dedent(src)
-        try:
-            tree = ast.parse(src_dedented)
-        except SyntaxError as e:
-            failures.append((name, f"parse: {e}"))
-            continue
+            src_dedented = textwrap.dedent(src)
+            try:
+                tree = ast.parse(src_dedented)
+            except SyntaxError as e:
+                failures.append((f"{mod_name}.{fn_name}", f"parse: {e}"))
+                continue
 
-        pruner = _TraceHostilePruner()
-        new_tree = pruner.visit(tree)
-        ast.fix_missing_locations(new_tree)
-        if not pruner.pruned:
-            continue  # nothing to do for this one
+            pruner = _TraceHostilePruner()
+            new_tree = pruner.visit(tree)
+            ast.fix_missing_locations(new_tree)
+            if not pruner.pruned:
+                continue
 
-        try:
-            new_src = ast.unparse(new_tree)
-        except Exception as e:
-            failures.append((name, f"unparse: {e}"))
-            continue
+            try:
+                new_src = ast.unparse(new_tree)
+            except Exception as e:
+                failures.append((f"{mod_name}.{fn_name}", f"unparse: {e}"))
+                continue
 
-        try:
-            exec(
-                compile(new_src, f"<jit-patched:{name}>", "exec"),
-                _jll_mod.__dict__,
-            )
-            patched_names.append((name, pruner.pruned))
-        except Exception as e:
-            failures.append((name, f"exec: {e}"))
+            try:
+                exec(
+                    compile(new_src, f"<jit-patched:{mod_name}.{fn_name}>", "exec"),
+                    mod.__dict__,
+                )
+                patched.append((f"{mod_name}.{fn_name}", len(pruner.pruned)))
+            except Exception as e:
+                failures.append((f"{mod_name}.{fn_name}", f"exec: {e}"))
 
     if failures:
         _JIT_PATCH_REASON = (
-            f"failed: {failures}; patched anyway: "
-            f"{[n for n, _ in patched_names]}"
+            f"failed: {failures}; patched anyway: {[n for n, _ in patched]}"
         )
-        _JIT_PATCH_APPLIED = bool(patched_names)
-    elif patched_names:
+        _JIT_PATCH_APPLIED = bool(patched)
+    elif patched:
         _JIT_PATCH_APPLIED = True
         _JIT_PATCH_REASON = (
-            f"patched {len(patched_names)} function(s): "
-            + "; ".join(
-                f"{n} ({', '.join(p)})" for n, p in patched_names
-            )
+            f"patched {len(patched)} function(s) across "
+            f"{len({n.rsplit('.', 1)[0] for n, _ in patched})} module(s): "
+            + ", ".join(f"{n}(-{k})" for n, k in patched)
         )
     else:
         _JIT_PATCH_APPLIED = False
@@ -282,19 +299,13 @@ _SUBSTRATE_K = np.zeros(NUM_LAMBDA, dtype=np.float64)
 
 
 # ============================================================================
-# Colour constants (D65 white point + linear-sRGB → XYZ matrix)
+# Colour constants (D65 white point for the XYZ → Lab step)
 # ============================================================================
 # Mirror src/color_utils.py so results are numerically identical.
 
 _X_N: float = 95.047
 _Y_N: float = 100.000
 _Z_N: float = 108.883
-
-_M_SRGB_TO_XYZ_NP = np.array([
-    [0.4124564, 0.3575761, 0.1804375],
-    [0.2126729, 0.7151522, 0.0721750],
-    [0.0193339, 0.1191920, 0.9503041],
-])
 
 
 # ============================================================================
@@ -309,7 +320,6 @@ def _make_jax_forward():
     if not _JAX_AVAILABLE:
         return None
 
-    M_SRGB_TO_XYZ = jnp.asarray(_M_SRGB_TO_XYZ_NP)
     AIR_N_JAX = jnp.asarray(_AIR_N)
     AIR_K_JAX = jnp.asarray(_AIR_K)
     SUB_N_JAX = jnp.asarray(_SUBSTRATE_N)
@@ -323,16 +333,6 @@ def _make_jax_forward():
     VALID_MASK_JAX = jnp.asarray(_VALID_MASK)
     THETAS_JAX = jnp.asarray([0.0])
     NANO = float(scic.nano)
-
-    def _inv_gamma(c):
-        # Standard sRGB inverse gamma, extended symmetrically to negatives so
-        # out-of-gamut colours pass through cleanly. Matches the numpy loop
-        # in src/color_utils.spectrum_to_lab.
-        abs_c = jnp.abs(c)
-        sign = jnp.sign(c)
-        low = abs_c / 12.92
-        high = ((abs_c + 0.055) / 1.055) ** 2.4
-        return sign * jnp.where(abs_c <= 0.04045, low, high)
 
     def _f_lab(t):
         # CIE Lab piecewise cube root.
@@ -382,17 +382,19 @@ def _make_jax_forward():
         R_TE, _, R_TM, _ = stackrt_n_k(n_complex, d_m, FREQS_JAX, thetas)
         R_avg = (R_TE[0] + R_TM[0]) / 2.0  # [NUM_LAMBDA]
 
-        # Filter to the CIE visible band the sRGB helper expects.
+        # Filter to the CIE visible band the color helpers expect.
         R_valid = R_avg[VALID_MASK_JAX]
 
-        # spectrum → un-clipped sRGB → linear sRGB → XYZ → Lab
-        rgb_unclipped = jll_colors_composite.spectrum_to_sRGB(
-            VALID_LAMBDAS_JAX, R_valid, use_clipping=False,
-        )
-        rgb_float = rgb_unclipped.reshape(-1)[:3]
-
-        rgb_linear = _inv_gamma(rgb_float)
-        xyz = (M_SRGB_TO_XYZ @ rgb_linear) * 100.0
+        # spectrum → XYZ → Lab.  We deliberately skip the sRGB round-trip
+        # (spectrum_to_sRGB internally does spectrum → XYZ → sRGB with a
+        # Python `if C <= 0.0031308:` gamma branch that dies under jit),
+        # since our final target is Lab anyway. spectrum_to_XYZ returns
+        # XYZ scaled to Y_D65 = 1.0 (perfect white = [0.95, 1.0, 1.09]);
+        # multiply by 100 to match the CIE convention our _X_N/_Y_N/_Z_N
+        # white point uses.
+        xyz = jll_colors_transform.spectrum_to_XYZ(
+            VALID_LAMBDAS_JAX, R_valid,
+        ) * 100.0
         fx = _f_lab(xyz[0] / _X_N)
         fy = _f_lab(xyz[1] / _Y_N)
         fz = _f_lab(xyz[2] / _Z_N)
