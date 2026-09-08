@@ -169,6 +169,19 @@ def _make_jax_forward():
         linear = t / (3 * delta * delta) + 4.0 / 29.0
         return jnp.where(t > delta ** 3, cube_root, linear)
 
+    # JIT the forward: without this, jax.vjp re-traces the entire TMM +
+    # CIE-color pipeline through Python on every call. On the first
+    # finetune throughput smoke that translated to ~220 ms per sim call
+    # (~200 s per step, 0.7 ex/s), because each of the ~B*N sim calls
+    # per training step paid the full tracing cost. With @jax.jit, JAX
+    # compiles one XLA kernel per (n_stack shape, k_stack shape,
+    # thicknesses shape, incidence_angle value) tuple and caches it —
+    # in practice 1..MAX_LAYERS shapes × one incidence value at training
+    # time, so ≤ MAX_LAYERS kernels. Compilation happens on the first
+    # call for each shape; every subsequent call is a single dispatch.
+    # jax.vjp remains happy because it can differentiate through a
+    # jitted function transparently.
+    @jax.jit
     def forward(n_stack, k_stack, thicknesses_nm, incidence_angle):
         """
         n_stack, k_stack : [num_layers, NUM_LAMBDA]

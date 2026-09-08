@@ -552,15 +552,19 @@ def finetune_de_loss(
             f"cross-attn head (packed decoder). Set HEAD_MODE=cross_attn."
         )
 
-    # One-shot sanity: log if the model's raw output is already NaN before
-    # STE / sim. Isolates model-forward bugs from sim / loss bugs.
+    # One-shot sanity: log if the model's raw output contains NaN or +inf.
+    # -inf is expected (apply_output_mask=True writes -inf into padded-slot
+    # tokens; ste_pick sanitizes these to -1e9 before any multiplication)
+    # so we deliberately do NOT flag it here.
     if _NAN_DEBUG_COUNT < _NAN_DEBUG_LIMIT:
         with torch.no_grad():
-            finite_share = float(torch.isfinite(logits).float().mean().item())
-        if finite_share < 1.0:
+            has_nan = bool(torch.isnan(logits).any().item())
+            has_posinf = bool(torch.isposinf(logits).any().item())
+        if has_nan or has_posinf:
             _log_nan(
                 where="model.forward output logits",
-                finite_share=finite_share,
+                has_nan=has_nan,
+                has_posinf=has_posinf,
                 logits_min=float(logits[torch.isfinite(logits)].min().item())
                 if torch.isfinite(logits).any() else float("nan"),
                 logits_max=float(logits[torch.isfinite(logits)].max().item())
