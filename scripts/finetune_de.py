@@ -101,7 +101,14 @@ def append_history(history_path: Path, row: Dict) -> None:
 def evaluate_val(model, val_loader, device, ce_loss_weight: float = 0.0) -> Dict[str, float]:
     """Val eval. Threads ce_loss_weight through so val loss_ce is also
     reported when the anchor is on; val_loss_de is always the primary
-    metric regardless of weight (that's the target objective)."""
+    metric regardless of weight (that's the target objective).
+
+    NOTE: val ALWAYS runs the STE greedy path (real_sim_topk=0) so that
+    val_loss_de measures the ΔE at the model's own greedy pick — the
+    same quantity across all training modes (STE, top-K K=5/10/15,
+    with/without CE anchor). Otherwise different K would spend
+    different sim budgets on val and val_loss_de wouldn't be
+    apples-to-apples across runs."""
     model.eval()
     metrics_accum: Dict[str, float] = {}
     n_total_positions = 0
@@ -110,6 +117,7 @@ def evaluate_val(model, val_loader, device, ce_loss_weight: float = 0.0) -> Dict
             _, m = finetune_de_loss(
                 model, batch, device=device,
                 ce_loss_weight=ce_loss_weight,
+                real_sim_topk=0,
             )
             n_pos = int(m.get("n_positions", 0))
             if n_pos == 0:
@@ -202,6 +210,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--ce-loss-weight", type=float, default=0.0,
                    help="Weight for the CE anchor in the combined loss "
                         "L = ΔE + λ*CE. 0 disables the anchor (pure ΔE).")
+
+    # Top-K real-sim loss (C1). See src/de_finetune.py:_topK_sim_loss_for_example.
+    # 0 = STE mode (original). >0 replaces the STE ΔE primary loss with a
+    # listwise CE loss whose target is softmax(-β·ΔE_real) over the top-K
+    # slot candidates per position. Sim cost scales linearly with K.
+    p.add_argument("--real-sim-topk", type=int, default=0,
+                   help="0=STE mode. K>0 uses top-K real-sim listwise CE loss.")
+    p.add_argument("--sim-target-beta", type=float, default=1.0,
+                   help="Target-dist sharpness for real-sim CE: "
+                        "softmax(-β·ΔE). Higher β = sharper on argmin.")
 
     # Logging
     p.add_argument("--log-every", type=int, default=50)
@@ -358,6 +376,8 @@ def main() -> None:
             loss, metrics = finetune_de_loss(
                 model, batch, incidence_angle=args.incidence_angle,
                 device=device, ce_loss_weight=args.ce_loss_weight,
+                real_sim_topk=args.real_sim_topk,
+                sim_target_beta=args.sim_target_beta,
             )
             if not torch.isfinite(loss):
                 print(f"[WARN] non-finite loss at step {global_step}, skipping",
@@ -387,9 +407,14 @@ def main() -> None:
                     f"  loss_ce={metrics.get('loss_ce', float('nan')):.3f}"
                     if args.ce_loss_weight > 0 else ""
                 )
+                topk_str = (
+                    f"  loss_topk={metrics.get('loss_topk', float('nan')):.3f}"
+                    f"  argmin_hit={metrics.get('topk_argmin_matches_model', 0):.2f}"
+                    if args.real_sim_topk > 0 else ""
+                )
                 print(
                     f"[step {global_step + 1:>6}/{total_steps:>6}]  "
-                    f"loss_de={mean_loss_de:.3f}{ce_str}  lr={lr:.2e}  "
+                    f"loss_de={mean_loss_de:.3f}{topk_str}{ce_str}  lr={lr:.2e}  "
                     f"slot_ent={metrics.get('slot_entropy', 0):.2f}  "
                     f"thick_ent={metrics.get('thickness_entropy', 0):.2f}  "
                     f"slot_match_gt={metrics.get('slot_match_gt', 0):.2f}  "
@@ -423,6 +448,8 @@ def main() -> None:
                     "epoch": epoch,
                     "lr": lr,
                     "ce_loss_weight": args.ce_loss_weight,
+                    "real_sim_topk": args.real_sim_topk,
+                    "sim_target_beta": args.sim_target_beta,
                     "wall_time_utc": time.strftime(
                         "%Y-%m-%dT%H:%M:%SZ", time.gmtime(),
                     ),

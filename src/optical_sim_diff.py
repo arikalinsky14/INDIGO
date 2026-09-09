@@ -502,6 +502,37 @@ def differentiable_compute_lab(
     )
 
 
+def compute_lab_no_grad(
+    n_stack: torch.Tensor,
+    k_stack: torch.Tensor,
+    thicknesses_nm: torch.Tensor,
+    incidence_angle: float = 0.0,
+) -> torch.Tensor:
+    """Forward-only sim call — skips DifferentiableStackSim's VJP save.
+
+    Used by the top-K real-sim finetune loss, where we need real ΔE
+    values for a handful of candidate stacks per position but don't need
+    to backpropagate through the sim itself (gradients flow through the
+    model's slot logits, weighted by these ΔE scalars as fixed targets).
+
+    Returns a non-differentiable Lab tensor of shape [3].
+    """
+    if _JAX_FORWARD is None:
+        raise RuntimeError(
+            f"jaxlayerlumos not available: {_IMPORT_ERROR}"
+        )
+    device = n_stack.device
+    dtype = n_stack.dtype
+    n_np = _to_np(n_stack)
+    k_np = _to_np(k_stack)
+    t_np = _to_np(thicknesses_nm)
+    n_jax = jnp.asarray(n_np)
+    k_jax = jnp.asarray(k_np)
+    t_jax = jnp.asarray(t_np)
+    lab_jax = _JAX_FORWARD(n_jax, k_jax, t_jax, incidence_angle)
+    return _to_torch(lab_jax, device, dtype)
+
+
 # ============================================================================
 # Convenience: assemble a stack from a soft slot choice (for STE'd rollouts)
 # ============================================================================

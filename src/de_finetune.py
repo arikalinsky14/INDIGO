@@ -66,6 +66,7 @@ from src.materials_vocab import (
     denormalize_lab,
 )
 from src.optical_sim_diff import (
+    compute_lab_no_grad,
     differentiable_compute_lab,
     is_available as sim_is_available,
 )
@@ -557,6 +558,208 @@ def _rollout_one(
 
 
 # ============================================================================
+# Top-K real-sim loss — replaces the STE linearization with actual ΔE
+# ============================================================================
+#
+# Motivation. The STE loss is a linearization of ΔE at the model's argmax
+# pick: it uses a single sim per position and projects the gradient onto
+# every candidate via the winning material's (n, k) directions. The Sept 8
+# STE-projection diagnostic showed only ~41% top-1 accuracy at model-argmax
+# anchors and ~80% sign agreement, and the Sept 9 λ ∈ {0.1, 1, 10, 100}
+# sweep confirmed the finetune drifts *away* from the pretrain manifold at
+# every ΔE weight — the linearization is unusable as a training signal.
+#
+# The top-K real-sim loss removes the linearization entirely:
+#
+#   1. Per position, marginalize joint logits to per-slot scores
+#      (max-over-thickness — same pool as ste_pick).
+#   2. Take the top-K slot candidates (padded slots masked out).
+#   3. For each candidate, use the model's conditional-argmax thickness
+#      for that slot; splice into GT prefix/suffix; run a real sim.
+#   4. Compute real ΔE₀₀ per candidate (K reals per position, stop-grad).
+#   5. Loss = listwise CE(softmax(slot_scores[topK]) ‖ softmax(-β·ΔE)):
+#      gradient flows only through the model's slot logits at the top-K
+#      indices, pushed toward the actual argmin-ΔE candidate.
+#
+# Cost. K sims per position (vs 1 for STE) — K=5 is ~5× the sim cost,
+# K=15 ~15×. Model fwd/bwd cost is unchanged. Thickness gradient is
+# dropped from this loss; pair with CE anchor (ce_loss_weight > 0) to
+# keep thickness training if desired.
+# ============================================================================
+
+
+def _topK_sim_loss_for_example(
+    logits_all_positions: torch.Tensor,  # [MAX_LAYERS+1, VOCAB_SIZE]  fp64
+    pool_n: torch.Tensor,                # [M_MAX, NUM_LAMBDA]  fp64
+    pool_k_ch: torch.Tensor,             # [M_MAX, NUM_LAMBDA]  fp64
+    pool_mask: torch.Tensor,             # [M_MAX]  fp64
+    gt_slots: List[int],                 # length N
+    gt_thicknesses: List[int],           # length N
+    target_lab_denorm: torch.Tensor,     # [3]  fp64
+    incidence_angle: float,
+    top_k: int,
+    beta: float,
+) -> Tuple[torch.Tensor, Dict[str, float], int]:
+    """Per-example top-K real-sim loss. Returns (sum_loss, metrics, n_pos).
+
+    `metrics["loss_de"]` mirrors the STE path's semantics — the ΔE at
+    the model's greedy (argmax slot × argmax thickness) pick — so
+    `val_loss_de` stays comparable across training modes.
+    """
+    device = pool_n.device
+    dtype_sim = pool_n.dtype
+    n_layers = len(gt_slots)
+    if n_layers == 0:
+        return (
+            torch.zeros((), device=device, dtype=dtype_sim),
+            {}, 0,
+        )
+
+    # GT prefix/suffix (constants — no grad, detached where used).
+    gt_slot_onehots = F.one_hot(
+        torch.tensor(gt_slots, device=device), num_classes=M_MAX,
+    ).to(dtype=dtype_sim)                              # [N, M_MAX]
+    gt_thicknesses_nm = torch.tensor(
+        gt_thicknesses, device=device, dtype=dtype_sim,
+    )                                                  # [N]
+    gt_n_stack = gt_slot_onehots @ pool_n              # [N, NUM_LAMBDA]
+    gt_k_stack = gt_slot_onehots @ pool_k_ch           # [N, NUM_LAMBDA]
+
+    active_mask_bool = pool_mask.bool()                # [M_MAX]
+    n_active = int(active_mask_bool.sum().item())
+    K_eff = max(1, min(top_k, n_active))
+
+    losses = []
+    per_pos_diag: List[Dict[str, float]] = []
+
+    for k in range(n_layers):
+        # Sanitize -inf just like ste_pick does (padded-slot masking).
+        step_logits = torch.nan_to_num(
+            logits_all_positions[k], neginf=-1e9, posinf=1e9,
+        )
+        layer_logits = step_logits[:M_MAX * NUM_THICKNESSES].view(
+            M_MAX, NUM_THICKNESSES,
+        )                                              # [M_MAX, NUM_THICKNESSES]
+
+        # Per-slot score = max thickness logit (same pool as ste_pick).
+        slot_scores = layer_logits.max(dim=-1).values  # [M_MAX]
+        slot_scores_masked = slot_scores.masked_fill(
+            ~active_mask_bool, -1e9,
+        )
+        # Top-K slot indices by (masked) per-slot score.
+        topk_slots = torch.topk(
+            slot_scores_masked, K_eff, dim=-1,
+        ).indices                                      # [K_eff]
+
+        # For each top-K slot, take argmax thickness bin conditional on that slot.
+        topk_thick_bins = layer_logits[topk_slots].argmax(dim=-1)  # [K_eff]
+
+        # Fixed prefix/suffix pieces (detached — no grad through these).
+        prefix_n = gt_n_stack[:k].detach()
+        prefix_k = gt_k_stack[:k].detach()
+        suffix_n = gt_n_stack[k + 1:].detach()
+        suffix_k = gt_k_stack[k + 1:].detach()
+        prefix_t = gt_thicknesses_nm[:k].detach()
+        suffix_t = gt_thicknesses_nm[k + 1:].detach()
+
+        # K sims, real ΔE per candidate. All stop-gradient (targets).
+        delta_e_candidates: List[torch.Tensor] = []
+        for c in range(K_eff):
+            slot_idx = int(topk_slots[c].item())
+            thick_bin = int(topk_thick_bins[c].item())
+            thick_nm = float(_THICKNESS_BIN_CENTERS_NP[thick_bin])
+
+            candidate_n = pool_n[slot_idx].unsqueeze(0)     # [1, NUM_LAMBDA]
+            candidate_k = pool_k_ch[slot_idx].unsqueeze(0)
+            candidate_t = torch.tensor(
+                [thick_nm], device=device, dtype=dtype_sim,
+            )
+            n_stack_full = torch.cat([prefix_n, candidate_n, suffix_n], dim=0)
+            k_stack_full = torch.cat([prefix_k, candidate_k, suffix_k], dim=0)
+            t_full = torch.cat([prefix_t, candidate_t, suffix_t], dim=0)
+
+            with torch.no_grad():
+                lab_c = compute_lab_no_grad(
+                    n_stack_full, k_stack_full, t_full,
+                    incidence_angle=incidence_angle,
+                )
+                de_c = ciede2000_torch(target_lab_denorm, lab_c)
+            delta_e_candidates.append(de_c.detach())
+
+        delta_e = torch.stack(delta_e_candidates)      # [K_eff]
+
+        # Target distribution: peaked on argmin ΔE, sharpness = β.
+        target_probs = F.softmax(-beta * delta_e, dim=-1)  # [K_eff]
+
+        # Model distribution over the same top-K slots. Slice into the
+        # (differentiable) slot_scores — NOT the masked/sanitized copy —
+        # so grad flows cleanly back into logits at the top-K positions.
+        topk_model_logits = slot_scores[topk_slots]        # [K_eff]
+        topk_log_probs = F.log_softmax(topk_model_logits, dim=-1)
+
+        loss_k = -(target_probs.detach() * topk_log_probs).sum()
+        losses.append(loss_k)
+
+        with torch.no_grad():
+            # Model's own greedy pick (over all active slots) — matches
+            # the semantics of the STE-mode `loss_de` metric so
+            # val_loss_de stays comparable.
+            model_argmax_slot = int(slot_scores_masked.argmax().item())
+            # Where is that pick inside the top-K? By construction the
+            # global argmax is in the top-K.
+            same = (topk_slots == model_argmax_slot).nonzero(as_tuple=False)
+            model_pick_idx_in_topk = int(same[0, 0].item()) if same.numel() > 0 else 0
+            de_model_pick = float(delta_e[model_pick_idx_in_topk].item())
+            de_best_topk = float(delta_e.min().item())
+            de_mean_topk = float(delta_e.mean().item())
+
+            argmin_idx = int(delta_e.argmin().item())
+            topk_argmin_matches_model = float(
+                model_pick_idx_in_topk == argmin_idx
+            )
+
+            model_argmax_thick_bin = int(
+                layer_logits[model_argmax_slot].argmax().item()
+            )
+            slot_match_gt = float(model_argmax_slot == gt_slots[k])
+            thick_match_gt = float(
+                THICKNESSES[model_argmax_thick_bin] == gt_thicknesses[k]
+            )
+
+            slot_probs_all = F.softmax(slot_scores_masked, dim=-1)
+            slot_entropy = -(
+                slot_probs_all * slot_probs_all.clamp_min(1e-12).log()
+            ).sum().item()
+            argmax_slot_thick_probs = F.softmax(
+                layer_logits[model_argmax_slot], dim=-1,
+            )
+            thick_entropy = -(
+                argmax_slot_thick_probs
+                * argmax_slot_thick_probs.clamp_min(1e-12).log()
+            ).sum().item()
+
+            per_pos_diag.append({
+                "loss_de": de_model_pick,
+                "loss_de_best_topk": de_best_topk,
+                "loss_de_mean_topk": de_mean_topk,
+                "loss_topk": float(loss_k.item()),
+                "slot_match_gt": slot_match_gt,
+                "thickness_match_gt": thick_match_gt,
+                "topk_argmin_matches_model": topk_argmin_matches_model,
+                "slot_entropy": slot_entropy,
+                "thickness_entropy": thick_entropy,
+            })
+
+    total_loss = torch.stack(losses).sum()
+    if per_pos_diag:
+        keys = per_pos_diag[0].keys()
+        metrics = {kk: float(np.mean([d[kk] for d in per_pos_diag])) for kk in keys}
+    else:
+        metrics = {}
+    return total_loss, metrics, n_layers
+
+
+# ============================================================================
 # Batch loss (public API)
 # ============================================================================
 
@@ -567,18 +770,29 @@ def finetune_de_loss(
     incidence_angle: float = 0.0,
     device: Optional[torch.device] = None,
     ce_loss_weight: float = 0.0,
+    real_sim_topk: int = 0,
+    sim_target_beta: float = 1.0,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Compute the finetune loss + diagnostics for one batch.
 
-    Loss = ΔE₀₀_mean_per_position + ce_loss_weight * CE_mean_per_position
+    Two training modes selected by real_sim_topk:
+
+      real_sim_topk == 0   (STE mode, original)
+        primary = mean STE ΔE₀₀ per position.
+      real_sim_topk >  0   (top-K real-sim mode)
+        primary = mean listwise CE per position, where the target
+        distribution over the K candidates is softmax(-β · ΔE_real).
+        See _topK_sim_loss_for_example for details.
+
+    Combined loss = primary + ce_loss_weight * CE_anchor.
 
     Setting ce_loss_weight > 0 adds a per-token cross-entropy anchor
     against the GT (slot, thickness_bin) at every layer position. This
     is the same CE loss the pretrain minimized; adding it here binds
-    the finetune to the pretrain manifold and counteracts drift caused
-    by the STE gradient's linearization bias (which was shown to have
-    only 41% top-1 accuracy at the model's argmax anchors — see the
-    Sept 8 diagnostic in analyses/de_finetune/).
+    the finetune to the pretrain manifold. Under STE mode it's a
+    correction for the STE linearization drift; under top-K real-sim
+    mode it also keeps the thickness head trained (the top-K loss
+    only puts gradient on slot logits).
 
     Expected batch keys (produced by src/de_finetune.collate_fn below):
         lab            : [B, 3]                — normalised target Lab
@@ -703,11 +917,21 @@ def finetune_de_loss(
 
         logits_b = logits[b].to(dtype=sim_dtype)     # [MAX_LAYERS+1, V]
 
-        loss_b, metrics_b, n_pos = _rollout_one(
-            logits_b, pool_n_b, pool_k_b,
-            gt_slots, gt_thicknesses, target_lab_denorm,
-            incidence_angle=incidence_angle,
-        )
+        if real_sim_topk > 0:
+            pool_mask_b = pool_mask[b].to(dtype=sim_dtype)
+            loss_b, metrics_b, n_pos = _topK_sim_loss_for_example(
+                logits_b, pool_n_b, pool_k_b, pool_mask_b,
+                gt_slots, gt_thicknesses, target_lab_denorm,
+                incidence_angle=incidence_angle,
+                top_k=real_sim_topk,
+                beta=sim_target_beta,
+            )
+        else:
+            loss_b, metrics_b, n_pos = _rollout_one(
+                logits_b, pool_n_b, pool_k_b,
+                gt_slots, gt_thicknesses, target_lab_denorm,
+                incidence_angle=incidence_angle,
+            )
         total_loss = total_loss + loss_b
         total_positions += n_pos
         if metrics_b:
@@ -722,7 +946,10 @@ def finetune_de_loss(
     if total_positions == 0:
         return total_loss, {"n_positions": 0, "batch_size": batch_size}
 
-    mean_de_loss = total_loss / total_positions  # sim_dtype (fp64)
+    # In STE mode this scalar IS the ΔE mean (comparable across runs).
+    # In top-K mode it's the listwise CE — a different unit; the ΔE
+    # metric is carried per-position via metrics["loss_de"] instead.
+    primary_loss = total_loss / total_positions   # sim_dtype (fp64)
 
     # ---- Optional CE anchor ----
     # CE uses the model's native dtype for numerical parity with pretrain;
@@ -735,10 +962,10 @@ def finetune_de_loss(
             batch["target_slots"],
             batch["target_thicknesses"],
         )
-        combined_loss = mean_de_loss + ce_loss_weight * ce_loss.to(dtype=sim_dtype)
+        combined_loss = primary_loss + ce_loss_weight * ce_loss.to(dtype=sim_dtype)
     else:
         ce_loss = None
-        combined_loss = mean_de_loss
+        combined_loss = primary_loss
 
     # ---- Aggregate the per-example metrics ----
     metrics_out: Dict[str, float] = {
@@ -753,11 +980,17 @@ def finetune_de_loss(
                 sum(m[k] for m in all_metrics) / max(total_w, 1)
             )
 
-    # Report the components separately so both the training log and
-    # history.jsonl can carry them; lets us compare val_loss_de across
-    # runs with different ce_loss_weight (val_loss_de is the metric we
-    # actually care about; ce is scaffolding).
-    metrics_out["loss_de"] = float(mean_de_loss.item())
+    # Report components separately so training logs + history.jsonl can
+    # carry them; lets us compare val_loss_de across runs with different
+    # ce_loss_weight / real_sim_topk settings. In STE mode, loss_de is
+    # overwritten from primary_loss (which IS the ΔE mean); in top-K
+    # mode we KEEP the per-position aggregation from metrics_out (which
+    # carries the greedy-pick ΔE) — do NOT overwrite it.
+    if real_sim_topk > 0:
+        metrics_out["loss_topk"] = float(primary_loss.item())
+        # metrics_out["loss_de"] already populated above via aggregation.
+    else:
+        metrics_out["loss_de"] = float(primary_loss.item())
     metrics_out["loss_total"] = float(combined_loss.item())
     if ce_loss is not None:
         metrics_out["loss_ce"] = float(ce_loss.item())

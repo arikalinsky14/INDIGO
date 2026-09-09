@@ -136,6 +136,16 @@ fi
 # analyses/de_finetune/GRADIENT_FLOW_EXPLAINER.md.
 : "${CE_LOSS_WEIGHT:=0.0}"
 
+# Top-K real-sim loss (C1). 0 = STE mode (original ΔE linearization,
+# fast but the Sept 9 sweep showed it is net-harmful at every scale).
+# K>0 replaces the STE primary loss with a listwise CE loss over K real
+# sims per position — target dist is softmax(-SIM_TARGET_BETA · ΔE_real)
+# so gradient flows into slot logits and pushes them toward the actual
+# argmin-ΔE candidate. Sim cost scales linearly with K. Val ALWAYS runs
+# the STE greedy path so val_loss_de stays comparable across K.
+: "${REAL_SIM_TOPK:=0}"
+: "${SIM_TARGET_BETA:=1.0}"
+
 echo "============================================================================"
 echo "FINETUNE CONFIGURATION"
 echo "============================================================================"
@@ -145,6 +155,8 @@ echo "DATA_DIR              : ${DATA_DIR}"
 echo "FREEZE_ENCODER        : ${FREEZE_ENCODER}  ($([ "${FREEZE_ENCODER}" = "1" ] && echo "Experiment A: decoder-only" || echo "Experiment B: full-model"))"
 echo "LR                    : ${LR}"
 echo "CE_LOSS_WEIGHT        : ${CE_LOSS_WEIGHT}"
+echo "REAL_SIM_TOPK         : ${REAL_SIM_TOPK}  ($([ "${REAL_SIM_TOPK}" = "0" ] && echo "STE mode" || echo "top-K real-sim mode"))"
+echo "SIM_TARGET_BETA       : ${SIM_TARGET_BETA}"
 echo "EPOCHS                : ${EPOCHS}"
 echo "BATCH_SIZE            : ${BATCH_SIZE}"
 echo "NUM_WORKERS           : ${NUM_WORKERS}"
@@ -184,6 +196,8 @@ ARGS=(
     --log-every           "${LOG_EVERY}"
     --incidence-angle     "${INCIDENCE_ANGLE}"
     --ce-loss-weight      "${CE_LOSS_WEIGHT}"
+    --real-sim-topk       "${REAL_SIM_TOPK}"
+    --sim-target-beta     "${SIM_TARGET_BETA}"
 )
 
 if [[ "${FREEZE_ENCODER}" == "1" ]]; then
@@ -248,6 +262,26 @@ exit ${EXIT_CODE}
 #         NUM_WORKERS=0 LOG_EVERY=25 SAVE_EVERY=250 \
 #         sbatch --time=03:00:00 slurms/finetune_de.sh
 #   done
+#
+# Top-K real-sim sweep (C1) — after the Sept 9 CE-anchor λ sweep
+# confirmed the STE linearization is unusable at every scale. Uses real
+# sim + listwise CE per position; sim cost is ~K× the STE baseline, so
+# LIMIT_EXAMPLES is scaled ~1/K to keep wall clock at ~3h per job.
+# Compare val_loss_de across K at the same wall-time budget:
+#
+#   for K in 5 10 15; do
+#     case $K in 5) LIM=40000;; 10) LIM=20000;; 15) LIM=13000;; esac
+#     PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+#         SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_A_topk${K} \
+#         FREEZE_ENCODER=1 LR=1e-6 REAL_SIM_TOPK=${K} SIM_TARGET_BETA=1.0 \
+#         CE_LOSS_WEIGHT=0.0 \
+#         EPOCHS=1 LIMIT_EXAMPLES=${LIM} LIMIT_VAL_EXAMPLES=500 \
+#         NUM_WORKERS=0 LOG_EVERY=25 SAVE_EVERY=100 \
+#         sbatch --time=03:00:00 slurms/finetune_de.sh
+#   done
+#
+# Add CE_LOSS_WEIGHT=1.0 (or higher) to also train the thickness head
+# via CE while the top-K loss trains slot logits.
 #
 # Fresh 1M finetune data (HC=0.30) — one-time smp job:
 #   TOTAL_ROWS=1000000 START_SHARD_ID=3000000 \
