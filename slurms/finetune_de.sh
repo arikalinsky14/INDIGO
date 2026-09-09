@@ -267,21 +267,28 @@ exit ${EXIT_CODE}
 # confirmed the STE linearization is unusable at every scale. Uses real
 # sim + listwise CE per position; sim cost is ~K× the STE baseline, so
 # LIMIT_EXAMPLES is scaled ~1/K to keep wall clock at ~3h per job.
+#
+# CE_LOSS_WEIGHT=0.5 is included because the top-K slot loss only puts
+# gradient on the argmax thickness cell for each picked slot — it can't
+# discover a wrong thickness pick. The CE anchor at 0.5 trains the
+# thickness head against GT tokens as a safety net (roughly balances
+# gradient magnitudes with topk once topk drops from ~log(K) → 0).
 # Compare val_loss_de across K at the same wall-time budget:
 #
 #   for K in 5 10 15; do
 #     case $K in 5) LIM=40000;; 10) LIM=20000;; 15) LIM=13000;; esac
 #     PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
-#         SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_A_topk${K} \
+#         SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_A_topk${K}_ce0p5 \
 #         FREEZE_ENCODER=1 LR=1e-6 REAL_SIM_TOPK=${K} SIM_TARGET_BETA=1.0 \
-#         CE_LOSS_WEIGHT=0.0 \
+#         CE_LOSS_WEIGHT=0.5 \
 #         EPOCHS=1 LIMIT_EXAMPLES=${LIM} LIMIT_VAL_EXAMPLES=500 \
 #         NUM_WORKERS=0 LOG_EVERY=25 SAVE_EVERY=100 \
 #         sbatch --time=03:00:00 slurms/finetune_de.sh
 #   done
 #
-# Add CE_LOSS_WEIGHT=1.0 (or higher) to also train the thickness head
-# via CE while the top-K loss trains slot logits.
+# If topk gradient looks dominated by CE (loss_topk not falling but
+# loss_ce falling nicely), rerun with CE_LOSS_WEIGHT=0.2 to soften CE
+# and let topk drive slot selection more.
 #
 # Fresh 1M finetune data (HC=0.30) — one-time smp job:
 #   TOTAL_ROWS=1000000 START_SHARD_ID=3000000 \
