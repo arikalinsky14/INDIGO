@@ -128,6 +128,14 @@ fi
 : "${WARMUP_FRACTION:=0.02}"
 : "${INCIDENCE_ANGLE:=0.0}"
 
+# CE anchor loss weight. 0 = pure ΔE (the original finetune); >0 blends
+# in per-token CE against GT to keep the model near the pretrain
+# manifold — needed because the STE gradient's linearization at model-
+# argmax anchors has only ~41% top-1 accuracy and drifts unaanchored
+# training away from the pretrained CE optimum. See
+# analyses/de_finetune/GRADIENT_FLOW_EXPLAINER.md.
+: "${CE_LOSS_WEIGHT:=0.0}"
+
 echo "============================================================================"
 echo "FINETUNE CONFIGURATION"
 echo "============================================================================"
@@ -136,6 +144,7 @@ echo "SAVE_DIR              : ${SAVE_DIR}"
 echo "DATA_DIR              : ${DATA_DIR}"
 echo "FREEZE_ENCODER        : ${FREEZE_ENCODER}  ($([ "${FREEZE_ENCODER}" = "1" ] && echo "Experiment A: decoder-only" || echo "Experiment B: full-model"))"
 echo "LR                    : ${LR}"
+echo "CE_LOSS_WEIGHT        : ${CE_LOSS_WEIGHT}"
 echo "EPOCHS                : ${EPOCHS}"
 echo "BATCH_SIZE            : ${BATCH_SIZE}"
 echo "NUM_WORKERS           : ${NUM_WORKERS}"
@@ -174,6 +183,7 @@ ARGS=(
     --save-every          "${SAVE_EVERY}"
     --log-every           "${LOG_EVERY}"
     --incidence-angle     "${INCIDENCE_ANGLE}"
+    --ce-loss-weight      "${CE_LOSS_WEIGHT}"
 )
 
 if [[ "${FREEZE_ENCODER}" == "1" ]]; then
@@ -225,6 +235,19 @@ exit ${EXIT_CODE}
 #       RESUME=<SAVE_DIR>/latest \
 #       FREEZE_ENCODER=<same> LR=<same> \
 #       sbatch slurms/finetune_de.sh
+#
+# CE-anchored finetune — after the Sept 8 diagnostic showed the STE
+# gradient drifts an unanchored ΔE-only finetune off the pretrain
+# manifold. λ = 1.0 is the balanced-anchor case; sweep {0.1, 1.0, 10.0}
+# to bracket loose vs strong anchor.
+#   for LAM in 0.1 1.0 10.0; do
+#     PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+#         SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_A_ceanchor_lam${LAM} \
+#         FREEZE_ENCODER=1 LR=1e-6 CE_LOSS_WEIGHT=${LAM} \
+#         EPOCHS=1 LIMIT_EXAMPLES=128000 LIMIT_VAL_EXAMPLES=1000 \
+#         NUM_WORKERS=0 LOG_EVERY=25 SAVE_EVERY=250 \
+#         sbatch --time=03:00:00 slurms/finetune_de.sh
+#   done
 #
 # Fresh 1M finetune data (HC=0.30) — one-time smp job:
 #   TOTAL_ROWS=1000000 START_SHARD_ID=3000000 \

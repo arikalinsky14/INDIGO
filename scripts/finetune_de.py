@@ -98,18 +98,22 @@ def append_history(history_path: Path, row: Dict) -> None:
 # ============================================================================
 
 
-def evaluate_val(model, val_loader, device) -> Dict[str, float]:
+def evaluate_val(model, val_loader, device, ce_loss_weight: float = 0.0) -> Dict[str, float]:
+    """Val eval. Threads ce_loss_weight through so val loss_ce is also
+    reported when the anchor is on; val_loss_de is always the primary
+    metric regardless of weight (that's the target objective)."""
     model.eval()
-    losses = []
     metrics_accum: Dict[str, float] = {}
     n_total_positions = 0
     with torch.no_grad():
         for batch in val_loader:
-            loss, m = finetune_de_loss(model, batch, device=device)
+            _, m = finetune_de_loss(
+                model, batch, device=device,
+                ce_loss_weight=ce_loss_weight,
+            )
             n_pos = int(m.get("n_positions", 0))
             if n_pos == 0:
                 continue
-            losses.append(loss.item() * n_pos)
             n_total_positions += n_pos
             for k, v in m.items():
                 if k in ("batch_size", "n_positions"):
@@ -118,10 +122,13 @@ def evaluate_val(model, val_loader, device) -> Dict[str, float]:
     model.train()
     if n_total_positions == 0:
         return {"val_loss_de": float("nan")}
-    out = {"val_loss_de": sum(losses) / n_total_positions,
-           "val_n_positions": n_total_positions}
+    out: Dict[str, float] = {"val_n_positions": n_total_positions}
     for k, v in metrics_accum.items():
         out[f"val_{k}"] = v / n_total_positions
+    # Backfill val_loss_de from the metrics dict so callers don't need
+    # to guess where the ΔE component came from.
+    if "val_loss_de" not in out and "loss_de" in metrics_accum:
+        out["val_loss_de"] = metrics_accum["loss_de"] / n_total_positions
     return out
 
 
@@ -184,6 +191,17 @@ def parse_args() -> argparse.Namespace:
 
     # Optical sim
     p.add_argument("--incidence-angle", type=float, default=0.0)
+
+    # CE anchor loss (see src/de_finetune.py:ce_anchor_loss and
+    # analyses/de_finetune/GRADIENT_FLOW_EXPLAINER.md). Default 0.0 =
+    # pure ΔE. Values in [0.1, 10] pin the model to the pretrain
+    # manifold with progressively stronger weight; needed because the
+    # STE gradient's linearization has only ~41% top-1 accuracy at the
+    # model's argmax anchor points and drifts the finetune away from
+    # the pretrained CE optimum without an anchor.
+    p.add_argument("--ce-loss-weight", type=float, default=0.0,
+                   help="Weight for the CE anchor in the combined loss "
+                        "L = ΔE + λ*CE. 0 disables the anchor (pure ΔE).")
 
     # Logging
     p.add_argument("--log-every", type=int, default=50)
@@ -339,7 +357,7 @@ def main() -> None:
             optimizer.zero_grad(set_to_none=True)
             loss, metrics = finetune_de_loss(
                 model, batch, incidence_angle=args.incidence_angle,
-                device=device,
+                device=device, ce_loss_weight=args.ce_loss_weight,
             )
             if not torch.isfinite(loss):
                 print(f"[WARN] non-finite loss at step {global_step}, skipping",
@@ -356,15 +374,22 @@ def main() -> None:
                 step_time if ema_step_time is None
                 else 0.9 * ema_step_time + 0.1 * step_time
             )
-            running_loss += loss.item() * metrics.get("n_positions", 1)
+            # Track loss_de (the target metric) separately from the combined
+            # loss the optimizer minimizes, so log lines and running means
+            # stay comparable across ce_loss_weight settings.
+            running_loss += metrics.get("loss_de", loss.item()) * metrics.get("n_positions", 1)
             running_n += metrics.get("n_positions", 1)
 
             if args.verbose and (global_step + 1) % args.log_every == 0:
-                mean_loss = running_loss / max(running_n, 1)
+                mean_loss_de = running_loss / max(running_n, 1)
                 ex_per_s = metrics.get("batch_size", 0) / max(step_time, 1e-6)
+                ce_str = (
+                    f"  loss_ce={metrics.get('loss_ce', float('nan')):.3f}"
+                    if args.ce_loss_weight > 0 else ""
+                )
                 print(
                     f"[step {global_step + 1:>6}/{total_steps:>6}]  "
-                    f"loss_de={mean_loss:.3f}  lr={lr:.2e}  "
+                    f"loss_de={mean_loss_de:.3f}{ce_str}  lr={lr:.2e}  "
                     f"slot_ent={metrics.get('slot_entropy', 0):.2f}  "
                     f"thick_ent={metrics.get('thickness_entropy', 0):.2f}  "
                     f"slot_match_gt={metrics.get('slot_match_gt', 0):.2f}  "
@@ -378,33 +403,46 @@ def main() -> None:
             # Periodic checkpoint + val
             if (global_step + 1) % args.save_every == 0:
                 step_id = global_step + 1
-                val_out = evaluate_val(model, val_loader, device)
+                val_out = evaluate_val(
+                    model, val_loader, device,
+                    ce_loss_weight=args.ce_loss_weight,
+                )
+                # Save the ΔE-only component in checkpoint meta so we can
+                # compare across ce_loss_weight settings later.
+                loss_de_scalar = float(metrics.get("loss_de", loss.item()))
                 save_checkpoint(
                     model, config, optimizer, step_id,
-                    loss.item(), args.save_dir / f"step_{step_id}", lr=lr,
+                    loss_de_scalar, args.save_dir / f"step_{step_id}", lr=lr,
                 )
                 save_checkpoint(
                     model, config, optimizer, step_id,
-                    loss.item(), args.save_dir / "latest", lr=lr,
+                    loss_de_scalar, args.save_dir / "latest", lr=lr,
                 )
                 row = {
                     "step": step_id,
                     "epoch": epoch,
-                    "train_loss_de": loss.item(),
                     "lr": lr,
+                    "ce_loss_weight": args.ce_loss_weight,
                     "wall_time_utc": time.strftime(
                         "%Y-%m-%dT%H:%M:%SZ", time.gmtime(),
                     ),
                 }
+                # metrics carries loss_de / loss_ce / loss_total etc.;
+                # prefix with `train_` and let the update populate them.
                 row.update({
                     f"train_{k}": v for k, v in metrics.items()
                     if k not in ("batch_size", "n_positions")
                 })
                 row.update(val_out)
                 append_history(history_path, row)
+                ce_str = (
+                    f"  val_loss_ce={val_out.get('val_loss_ce', float('nan')):.3f}"
+                    if args.ce_loss_weight > 0 else ""
+                )
                 print(
                     f"[Val]  step={step_id}  "
-                    f"val_loss_de={val_out.get('val_loss_de', float('nan')):.3f}  "
+                    f"val_loss_de={val_out.get('val_loss_de', float('nan')):.3f}"
+                    f"{ce_str}  "
                     f"val_slot_match_gt="
                     f"{val_out.get('val_slot_match_gt', float('nan')):.2f}",
                     flush=True,
@@ -415,15 +453,19 @@ def main() -> None:
         if global_step >= total_steps:
             break
 
-    # Final save.
+    # Final save. Use loss_de from the last valid metrics if we have it;
+    # fall back to the combined loss otherwise.
+    final_loss_de = float(
+        metrics.get("loss_de", loss.item()) if metrics else loss.item()
+    ) if torch.isfinite(loss) else float("nan")
     save_checkpoint(
         model, config, optimizer, global_step,
-        loss.item() if torch.isfinite(loss) else float("nan"),
+        final_loss_de,
         args.save_dir / "final", lr=lr,
     )
     save_checkpoint(
         model, config, optimizer, global_step,
-        loss.item() if torch.isfinite(loss) else float("nan"),
+        final_loss_de,
         args.save_dir / "latest", lr=lr,
     )
     print(f"[INFO] Finetune complete. Final step: {global_step}", flush=True)

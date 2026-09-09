@@ -79,6 +79,19 @@ from src.optical_sim_diff import (
 # to a real token value in the forward pass.
 _THICKNESS_BIN_CENTERS_NP = np.asarray(THICKNESSES, dtype=np.float64)
 
+# nm-value → bin-index reverse map for the CE anchor. GT thicknesses come
+# out of the dataset as ints on the training grid, so exact lookup should
+# always succeed; a stray value falls back to the nearest bin.
+_NM_TO_BIN: Dict[int, int] = {int(nm): i for i, nm in enumerate(THICKNESSES)}
+
+
+def _nm_to_bin(nm: int) -> int:
+    v = _NM_TO_BIN.get(int(nm))
+    if v is not None:
+        return v
+    diffs = np.abs(_THICKNESS_BIN_CENTERS_NP - float(nm))
+    return int(np.argmin(diffs))
+
 
 def _thickness_bin_centers(device: torch.device, dtype: torch.dtype) -> torch.Tensor:
     return torch.as_tensor(_THICKNESS_BIN_CENTERS_NP, device=device, dtype=dtype)
@@ -299,6 +312,74 @@ def unfreeze_all(model) -> Dict[str, int]:
 
 
 # ============================================================================
+# CE anchor loss — keeps the finetune close to the pretrained CE optimum
+# ============================================================================
+
+
+def _build_ce_targets(
+    target_slots_batch: List[List[int]],
+    target_thicknesses_batch: List[List[int]],
+    seq_len: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Build a [B, seq_len] target-token tensor for cross-entropy against
+    the model's per-position logits.
+
+    Token layout matches the vocab in src.materials_vocab: for a layer
+    position, target = slot * NUM_THICKNESSES + bin_index(thickness_nm).
+    Positions beyond the example's n_layers are marked -100 so torch's
+    cross-entropy ignores them (ignore_index=-100 by default there too).
+
+    We do NOT include the EOS position in the CE target for now — we're
+    training the layer picks, not re-teaching EOS. That's consistent with
+    the ΔE loss which also only runs over layer positions 0..n_layers-1.
+    """
+    batch_size = len(target_slots_batch)
+    targets = torch.full(
+        (batch_size, seq_len), -100, dtype=torch.long, device=device,
+    )
+    for b in range(batch_size):
+        gt_slots = target_slots_batch[b]
+        gt_thicknesses = target_thicknesses_batch[b]
+        n = min(len(gt_slots), min(seq_len, MAX_LAYERS))
+        for k in range(n):
+            slot = int(gt_slots[k])
+            bin_idx = _nm_to_bin(int(gt_thicknesses[k]))
+            targets[b, k] = slot * NUM_THICKNESSES + bin_idx
+    return targets
+
+
+def ce_anchor_loss(
+    logits: torch.Tensor,                    # [B, seq_len, VOCAB]
+    target_slots_batch: List[List[int]],
+    target_thicknesses_batch: List[List[int]],
+) -> torch.Tensor:
+    """Per-position cross-entropy against GT tokens, averaged over all
+    valid layer positions in the batch. Same shape/semantics as the
+    pretrain CE loss.
+
+    The logits come from the model's forward with GT structure_matrix
+    (teacher forcing), so the causal mask makes position k's prediction
+    conditioned on GT layers 0..k-1 — exactly the pretrain setup. This
+    is the same tensor already computed for the ΔE loss; no extra
+    forward is needed.
+    """
+    device = logits.device
+    seq_len = logits.shape[1]
+    targets = _build_ce_targets(
+        target_slots_batch, target_thicknesses_batch, seq_len, device,
+    )
+    # F.cross_entropy handles -100 via ignore_index (default), reduction
+    # 'mean' averages over all non-ignored positions.
+    return F.cross_entropy(
+        logits.reshape(-1, logits.shape[-1]),
+        targets.reshape(-1),
+        ignore_index=-100,
+        reduction="mean",
+    )
+
+
+# ============================================================================
 # NaN diagnostics — helps first-run debugging without spamming logs.
 # Set _NAN_DEBUG_LIMIT to 0 (or via env INDIGO_NAN_DEBUG=0) to silence.
 # ============================================================================
@@ -485,8 +566,19 @@ def finetune_de_loss(
     batch: Dict[str, torch.Tensor],
     incidence_angle: float = 0.0,
     device: Optional[torch.device] = None,
+    ce_loss_weight: float = 0.0,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
-    """Compute mean ΔE₀₀ loss + diagnostics for one finetune batch.
+    """Compute the finetune loss + diagnostics for one batch.
+
+    Loss = ΔE₀₀_mean_per_position + ce_loss_weight * CE_mean_per_position
+
+    Setting ce_loss_weight > 0 adds a per-token cross-entropy anchor
+    against the GT (slot, thickness_bin) at every layer position. This
+    is the same CE loss the pretrain minimized; adding it here binds
+    the finetune to the pretrain manifold and counteracts drift caused
+    by the STE gradient's linearization bias (which was shown to have
+    only 41% top-1 accuracy at the model's argmax anchors — see the
+    Sept 8 diagnostic in analyses/de_finetune/).
 
     Expected batch keys (produced by src/de_finetune.collate_fn below):
         lab            : [B, 3]                — normalised target Lab
@@ -498,11 +590,14 @@ def finetune_de_loss(
 
     Returns
     -------
-    loss_de : scalar tensor — mean ΔE₀₀ across all (example, k-position)
-              pairs in the batch. Backward-ready.
-    metrics : dict of averaged diagnostics
-              (slot_entropy, thickness_entropy, slot_match_gt,
-               thickness_match_gt, n_positions, batch_size).
+    loss : scalar tensor — combined loss (ΔE + λ·CE). Backward-ready.
+    metrics : dict of averaged diagnostics — carries:
+        - loss_de   : mean ΔE₀₀ per position (the target metric,
+                      unchanged by ce_loss_weight)
+        - loss_ce   : mean CE per position (present iff ce_loss_weight > 0)
+        - loss_total: the combined loss returned above
+        - slot/thickness entropies, slot/thickness match-to-GT,
+          n_positions, batch_size
     """
     if not sim_is_available():
         raise RuntimeError(
@@ -627,8 +722,25 @@ def finetune_de_loss(
     if total_positions == 0:
         return total_loss, {"n_positions": 0, "batch_size": batch_size}
 
-    mean_loss = total_loss / total_positions
-    # Aggregate the per-example metrics.
+    mean_de_loss = total_loss / total_positions  # sim_dtype (fp64)
+
+    # ---- Optional CE anchor ----
+    # CE uses the model's native dtype for numerical parity with pretrain;
+    # convert to sim_dtype before combining so the scalar loss returned to
+    # the training loop has one consistent dtype (fp64). This is fine —
+    # the sim_dtype cast is cheap and the combined loss is a scalar.
+    if ce_loss_weight > 0:
+        ce_loss = ce_anchor_loss(
+            logits,
+            batch["target_slots"],
+            batch["target_thicknesses"],
+        )
+        combined_loss = mean_de_loss + ce_loss_weight * ce_loss.to(dtype=sim_dtype)
+    else:
+        ce_loss = None
+        combined_loss = mean_de_loss
+
+    # ---- Aggregate the per-example metrics ----
     metrics_out: Dict[str, float] = {
         "n_positions": total_positions,
         "batch_size": batch_size,
@@ -640,7 +752,17 @@ def finetune_de_loss(
             metrics_out[k] = float(
                 sum(m[k] for m in all_metrics) / max(total_w, 1)
             )
-    return mean_loss, metrics_out
+
+    # Report the components separately so both the training log and
+    # history.jsonl can carry them; lets us compare val_loss_de across
+    # runs with different ce_loss_weight (val_loss_de is the metric we
+    # actually care about; ce is scaffolding).
+    metrics_out["loss_de"] = float(mean_de_loss.item())
+    metrics_out["loss_total"] = float(combined_loss.item())
+    if ce_loss is not None:
+        metrics_out["loss_ce"] = float(ce_loss.item())
+
+    return combined_loss, metrics_out
 
 
 # ============================================================================
