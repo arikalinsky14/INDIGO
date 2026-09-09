@@ -10,14 +10,32 @@ n/k onto each other material's spectrum:
 
     grad_slot_logit[i] ≈ ⟨∂Lab/∂n_k, pool_n[i]⟩ + ⟨∂Lab/∂k_k, pool_k[i]⟩
 
-This is a first-order Taylor expansion at the argmax point. It's cheap
-(one sim per position, not 32), but only *locally* correct — for a
-material whose n/k differs a lot from the argmax's, the projection can
-point in the wrong direction.
+This is a first-order Taylor expansion. It's cheap (one sim per
+position, not 32), but only *locally* correct — for a material whose
+n/k differs a lot from the base's, the projection can point in the
+wrong direction.
 
-This script quantifies how bad the approximation actually is by
-comparing, for each candidate material i in the pool, the projected ΔE
-after a swap against the true ΔE from an actual sim.
+The linearization anchor matters. Two modes to test:
+
+    --base-mode gt (default)
+        Base = GT slot at position k. sim(GT_prefix, GT_k, GT_suffix) =
+        target Lab, so base ΔE = 0. Measures projection quality at the
+        optimum.
+
+    --base-mode model_argmax
+        Loads the pretrained checkpoint, runs forward with GT
+        structure_matrix, uses model's argmax slot + argmax thickness
+        at position k. sim(GT_prefix, argmax_pick, GT_suffix) ≠ target
+        in general, so base ΔE > 0. Measures projection quality at
+        *training-time* anchors — where the finetune's STE gradient
+        is actually evaluated on every step.
+
+The first sweep of the finetune (Sept 8 2026) degraded val ΔE at every
+non-trivial LR while slot_match_gt dropped simultaneously — evidence
+that the training-time gradient direction is systematically wrong.
+--base-mode model_argmax exists to test whether the linearization
+accuracy is much worse at those non-optimal anchor points than the
+first gt-mode test suggested.
 
 Metrics per (example, layer)
 ----------------------------
@@ -33,9 +51,6 @@ Verdict (rule-of-thumb, spelled out in the summary)
     HOLDS   : median Spearman ≥ 0.70  AND  mean top1_hit ≥ 0.50
     MIXED   : anything in between
     NOISE   : median Spearman < 0.30  AND  mean top1_hit < 0.20
-
-If HOLDS: keep the current STE. If NOISE: switch to a winning-material-
-only approach (design in analyses/de_finetune/README.md if we get here).
 
 Outputs
 -------
@@ -68,7 +83,14 @@ _repo_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_repo_root))
 
 from src.dataset import FlexThinFilmDataset, find_repo_root
-from src.materials_vocab import denormalize_lab
+from src.materials_vocab import (
+    M_MAX,
+    MAX_LAYERS,
+    NUM_THICKNESSES,
+    THICKNESSES,
+    build_structure_matrix,
+    denormalize_lab,
+)
 from src.optical_sim_diff import (
     _JAX_FORWARD,
     is_available as sim_is_available,
@@ -97,7 +119,10 @@ class LayerResult:
     example_idx: int
     layer_k: int
     n_layers: int
-    argmax_slot: int
+    base_slot: int
+    base_thickness_nm: float
+    gt_slot: int
+    gt_thickness_nm: float
     pool_size: int
     dE_base: float
     projected_dE: List[float]        # length pool_size
@@ -118,13 +143,24 @@ def _measure_one_layer(
     pool_k_full: np.ndarray,          # [pool_size, NUM_LAMBDA]
     target_lab: np.ndarray,           # [3] denormalised
     incidence_angle: float,
+    base_slot: int,                   # anchor slot at position k
+    base_thickness_nm: float,         # anchor thickness at position k
 ) -> LayerResult:
-    """Compute projection metrics at one (example, k) pair."""
+    """Compute projection metrics at one (example, k) pair.
+
+    The stack fed to the sim is GT_prefix + (base_slot, base_thickness_nm)
+    at position k + GT_suffix — exactly the shape training's rollout
+    uses (STE-picked layer k, teacher-forced everything else). The
+    linearization is anchored at (pool_n[base_slot], pool_k[base_slot]);
+    the projection is evaluated against a swap of that layer's material
+    to each candidate i in the pool while keeping base_thickness_nm
+    fixed at position k.
+    """
     pool_size = pool_n_full.shape[0]
     n_layers = len(gt_slots)
-    argmax_slot = int(gt_slots[layer_k])
 
-    # Base stack from GT (all layers, all pool picks).
+    # Assemble the stack: GT for every layer, then override layer k with
+    # the STE anchor's (base_slot, base_thickness).
     n_stack_base = np.stack(
         [pool_n_full[s] for s in gt_slots], axis=0,
     )                                       # [n_layers, NUM_LAMBDA]
@@ -132,6 +168,7 @@ def _measure_one_layer(
         [pool_k_full[s] for s in gt_slots], axis=0,
     )
     thicknesses_np = np.asarray(gt_thicknesses, dtype=np.float64)
+    thicknesses_np[layer_k] = float(base_thickness_nm)
 
     n_jax = jnp.asarray(n_stack_base)
     k_jax = jnp.asarray(k_stack_base)
@@ -143,10 +180,10 @@ def _measure_one_layer(
         k_full = k_jax.at[layer_k].set(k_k)
         return _JAX_FORWARD(n_full, k_full, t_jax, incidence_angle)
 
-    n_k_base = jnp.asarray(pool_n_full[argmax_slot])
-    k_k_base = jnp.asarray(pool_k_full[argmax_slot])
+    n_k_base = jnp.asarray(pool_n_full[base_slot])
+    k_k_base = jnp.asarray(pool_k_full[base_slot])
 
-    # Jacobians ∂Lab/∂(n_k, k_k) at the argmax point, shape [3, NUM_LAMBDA].
+    # Jacobians ∂Lab/∂(n_k, k_k) at the base point, shape [3, NUM_LAMBDA].
     lab_base_jax = sim_wrt_layer_k(n_k_base, k_k_base)
     lab_base = np.asarray(lab_base_jax, dtype=np.float64)
     jac_fn = jax.jacrev(sim_wrt_layer_k, argnums=(0, 1))
@@ -159,11 +196,11 @@ def _measure_one_layer(
     projected_dE = np.zeros(pool_size, dtype=np.float64)
     true_dE = np.zeros(pool_size, dtype=np.float64)
 
-    pool_n_base_np = pool_n_full[argmax_slot]
-    pool_k_base_np = pool_k_full[argmax_slot]
+    pool_n_base_np = pool_n_full[base_slot]
+    pool_k_base_np = pool_k_full[base_slot]
 
     for i in range(pool_size):
-        # Projected: linear extrapolation from base along (pool[i] - pool[argmax])
+        # Projected: linear extrapolation from base along (pool[i] - pool[base])
         delta_n = pool_n_full[i] - pool_n_base_np
         delta_k = pool_k_full[i] - pool_k_base_np
         delta_lab = jac_n @ delta_n + jac_k @ delta_k          # [3]
@@ -206,7 +243,10 @@ def _measure_one_layer(
         example_idx=example_idx,
         layer_k=layer_k,
         n_layers=n_layers,
-        argmax_slot=argmax_slot,
+        base_slot=int(base_slot),
+        base_thickness_nm=float(base_thickness_nm),
+        gt_slot=int(gt_slots[layer_k]),
+        gt_thickness_nm=float(gt_thicknesses[layer_k]),
         pool_size=pool_size,
         dE_base=dE_base,
         projected_dE=projected_dE.tolist(),
@@ -337,7 +377,122 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--incidence-angle", type=float, default=0.0)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--output-dir", type=Path, required=True)
+
+    # Anchor selection.
+    p.add_argument("--base-mode", type=str, default="gt",
+                   choices=["gt", "model_argmax"],
+                   help="Where to anchor the STE linearization. 'gt' uses "
+                        "the true slot + thickness (ΔE_base=0, tests optimum-"
+                        "region behavior). 'model_argmax' loads the pretrained "
+                        "checkpoint and uses its argmax pick per (example, k) "
+                        "— the anchor training's gradient is actually "
+                        "evaluated at on every step.")
+
+    # Only required if base-mode = model_argmax. Match finetune_de.py defaults.
+    p.add_argument("--pretrained-checkpoint", type=Path, default=None,
+                   help="Required if --base-mode=model_argmax")
+    p.add_argument("--feature-mode", type=str, default="raw_spectrum")
+    p.add_argument("--encoder-hidden", type=int, default=128)
+    p.add_argument("--encoder-out", type=int, default=64)
+    p.add_argument("--encoder-dropout", type=float, default=0.1)
+    p.add_argument("--d-model", type=int, default=1024)
+    p.add_argument("--n-layers", type=int, default=8)
+    p.add_argument("--dropout", type=float, default=0.1)
+    p.add_argument("--head-mode", type=str, default="cross_attn",
+                   choices=["cross_attn"])
+    p.add_argument("--n-heads", type=int, default=8)
+    p.add_argument("--slot-encoder-layers", type=int, default=4)
+    p.add_argument("--decoder-layers", type=int, default=1)
+
     return p.parse_args()
+
+
+def _load_pretrained_model(args):
+    """Import torch lazily so gt-mode runs don't need it. Returns
+    (model_on_device, device)."""
+    import torch  # lazy
+    from src.model import ModelConfig, build_model
+
+    if args.pretrained_checkpoint is None:
+        raise SystemExit(
+            "--base-mode=model_argmax requires --pretrained-checkpoint"
+        )
+
+    config = ModelConfig(
+        feature_mode=args.feature_mode,
+        encoder_hidden=args.encoder_hidden,
+        encoder_out=args.encoder_out,
+        encoder_dropout=args.encoder_dropout,
+        d_model=args.d_model,
+        n_layers=args.n_layers,
+        dropout=args.dropout,
+        head_mode=args.head_mode,
+        n_heads=args.n_heads,
+        slot_encoder_layers=args.slot_encoder_layers,
+        decoder_layers=args.decoder_layers,
+    )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = build_model(config).to(device)
+    state = torch.load(
+        args.pretrained_checkpoint / "model.pt",
+        map_location=device, weights_only=True,
+    )
+    model.load_state_dict(state)
+    model.eval()
+    print(f"[INFO] Model loaded on {device} from {args.pretrained_checkpoint}",
+          flush=True)
+    return model, device
+
+
+def _model_argmax_for_example(model, device, example, gt_slots, gt_thicknesses):
+    """Run one forward pass and return the model's argmax (slot_idx,
+    thickness_nm) at every position k in 0..len(gt_slots)-1.
+
+    Uses the same input semantics as the finetune's rollout: GT
+    structure_matrix as teacher-forced context, cross-attn head produces
+    logits per position, we split the vocab and pick slot argmax then
+    thickness-bin argmax conditioned on that slot (mirrors
+    src.de_finetune.ste_pick's forward pass).
+    """
+    import torch  # lazy
+    from src.material_features import featurize_pool, pad_pool_features
+
+    n_layers = len(gt_slots)
+
+    pool_feats_unpadded = featurize_pool(example.pool, mode="raw_spectrum")
+    pool_feats, pool_mask = pad_pool_features(pool_feats_unpadded, m_max=M_MAX)
+    pool_size = len(example.pool)
+
+    gt_slots_use = list(gt_slots)[:MAX_LAYERS]
+    gt_thick_use = list(gt_thicknesses)[:MAX_LAYERS]
+    structure_matrix = build_structure_matrix(gt_slots_use, gt_thick_use)
+
+    with torch.no_grad():
+        logits = model(
+            lab=example.lab.unsqueeze(0).to(device),
+            pool_features=pool_feats.unsqueeze(0).to(device),
+            pool_mask=pool_mask.unsqueeze(0).to(device),
+            pool_size=torch.tensor([pool_size], dtype=torch.long).to(device),
+            structure_matrix=structure_matrix.unsqueeze(0).to(device),
+            apply_output_mask=True,
+        )                                            # [1, MAX_LAYERS+1, VOCAB]
+    logits = logits[0].detach().cpu().numpy()        # [MAX_LAYERS+1, VOCAB]
+    # Sanitize -inf from output mask so argmax and max-over-row are stable.
+    logits = np.nan_to_num(logits, neginf=-1e9, posinf=1e9)
+
+    argmax_slot_per_k: List[int] = []
+    argmax_thick_nm_per_k: List[float] = []
+    for k in range(n_layers):
+        layer_logits = logits[k, :M_MAX * NUM_THICKNESSES].reshape(
+            M_MAX, NUM_THICKNESSES,
+        )
+        # Slot scored by its best thickness's logit (matches ste_pick).
+        slot_scores = layer_logits.max(axis=-1)
+        argmax_slot = int(np.argmax(slot_scores))
+        argmax_thick_bin = int(np.argmax(layer_logits[argmax_slot]))
+        argmax_slot_per_k.append(argmax_slot)
+        argmax_thick_nm_per_k.append(float(THICKNESSES[argmax_thick_bin]))
+    return argmax_slot_per_k, argmax_thick_nm_per_k
 
 
 def main() -> None:
@@ -350,6 +505,13 @@ def main() -> None:
     print(f"[INFO] Output dir: {args.output_dir}", flush=True)
     print(f"[INFO] N examples: {args.n_examples}", flush=True)
     print(f"[INFO] Layers per example: {args.layers_per_example}", flush=True)
+    print(f"[INFO] Base mode: {args.base_mode}", flush=True)
+
+    # If we're using model-argmax anchors, load the checkpoint up front.
+    model = None
+    device = None
+    if args.base_mode == "model_argmax":
+        model, device = _load_pretrained_model(args)
 
     # Load examples (streaming; take the first n_examples).
     ds = FlexThinFilmDataset(
@@ -379,6 +541,26 @@ def main() -> None:
             denormalize_lab(example.lab), dtype=np.float64,
         )                                                       # [3]
 
+        gt_slots_list = list(example.target_slots)
+        gt_thicknesses_list = list(example.target_thicknesses)
+
+        # Anchor per layer position: either GT or model argmax.
+        if args.base_mode == "model_argmax":
+            base_slots_per_k, base_thicks_per_k = _model_argmax_for_example(
+                model, device, example, gt_slots_list, gt_thicknesses_list,
+            )
+            # Guard: if the pretrained model picks a padded slot (should not
+            # happen because apply_output_mask=True, but defensive), clamp
+            # to a valid slot from the pool.
+            pool_size = pool_n.shape[0]
+            for kk, s in enumerate(base_slots_per_k):
+                if s >= pool_size:
+                    base_slots_per_k[kk] = int(gt_slots_list[kk])
+        else:
+            # gt mode: base = GT.
+            base_slots_per_k = list(gt_slots_list)
+            base_thicks_per_k = [float(t) for t in gt_thicknesses_list]
+
         # Which layer positions to test?
         if args.layers_per_example == "all":
             layers_to_test = list(range(n_layers))
@@ -400,12 +582,14 @@ def main() -> None:
             result = _measure_one_layer(
                 example_idx=ex_idx,
                 layer_k=k,
-                gt_slots=list(example.target_slots),
-                gt_thicknesses=list(example.target_thicknesses),
+                gt_slots=gt_slots_list,
+                gt_thicknesses=gt_thicknesses_list,
                 pool_n_full=pool_n,
                 pool_k_full=pool_k,
                 target_lab=target_lab,
                 incidence_angle=args.incidence_angle,
+                base_slot=base_slots_per_k[k],
+                base_thickness_nm=base_thicks_per_k[k],
             )
             all_results.append(result)
 
@@ -426,6 +610,13 @@ def main() -> None:
     verdict, verdict_text = _verdict(summary)
     summary["verdict"] = verdict
 
+    # A useful side-metric in model_argmax mode: how often is the anchor
+    # actually different from GT? (In gt mode it's 0 by construction.)
+    anchor_matches_gt = float(np.mean([
+        int(r.base_slot == r.gt_slot) for r in all_results
+    ])) if all_results else float("nan")
+    summary["anchor_matches_gt"] = anchor_matches_gt
+
     payload = {
         "config": {
             "data_dir": str(args.data_dir),
@@ -434,6 +625,11 @@ def main() -> None:
             "layers_per_example": args.layers_per_example,
             "incidence_angle": args.incidence_angle,
             "seed": args.seed,
+            "base_mode": args.base_mode,
+            "pretrained_checkpoint": (
+                str(args.pretrained_checkpoint)
+                if args.pretrained_checkpoint else None
+            ),
         },
         "summary": summary,
         "per_layer": [asdict(r) for r in all_results],
@@ -443,14 +639,20 @@ def main() -> None:
     # ----- Human-readable summary -----
     lines: List[str] = []
     lines.append("=" * 78)
-    lines.append("STE PROJECTION QUALITY — summary")
+    lines.append(
+        f"STE PROJECTION QUALITY — summary  (base_mode={args.base_mode})"
+    )
     lines.append("=" * 78)
     lines.append(f"  Verdict: {verdict}")
     lines.append(f"    {verdict_text}")
     lines.append("")
     lines.append(f"  N (example, layer) pairs      : {summary['n_layer_pairs']}")
     lines.append(f"  Mean pool size per example    : {summary['pool_size_mean']:.1f}")
-    lines.append(f"  Mean base ΔE (before swap)    : {summary['dE_base_mean']:.2f}")
+    lines.append(f"  Anchor matches GT slot        : "
+                 f"{summary['anchor_matches_gt']:.1%}  "
+                 f"(gt mode = 100%, model_argmax mode = model's slot-match rate)")
+    lines.append(f"  Mean base ΔE (before swap)    : {summary['dE_base_mean']:.2f}  "
+                 f"(gt mode ~= 0; model_argmax mode = model's own greedy ΔE)")
     lines.append("")
     lines.append(f"  Spearman ρ (proj vs true)")
     lines.append(f"    median                       : {summary['spearman_median']:+.3f}")
