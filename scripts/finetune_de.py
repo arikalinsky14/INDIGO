@@ -81,6 +81,25 @@ def _lr_at_step(
 _cosine_warmup_lr = _lr_at_step
 
 
+def _epsilon_at_step(
+    step: int,
+    total_steps: int,
+    eps_start: float,
+    eps_end: float,
+    decay_fraction: float,
+) -> float:
+    """ε-exploration fraction at `step`. Linear anneal from `eps_start`
+    (at step 0) to `eps_end` (at step decay_fraction * total_steps),
+    then held at `eps_end`. Set both to 0 to disable exploration
+    (default). Set both > 0 for constant ε.
+    """
+    if eps_start == 0.0 and eps_end == 0.0:
+        return 0.0
+    decay_steps = max(1, int(total_steps * max(0.0, min(1.0, decay_fraction))))
+    frac = min(1.0, step / decay_steps)
+    return eps_start + (eps_end - eps_start) * frac
+
+
 # ============================================================================
 # Checkpoint IO (mirrors scripts/training.py conventions)
 # ============================================================================
@@ -253,6 +272,21 @@ def parse_args() -> argparse.Namespace:
                         "'constant' holds base_lr flat after warmup — better "
                         "for long runs where cosine decay to 0 hurts.")
 
+    # ε-exploration for the top-K real-sim loss. Some fraction of the K
+    # candidates per position are drawn uniformly at random from the
+    # active grid instead of top-K by logit. Anneals linearly from
+    # `--epsilon-start` (early training) to `--epsilon-end` over
+    # `--epsilon-decay-fraction · total_steps`, then holds at end. Both
+    # 0 = disabled (only top-K by logit). Only used when
+    # --real-sim-topk > 0.
+    p.add_argument("--epsilon-start", type=float, default=0.0,
+                   help="Initial ε-exploration fraction (0 disables).")
+    p.add_argument("--epsilon-end", type=float, default=0.0,
+                   help="Final ε-exploration fraction after decay.")
+    p.add_argument("--epsilon-decay-fraction", type=float, default=1.0,
+                   help="Fraction of training over which ε anneals from "
+                        "start to end (rest holds at end).")
+
     # Logging
     p.add_argument("--log-every", type=int, default=50)
     p.add_argument("--verbose", dest="verbose", action="store_true", default=True)
@@ -410,6 +444,11 @@ def main() -> None:
                 global_step, total_steps, warmup_steps, args.lr,
                 schedule=args.lr_schedule,
             )
+            epsilon = _epsilon_at_step(
+                global_step, total_steps,
+                args.epsilon_start, args.epsilon_end,
+                args.epsilon_decay_fraction,
+            )
             for pg in optimizer.param_groups:
                 pg["lr"] = lr
 
@@ -420,6 +459,7 @@ def main() -> None:
                 real_sim_topk=args.real_sim_topk,
                 sim_target_beta=args.sim_target_beta,
                 topk_mode=args.topk_mode,
+                epsilon=epsilon,
             )
             if not torch.isfinite(loss):
                 print(f"[WARN] non-finite loss at step {global_step}, skipping",
@@ -449,9 +489,15 @@ def main() -> None:
                     f"  loss_ce={metrics.get('loss_ce', float('nan')):.3f}"
                     if args.ce_loss_weight > 0 else ""
                 )
+                eps_str = (
+                    f"  eps={epsilon:.2f}"
+                    if args.real_sim_topk > 0 and (args.epsilon_start > 0 or args.epsilon_end > 0)
+                    else ""
+                )
                 topk_str = (
                     f"  loss_topk={metrics.get('loss_topk', float('nan')):.3f}"
                     f"  argmin_hit={metrics.get('topk_argmin_matches_model', 0):.2f}"
+                    f"{eps_str}"
                     if args.real_sim_topk > 0 else ""
                 )
                 print(
@@ -504,11 +550,15 @@ def main() -> None:
                     "step": step_id,
                     "epoch": epoch,
                     "lr": lr,
+                    "epsilon": epsilon,
                     "ce_loss_weight": args.ce_loss_weight,
                     "real_sim_topk": args.real_sim_topk,
                     "sim_target_beta": args.sim_target_beta,
                     "topk_mode": args.topk_mode,
                     "lr_schedule": args.lr_schedule,
+                    "epsilon_start": args.epsilon_start,
+                    "epsilon_end": args.epsilon_end,
+                    "epsilon_decay_fraction": args.epsilon_decay_fraction,
                     "best_val_loss_de": best_val_loss_de,
                     "best_step": best_step,
                     "is_new_best": new_best,

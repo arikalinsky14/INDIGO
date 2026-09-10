@@ -159,6 +159,17 @@ fi
 # with continued cosine decay).
 : "${LR_SCHEDULE:=cosine}"
 
+# ε-exploration for the top-K real-sim loss. floor(K · ε) of the K sim
+# slots come from uniform-random draws over the active grid; the rest
+# from top-K by logit. ε anneals linearly from EPSILON_START to
+# EPSILON_END over EPSILON_DECAY_FRACTION · total_steps, then holds at
+# EPSILON_END. Both 0 = pure top-K (default). Typical schedule:
+# START=0.3 END=0.0 DECAY_FRACTION=0.5 (30% random early, off by
+# midpoint).
+: "${EPSILON_START:=0.0}"
+: "${EPSILON_END:=0.0}"
+: "${EPSILON_DECAY_FRACTION:=1.0}"
+
 echo "============================================================================"
 echo "FINETUNE CONFIGURATION"
 echo "============================================================================"
@@ -172,6 +183,7 @@ echo "REAL_SIM_TOPK         : ${REAL_SIM_TOPK}  ($([ "${REAL_SIM_TOPK}" = "0" ] 
 echo "SIM_TARGET_BETA       : ${SIM_TARGET_BETA}"
 echo "TOPK_MODE             : ${TOPK_MODE}"
 echo "LR_SCHEDULE           : ${LR_SCHEDULE}"
+echo "EPSILON               : start=${EPSILON_START}  end=${EPSILON_END}  decay_frac=${EPSILON_DECAY_FRACTION}"
 echo "EPOCHS                : ${EPOCHS}"
 echo "BATCH_SIZE            : ${BATCH_SIZE}"
 echo "NUM_WORKERS           : ${NUM_WORKERS}"
@@ -215,6 +227,9 @@ ARGS=(
     --sim-target-beta     "${SIM_TARGET_BETA}"
     --topk-mode           "${TOPK_MODE}"
     --lr-schedule         "${LR_SCHEDULE}"
+    --epsilon-start       "${EPSILON_START}"
+    --epsilon-end         "${EPSILON_END}"
+    --epsilon-decay-fraction "${EPSILON_DECAY_FRACTION}"
 )
 
 if [[ "${FREEZE_ENCODER}" == "1" ]]; then
@@ -308,34 +323,38 @@ exit ${EXIT_CODE}
 # and let topk drive slot selection more.
 #
 # ---------------------------------------------------------------------------
-# Serious overnight runs (Sept 10+). Best-so-far config after the LR
-# sweep: FREEZE_ENCODER=0, LR=1e-5, CE=0.1, K=3 slot-only, val_de=7.978
-# at step 600 of 1665 (then degraded back to 8.13). Two hypotheses to
-# push further, each ~12-15h:
+# Diagnostic pair (Sept 10) — decide "does joint-K + const LR + ε
+# help vs the K=3-slot baseline?" BEFORE committing multi-day compute.
+# Sized to see 1000-1500 steps past the peak zone (Sept 10 K=3 peaked
+# at step 600), which is what we need to distinguish "constant LR
+# holds the peak" from "still degrades regardless of schedule."
 #
-#   1. K=3 slot-only, big data, constant LR (avoid cosine death).
-#      Basically the winning recipe but scaled up + no LR decay.
+#   A. Baseline reproduce with constant LR + best-checkpoint saving.
+#      213k examples (matches the earlier winning run at 1665 steps),
+#      ~2.5h at K=3 slot.
 #        FREEZE_ENCODER=0 LR=1e-5 REAL_SIM_TOPK=3 CE_LOSS_WEIGHT=0.1 \
 #            TOPK_MODE=slot LR_SCHEDULE=constant \
 #            PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
-#            SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_LONG_const \
-#            EPOCHS=1 LIMIT_EXAMPLES=1000000 LIMIT_VAL_EXAMPLES=1000 \
+#            SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const \
+#            EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
 #            NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
-#            sbatch --time=18:00:00 slurms/finetune_de.sh
+#            sbatch --time=04:00:00 slurms/finetune_de.sh
 #
-#   2. Joint (slot × thickness) top-K — real thickness training.
-#      Top-15 over the flattened joint grid; each candidate uses its
-#      own (slot, thickness) pair so gradient hits joint cells directly.
+#   B. Joint top-15 + ε=0.3→0.0 over first half + constant LR.
+#      160k examples ≈ 1250 steps at K=15 joint (~5.5h at ~8 ex/s).
+#      Tests joint mode + exploration + const LR in one shot.
 #        FREEZE_ENCODER=0 LR=1e-5 REAL_SIM_TOPK=15 CE_LOSS_WEIGHT=0.1 \
 #            TOPK_MODE=joint LR_SCHEDULE=constant \
+#            EPSILON_START=0.3 EPSILON_END=0.0 EPSILON_DECAY_FRACTION=0.5 \
 #            PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
-#            SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_joint15_ce0p1_lr1e5_LONG_const \
-#            EPOCHS=1 LIMIT_EXAMPLES=300000 LIMIT_VAL_EXAMPLES=1000 \
+#            SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_joint15_ce0p1_lr1e5_160k_eps03 \
+#            EPOCHS=1 LIMIT_EXAMPLES=160000 LIMIT_VAL_EXAMPLES=1000 \
 #            NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
-#            sbatch --time=18:00:00 slurms/finetune_de.sh
+#            sbatch --time=07:00:00 slurms/finetune_de.sh
 #
-# Both save `best/` whenever val_loss_de improves — the best model is
-# preserved regardless of end-of-training degradation.
+# Both auto-save `best/` on val_loss_de improvements. Compare best@step
+# vs 7.978 baseline. Only then commit to a multi-day 1M-example run
+# with the winning config.
 #
 # Fresh 1M finetune data (HC=0.30) — one-time smp job:
 #   TOTAL_ROWS=1000000 START_SHARD_ID=3000000 \

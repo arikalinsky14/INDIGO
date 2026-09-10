@@ -600,6 +600,7 @@ def _topK_sim_loss_for_example(
     top_k: int,
     beta: float,
     topk_mode: str = "slot",             # "slot" | "joint"
+    epsilon: float = 0.0,                # ε-exploration fraction
 ) -> Tuple[torch.Tensor, Dict[str, float], int]:
     """Per-example top-K real-sim loss. Returns (sum_loss, metrics, n_pos).
 
@@ -612,6 +613,16 @@ def _topK_sim_loss_for_example(
                 (M_MAX × NUM_THICKNESSES = ~640 cells). Gradient hits
                 K joint cells directly; each candidate uses its own
                 (slot, thickness) — real thickness training signal.
+
+    ε-exploration (RL-inspired). If `epsilon > 0`, replace
+    floor(K · epsilon) of the K candidates with uniform-random draws
+    over the active grid (never duplicating a top-K pick). The random
+    picks broaden the search — if a random candidate has low ΔE, the
+    target softmax(-β·ΔE) puts weight on it and the model gets a
+    strong "raise this logit" gradient, escaping local minima where
+    top-K is always similar. Same loss form (softmax over all K) so
+    no code path changes downstream. Caller anneals epsilon over
+    training (typical schedule: 0.3 → 0.0).
 
     `metrics["loss_de"]` mirrors the STE path's semantics — the ΔE at
     the model's greedy (argmax slot × argmax thickness) pick — so
@@ -643,6 +654,14 @@ def _topK_sim_loss_for_example(
     else:
         K_eff = max(1, min(top_k, n_active))
 
+    # ε-exploration slot budget. floor(K · ε) of the K candidates are
+    # uniform-random draws; the rest come from top-K by logit. Clamped
+    # so K_top ≥ 1 (never fully-random — the model's own picks are
+    # what we're training).
+    K_random = int(K_eff * max(0.0, min(1.0, epsilon)))
+    K_random = min(K_random, K_eff - 1)  # keep at least 1 top-K pick
+    K_top = K_eff - K_random
+
     losses = []
     per_pos_diag: List[Dict[str, float]] = []
 
@@ -664,9 +683,35 @@ def _topK_sim_loss_for_example(
             joint_masked = joint_logits.masked_fill(
                 ~joint_slot_mask, -1e9,
             )
-            topk_joint = torch.topk(
-                joint_masked, K_eff, dim=-1,
-            ).indices                                  # [K_eff]
+            top_by_logit = torch.topk(
+                joint_masked, K_top, dim=-1,
+            ).indices                                  # [K_top]
+            if K_random > 0:
+                # Uniform-random draws over active grid, excluding
+                # the already-selected top-K_top picks.
+                active_positions = torch.nonzero(
+                    joint_slot_mask, as_tuple=False,
+                ).squeeze(-1)                          # [n_active * NUM_THICKNESSES]
+                # Exclude top_by_logit via a membership mask.
+                top_set = torch.zeros(
+                    joint_slot_mask.numel(), dtype=torch.bool,
+                    device=device,
+                )
+                top_set[top_by_logit] = True
+                pool_for_random = active_positions[~top_set[active_positions]]
+                k_r = min(K_random, pool_for_random.numel())
+                if k_r > 0:
+                    perm = torch.randperm(
+                        pool_for_random.numel(), device=device,
+                    )[:k_r]
+                    random_picks = pool_for_random[perm]
+                    topk_joint = torch.cat(
+                        [top_by_logit, random_picks], dim=0,
+                    )
+                else:
+                    topk_joint = top_by_logit
+            else:
+                topk_joint = top_by_logit
             topk_slots = torch.div(
                 topk_joint, NUM_THICKNESSES, rounding_mode="floor",
             )                                          # [K_eff]
@@ -681,9 +726,32 @@ def _topK_sim_loss_for_example(
             slot_scores_masked = slot_scores.masked_fill(
                 ~active_mask_bool, -1e9,
             )
-            topk_slots = torch.topk(
-                slot_scores_masked, K_eff, dim=-1,
-            ).indices                                          # [K_eff]
+            top_by_logit = torch.topk(
+                slot_scores_masked, K_top, dim=-1,
+            ).indices                                          # [K_top]
+            if K_random > 0:
+                active_slots = torch.nonzero(
+                    active_mask_bool, as_tuple=False,
+                ).squeeze(-1)                                  # [n_active]
+                top_set = torch.zeros(
+                    active_mask_bool.numel(), dtype=torch.bool,
+                    device=device,
+                )
+                top_set[top_by_logit] = True
+                pool_for_random = active_slots[~top_set[active_slots]]
+                k_r = min(K_random, pool_for_random.numel())
+                if k_r > 0:
+                    perm = torch.randperm(
+                        pool_for_random.numel(), device=device,
+                    )[:k_r]
+                    random_picks = pool_for_random[perm]
+                    topk_slots = torch.cat(
+                        [top_by_logit, random_picks], dim=0,
+                    )
+                else:
+                    topk_slots = top_by_logit
+            else:
+                topk_slots = top_by_logit
             topk_thick_bins = layer_logits[topk_slots].argmax(dim=-1)
             # Differentiable per-slot logits (via .max above).
             topk_model_logits = slot_scores[topk_slots]        # [K_eff]
@@ -697,8 +765,12 @@ def _topK_sim_loss_for_example(
         suffix_t = gt_thicknesses_nm[k + 1:].detach()
 
         # K sims, real ΔE per candidate. All stop-gradient (targets).
+        # Use actual topk_slots length — may be < K_eff if the
+        # pool_for_random branch had fewer positions available than
+        # K_random (very rare for typical pools).
+        K_actual = topk_slots.numel()
         delta_e_candidates: List[torch.Tensor] = []
-        for c in range(K_eff):
+        for c in range(K_actual):
             slot_idx = int(topk_slots[c].item())
             thick_bin = int(topk_thick_bins[c].item())
             thick_nm = float(_THICKNESS_BIN_CENTERS_NP[thick_bin])
@@ -792,6 +864,10 @@ def _topK_sim_loss_for_example(
                 "topk_argmin_matches_model": topk_argmin_matches_model,
                 "slot_entropy": slot_entropy,
                 "thickness_entropy": thick_entropy,
+                # Fraction of the K sim slots filled by ε-random picks
+                # this step. Constant across positions within a batch,
+                # but averaged over positions like everything else here.
+                "explore_frac": (K_actual - K_top) / max(K_actual, 1),
             })
 
     total_loss = torch.stack(losses).sum()
@@ -817,6 +893,7 @@ def finetune_de_loss(
     real_sim_topk: int = 0,
     sim_target_beta: float = 1.0,
     topk_mode: str = "slot",
+    epsilon: float = 0.0,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Compute the finetune loss + diagnostics for one batch.
 
@@ -971,6 +1048,7 @@ def finetune_de_loss(
                 top_k=real_sim_topk,
                 beta=sim_target_beta,
                 topk_mode=topk_mode,
+                epsilon=epsilon,
             )
         else:
             loss_b, metrics_b, n_pos = _rollout_one(
