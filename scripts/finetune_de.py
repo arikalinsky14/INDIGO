@@ -56,12 +56,29 @@ from src.model import ModelConfig, build_model
 # ============================================================================
 
 
-def _cosine_warmup_lr(step: int, total_steps: int, warmup_steps: int,
-                      base_lr: float) -> float:
+def _lr_at_step(
+    step: int,
+    total_steps: int,
+    warmup_steps: int,
+    base_lr: float,
+    schedule: str = "cosine",
+) -> float:
+    """LR at `step`. Linear warmup then either cosine decay to 0
+    (default, matches pretrain) or a flat plateau at base_lr
+    (long-training-friendly — the cosine decay to zero appears to hurt
+    once past a mid-training minimum; see Sept 10 note in
+    analyses/de_finetune/)."""
     if step < warmup_steps:
         return base_lr * (step + 1) / max(warmup_steps, 1)
+    if schedule == "constant":
+        return base_lr
+    # cosine to zero
     progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
     return 0.5 * base_lr * (1.0 + math.cos(math.pi * progress))
+
+
+# Back-compat alias — callers that imported by the old name still work.
+_cosine_warmup_lr = _lr_at_step
 
 
 # ============================================================================
@@ -214,12 +231,27 @@ def parse_args() -> argparse.Namespace:
     # Top-K real-sim loss (C1). See src/de_finetune.py:_topK_sim_loss_for_example.
     # 0 = STE mode (original). >0 replaces the STE ΔE primary loss with a
     # listwise CE loss whose target is softmax(-β·ΔE_real) over the top-K
-    # slot candidates per position. Sim cost scales linearly with K.
+    # candidates per position. Sim cost scales linearly with K.
     p.add_argument("--real-sim-topk", type=int, default=0,
                    help="0=STE mode. K>0 uses top-K real-sim listwise CE loss.")
     p.add_argument("--sim-target-beta", type=float, default=1.0,
                    help="Target-dist sharpness for real-sim CE: "
                         "softmax(-β·ΔE). Higher β = sharper on argmin.")
+    p.add_argument("--topk-mode", type=str, default="slot",
+                   choices=["slot", "joint"],
+                   help="'slot': top-K over per-slot scores (max-over-thickness), "
+                        "each candidate uses its argmax thickness bin. "
+                        "'joint': top-K over the flat (slot × thickness) "
+                        "logit grid — gradient hits joint cells directly, "
+                        "giving real thickness training. Only used when "
+                        "--real-sim-topk > 0.")
+
+    # LR schedule.
+    p.add_argument("--lr-schedule", type=str, default="cosine",
+                   choices=["cosine", "constant"],
+                   help="'cosine' (default) decays LR to 0 by end of training. "
+                        "'constant' holds base_lr flat after warmup — better "
+                        "for long runs where cosine decay to 0 hurts.")
 
     # Logging
     p.add_argument("--log-every", type=int, default=50)
@@ -361,13 +393,22 @@ def main() -> None:
     running_n = 0
     t_last_log = time.time()
 
+    # Best-val tracking. Every val eval that improves on the running
+    # best gets an extra copy saved as `<save_dir>/best/`, so long runs
+    # that peak mid-training (Sept 10 K=3 run: best at step 600 of 1665)
+    # don't lose the best model. `best_val_loss_de = +inf` at start so
+    # the first val always wins.
+    best_val_loss_de = float("inf")
+    best_step = -1
+
     for epoch in range(args.epochs):
         for batch in train_loader:
             if global_step >= total_steps:
                 break
             step_t0 = time.time()
-            lr = _cosine_warmup_lr(
+            lr = _lr_at_step(
                 global_step, total_steps, warmup_steps, args.lr,
+                schedule=args.lr_schedule,
             )
             for pg in optimizer.param_groups:
                 pg["lr"] = lr
@@ -378,6 +419,7 @@ def main() -> None:
                 device=device, ce_loss_weight=args.ce_loss_weight,
                 real_sim_topk=args.real_sim_topk,
                 sim_target_beta=args.sim_target_beta,
+                topk_mode=args.topk_mode,
             )
             if not torch.isfinite(loss):
                 print(f"[WARN] non-finite loss at step {global_step}, skipping",
@@ -443,6 +485,21 @@ def main() -> None:
                     model, config, optimizer, step_id,
                     loss_de_scalar, args.save_dir / "latest", lr=lr,
                 )
+
+                # Best-val checkpoint: save `best/` whenever val_loss_de
+                # improves. Poor-man's early stopping — the final model
+                # can degrade past mid-training peak; this preserves it.
+                val_de = val_out.get("val_loss_de", float("inf"))
+                new_best = False
+                if val_de is not None and val_de < best_val_loss_de:
+                    best_val_loss_de = float(val_de)
+                    best_step = step_id
+                    save_checkpoint(
+                        model, config, optimizer, step_id,
+                        loss_de_scalar, args.save_dir / "best", lr=lr,
+                    )
+                    new_best = True
+
                 row = {
                     "step": step_id,
                     "epoch": epoch,
@@ -450,6 +507,11 @@ def main() -> None:
                     "ce_loss_weight": args.ce_loss_weight,
                     "real_sim_topk": args.real_sim_topk,
                     "sim_target_beta": args.sim_target_beta,
+                    "topk_mode": args.topk_mode,
+                    "lr_schedule": args.lr_schedule,
+                    "best_val_loss_de": best_val_loss_de,
+                    "best_step": best_step,
+                    "is_new_best": new_best,
                     "wall_time_utc": time.strftime(
                         "%Y-%m-%dT%H:%M:%SZ", time.gmtime(),
                     ),
@@ -466,12 +528,17 @@ def main() -> None:
                     f"  val_loss_ce={val_out.get('val_loss_ce', float('nan')):.3f}"
                     if args.ce_loss_weight > 0 else ""
                 )
+                best_str = (
+                    f"  best={best_val_loss_de:.3f}@{best_step}"
+                    + ("  ★NEW" if new_best else "")
+                )
                 print(
                     f"[Val]  step={step_id}  "
                     f"val_loss_de={val_out.get('val_loss_de', float('nan')):.3f}"
                     f"{ce_str}  "
                     f"val_slot_match_gt="
-                    f"{val_out.get('val_slot_match_gt', float('nan')):.2f}",
+                    f"{val_out.get('val_slot_match_gt', float('nan')):.2f}"
+                    f"{best_str}",
                     flush=True,
                 )
 
@@ -497,6 +564,12 @@ def main() -> None:
     )
     print(f"[INFO] Finetune complete. Final step: {global_step}", flush=True)
     print(f"[INFO] Latest checkpoint: {args.save_dir / 'latest'}", flush=True)
+    if best_step > 0:
+        print(
+            f"[INFO] Best val_loss_de: {best_val_loss_de:.4f} at step {best_step}  "
+            f"(checkpoint: {args.save_dir / 'best'})",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

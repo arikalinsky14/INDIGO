@@ -599,8 +599,19 @@ def _topK_sim_loss_for_example(
     incidence_angle: float,
     top_k: int,
     beta: float,
+    topk_mode: str = "slot",             # "slot" | "joint"
 ) -> Tuple[torch.Tensor, Dict[str, float], int]:
     """Per-example top-K real-sim loss. Returns (sum_loss, metrics, n_pos).
+
+    Two modes:
+      "slot"  — top-K over the marginal per-slot score (max over
+                thickness). Uses each slot's argmax-thickness bin.
+                Gradient hits K joint cells: (slot, argmax_thickness)
+                per top-K slot — thickness only via the max op.
+      "joint" — top-K over the joint (slot, thickness) logit grid
+                (M_MAX × NUM_THICKNESSES = ~640 cells). Gradient hits
+                K joint cells directly; each candidate uses its own
+                (slot, thickness) — real thickness training signal.
 
     `metrics["loss_de"]` mirrors the STE path's semantics — the ΔE at
     the model's greedy (argmax slot × argmax thickness) pick — so
@@ -627,7 +638,10 @@ def _topK_sim_loss_for_example(
 
     active_mask_bool = pool_mask.bool()                # [M_MAX]
     n_active = int(active_mask_bool.sum().item())
-    K_eff = max(1, min(top_k, n_active))
+    if topk_mode == "joint":
+        K_eff = max(1, min(top_k, n_active * NUM_THICKNESSES))
+    else:
+        K_eff = max(1, min(top_k, n_active))
 
     losses = []
     per_pos_diag: List[Dict[str, float]] = []
@@ -641,18 +655,38 @@ def _topK_sim_loss_for_example(
             M_MAX, NUM_THICKNESSES,
         )                                              # [M_MAX, NUM_THICKNESSES]
 
-        # Per-slot score = max thickness logit (same pool as ste_pick).
-        slot_scores = layer_logits.max(dim=-1).values  # [M_MAX]
-        slot_scores_masked = slot_scores.masked_fill(
-            ~active_mask_bool, -1e9,
-        )
-        # Top-K slot indices by (masked) per-slot score.
-        topk_slots = torch.topk(
-            slot_scores_masked, K_eff, dim=-1,
-        ).indices                                      # [K_eff]
-
-        # For each top-K slot, take argmax thickness bin conditional on that slot.
-        topk_thick_bins = layer_logits[topk_slots].argmax(dim=-1)  # [K_eff]
+        if topk_mode == "joint":
+            # Top-K over the flattened joint (slot × thickness) grid.
+            joint_logits = layer_logits.reshape(-1)   # [M_MAX*NUM_THICKNESSES]
+            joint_slot_mask = active_mask_bool.unsqueeze(-1).expand(
+                -1, NUM_THICKNESSES,
+            ).reshape(-1)                              # [M_MAX*NUM_THICKNESSES]
+            joint_masked = joint_logits.masked_fill(
+                ~joint_slot_mask, -1e9,
+            )
+            topk_joint = torch.topk(
+                joint_masked, K_eff, dim=-1,
+            ).indices                                  # [K_eff]
+            topk_slots = torch.div(
+                topk_joint, NUM_THICKNESSES, rounding_mode="floor",
+            )                                          # [K_eff]
+            topk_thick_bins = topk_joint % NUM_THICKNESSES  # [K_eff]
+            # Model logits over the top-K joint cells — differentiable
+            # slice; grad flows into each (slot, thickness) joint cell.
+            topk_model_logits = joint_logits[topk_joint]  # [K_eff]
+        else:
+            # Slot mode: per-slot score = max over thickness (matches
+            # ste_pick). Uses argmax-thick per top-K slot.
+            slot_scores = layer_logits.max(dim=-1).values      # [M_MAX]
+            slot_scores_masked = slot_scores.masked_fill(
+                ~active_mask_bool, -1e9,
+            )
+            topk_slots = torch.topk(
+                slot_scores_masked, K_eff, dim=-1,
+            ).indices                                          # [K_eff]
+            topk_thick_bins = layer_logits[topk_slots].argmax(dim=-1)
+            # Differentiable per-slot logits (via .max above).
+            topk_model_logits = slot_scores[topk_slots]        # [K_eff]
 
         # Fixed prefix/suffix pieces (detached — no grad through these).
         prefix_n = gt_n_stack[:k].detach()
@@ -691,23 +725,30 @@ def _topK_sim_loss_for_example(
         # Target distribution: peaked on argmin ΔE, sharpness = β.
         target_probs = F.softmax(-beta * delta_e, dim=-1)  # [K_eff]
 
-        # Model distribution over the same top-K slots. Slice into the
-        # (differentiable) slot_scores — NOT the masked/sanitized copy —
-        # so grad flows cleanly back into logits at the top-K positions.
-        topk_model_logits = slot_scores[topk_slots]        # [K_eff]
         topk_log_probs = F.log_softmax(topk_model_logits, dim=-1)
-
         loss_k = -(target_probs.detach() * topk_log_probs).sum()
         losses.append(loss_k)
 
         with torch.no_grad():
-            # Model's own greedy pick (over all active slots) — matches
-            # the semantics of the STE-mode `loss_de` metric so
-            # val_loss_de stays comparable.
-            model_argmax_slot = int(slot_scores_masked.argmax().item())
-            # Where is that pick inside the top-K? By construction the
-            # global argmax is in the top-K.
-            same = (topk_slots == model_argmax_slot).nonzero(as_tuple=False)
+            # Model's own greedy pick — over the joint grid so it matches
+            # inference-time greedy semantics (argmax joint gives the
+            # (slot, thick) pair that would be picked at inference).
+            joint_full = layer_logits.reshape(-1)
+            joint_full_masked = joint_full.masked_fill(
+                ~active_mask_bool.unsqueeze(-1).expand(
+                    -1, NUM_THICKNESSES,
+                ).reshape(-1),
+                -1e9,
+            )
+            model_argmax_joint = int(joint_full_masked.argmax().item())
+            model_argmax_slot = model_argmax_joint // NUM_THICKNESSES
+            model_argmax_thick_bin = model_argmax_joint % NUM_THICKNESSES
+
+            # Where does the model's greedy pick sit inside top-K?
+            if topk_mode == "joint":
+                same = (topk_joint == model_argmax_joint).nonzero(as_tuple=False)
+            else:
+                same = (topk_slots == model_argmax_slot).nonzero(as_tuple=False)
             model_pick_idx_in_topk = int(same[0, 0].item()) if same.numel() > 0 else 0
             de_model_pick = float(delta_e[model_pick_idx_in_topk].item())
             de_best_topk = float(delta_e.min().item())
@@ -718,15 +759,18 @@ def _topK_sim_loss_for_example(
                 model_pick_idx_in_topk == argmin_idx
             )
 
-            model_argmax_thick_bin = int(
-                layer_logits[model_argmax_slot].argmax().item()
-            )
             slot_match_gt = float(model_argmax_slot == gt_slots[k])
             thick_match_gt = float(
                 THICKNESSES[model_argmax_thick_bin] == gt_thicknesses[k]
             )
 
-            slot_probs_all = F.softmax(slot_scores_masked, dim=-1)
+            # Entropy diagnostics: marginal slot dist + thickness dist
+            # conditioned on the model's argmax slot (matches inference
+            # semantics).
+            slot_scores_diag = layer_logits.max(dim=-1).values.masked_fill(
+                ~active_mask_bool, -1e9,
+            )
+            slot_probs_all = F.softmax(slot_scores_diag, dim=-1)
             slot_entropy = -(
                 slot_probs_all * slot_probs_all.clamp_min(1e-12).log()
             ).sum().item()
@@ -772,6 +816,7 @@ def finetune_de_loss(
     ce_loss_weight: float = 0.0,
     real_sim_topk: int = 0,
     sim_target_beta: float = 1.0,
+    topk_mode: str = "slot",
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Compute the finetune loss + diagnostics for one batch.
 
@@ -925,6 +970,7 @@ def finetune_de_loss(
                 incidence_angle=incidence_angle,
                 top_k=real_sim_topk,
                 beta=sim_target_beta,
+                topk_mode=topk_mode,
             )
         else:
             loss_b, metrics_b, n_pos = _rollout_one(

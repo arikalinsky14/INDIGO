@@ -146,6 +146,19 @@ fi
 : "${REAL_SIM_TOPK:=0}"
 : "${SIM_TARGET_BETA:=1.0}"
 
+# Top-K mode. 'slot' = top-K over per-slot scores (max-over-thickness),
+# candidates use argmax thickness → gradient only into (slot, argmax_thick)
+# cells. 'joint' = top-K over the flattened (slot × thickness) grid →
+# gradient into K joint cells with real thickness training. Use 'joint'
+# with a bigger K (10-20) when thickness training matters.
+: "${TOPK_MODE:=slot}"
+
+# LR schedule after warmup. 'cosine' decays to 0 by end (matches pretrain).
+# 'constant' holds base LR flat — better for long runs where cosine decay
+# to zero hurts (Sept 10 K=3 run peaked at step 600/1665 and got worse
+# with continued cosine decay).
+: "${LR_SCHEDULE:=cosine}"
+
 echo "============================================================================"
 echo "FINETUNE CONFIGURATION"
 echo "============================================================================"
@@ -157,6 +170,8 @@ echo "LR                    : ${LR}"
 echo "CE_LOSS_WEIGHT        : ${CE_LOSS_WEIGHT}"
 echo "REAL_SIM_TOPK         : ${REAL_SIM_TOPK}  ($([ "${REAL_SIM_TOPK}" = "0" ] && echo "STE mode" || echo "top-K real-sim mode"))"
 echo "SIM_TARGET_BETA       : ${SIM_TARGET_BETA}"
+echo "TOPK_MODE             : ${TOPK_MODE}"
+echo "LR_SCHEDULE           : ${LR_SCHEDULE}"
 echo "EPOCHS                : ${EPOCHS}"
 echo "BATCH_SIZE            : ${BATCH_SIZE}"
 echo "NUM_WORKERS           : ${NUM_WORKERS}"
@@ -198,6 +213,8 @@ ARGS=(
     --ce-loss-weight      "${CE_LOSS_WEIGHT}"
     --real-sim-topk       "${REAL_SIM_TOPK}"
     --sim-target-beta     "${SIM_TARGET_BETA}"
+    --topk-mode           "${TOPK_MODE}"
+    --lr-schedule         "${LR_SCHEDULE}"
 )
 
 if [[ "${FREEZE_ENCODER}" == "1" ]]; then
@@ -289,6 +306,36 @@ exit ${EXIT_CODE}
 # If topk gradient looks dominated by CE (loss_topk not falling but
 # loss_ce falling nicely), rerun with CE_LOSS_WEIGHT=0.2 to soften CE
 # and let topk drive slot selection more.
+#
+# ---------------------------------------------------------------------------
+# Serious overnight runs (Sept 10+). Best-so-far config after the LR
+# sweep: FREEZE_ENCODER=0, LR=1e-5, CE=0.1, K=3 slot-only, val_de=7.978
+# at step 600 of 1665 (then degraded back to 8.13). Two hypotheses to
+# push further, each ~12-15h:
+#
+#   1. K=3 slot-only, big data, constant LR (avoid cosine death).
+#      Basically the winning recipe but scaled up + no LR decay.
+#        FREEZE_ENCODER=0 LR=1e-5 REAL_SIM_TOPK=3 CE_LOSS_WEIGHT=0.1 \
+#            TOPK_MODE=slot LR_SCHEDULE=constant \
+#            PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+#            SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_LONG_const \
+#            EPOCHS=1 LIMIT_EXAMPLES=1000000 LIMIT_VAL_EXAMPLES=1000 \
+#            NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
+#            sbatch --time=18:00:00 slurms/finetune_de.sh
+#
+#   2. Joint (slot × thickness) top-K — real thickness training.
+#      Top-15 over the flattened joint grid; each candidate uses its
+#      own (slot, thickness) pair so gradient hits joint cells directly.
+#        FREEZE_ENCODER=0 LR=1e-5 REAL_SIM_TOPK=15 CE_LOSS_WEIGHT=0.1 \
+#            TOPK_MODE=joint LR_SCHEDULE=constant \
+#            PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+#            SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_joint15_ce0p1_lr1e5_LONG_const \
+#            EPOCHS=1 LIMIT_EXAMPLES=300000 LIMIT_VAL_EXAMPLES=1000 \
+#            NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
+#            sbatch --time=18:00:00 slurms/finetune_de.sh
+#
+# Both save `best/` whenever val_loss_de improves — the best model is
+# preserved regardless of end-of-training degradation.
 #
 # Fresh 1M finetune data (HC=0.30) — one-time smp job:
 #   TOTAL_ROWS=1000000 START_SHARD_ID=3000000 \
