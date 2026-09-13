@@ -599,20 +599,30 @@ def _topK_sim_loss_for_example(
     incidence_angle: float,
     top_k: int,
     beta: float,
-    topk_mode: str = "slot",             # "slot" | "joint"
+    topk_mode: str = "slot",             # "slot" | "joint" | "hierarchical"
     epsilon: float = 0.0,                # ε-exploration fraction
+    thickness_topn: int = 1,             # N thicknesses per slot in "hierarchical" mode
 ) -> Tuple[torch.Tensor, Dict[str, float], int]:
     """Per-example top-K real-sim loss. Returns (sum_loss, metrics, n_pos).
 
-    Two modes:
-      "slot"  — top-K over the marginal per-slot score (max over
-                thickness). Uses each slot's argmax-thickness bin.
-                Gradient hits K joint cells: (slot, argmax_thickness)
-                per top-K slot — thickness only via the max op.
-      "joint" — top-K over the joint (slot, thickness) logit grid
-                (M_MAX × NUM_THICKNESSES = ~640 cells). Gradient hits
-                K joint cells directly; each candidate uses its own
-                (slot, thickness) — real thickness training signal.
+    Three modes:
+      "slot"          — top-K over the marginal per-slot score (max over
+                        thickness). Uses each slot's argmax-thickness bin.
+                        Gradient hits K joint cells: (slot, argmax_thickness).
+      "joint"         — top-K over the flat (slot × thickness) logit grid
+                        (M_MAX × NUM_THICKNESSES cells). Sept 10 finding:
+                        this concentrates on 1-2 slots' neighboring
+                        thickness bins → all candidates similar ΔE →
+                        loss_topk stuck at log(K) uniform. Kept for
+                        completeness but not recommended.
+      "hierarchical"  — top-K slots by marginal (like "slot") AND top-N
+                        thicknesses per slot. Total = K · N candidates,
+                        all with distinct (slot, thickness). Forces
+                        material diversity (K slots) AND thickness
+                        exploration (N per slot). Sim cost = K · N per
+                        position; gradient hits K · N joint cells.
+                        Set `thickness_topn > 1` to enable; N=1 is
+                        equivalent to "slot" mode.
 
     ε-exploration (RL-inspired). If `epsilon > 0`, replace
     floor(K · epsilon) of the K candidates with uniform-random draws
@@ -653,6 +663,11 @@ def _topK_sim_loss_for_example(
         K_eff = max(1, min(top_k, n_active * NUM_THICKNESSES))
     else:
         K_eff = max(1, min(top_k, n_active))
+    # Hierarchical mode: N thicknesses per slot. Total candidates =
+    # K_eff * N_thick. N_thick clamped to NUM_THICKNESSES so we can't
+    # ask for more than exist.
+    N_thick = max(1, min(int(thickness_topn), NUM_THICKNESSES))
+    is_hierarchical = (topk_mode == "hierarchical") and N_thick > 1
 
     # ε-exploration slot budget. floor(K · ε) of the K candidates are
     # uniform-random draws; the rest come from top-K by logit. Clamped
@@ -674,7 +689,35 @@ def _topK_sim_loss_for_example(
             M_MAX, NUM_THICKNESSES,
         )                                              # [M_MAX, NUM_THICKNESSES]
 
-        if topk_mode == "joint":
+        if is_hierarchical:
+            # Hierarchical M × N: top-K slots by marginal, then top-N
+            # thickness bins per slot. Every candidate has a distinct
+            # (slot, thick) pair → material diversity AND thickness
+            # exploration. Not affected by ε here (ε applies to slot
+            # selection only in the slot/joint branches); adding it
+            # here would be a cleaner future work item.
+            slot_scores = layer_logits.max(dim=-1).values      # [M_MAX]
+            slot_scores_masked = slot_scores.masked_fill(
+                ~active_mask_bool, -1e9,
+            )
+            topk_slots_only = torch.topk(
+                slot_scores_masked, K_eff, dim=-1,
+            ).indices                                          # [K_eff]
+            # For each of top-K slots, top-N thickness bins by conditional
+            # logit. Shape [K_eff, N_thick].
+            per_slot_thick_logits = layer_logits[topk_slots_only]  # [K_eff, NT]
+            topk_thick_bins_per_slot = torch.topk(
+                per_slot_thick_logits, N_thick, dim=-1,
+            ).indices                                              # [K_eff, N_thick]
+            # Flatten to lists of (slot, thick_bin) pairs of length K_eff * N_thick.
+            topk_slots = topk_slots_only.repeat_interleave(N_thick)  # [K_eff*N_thick]
+            topk_thick_bins = topk_thick_bins_per_slot.reshape(-1)   # [K_eff*N_thick]
+            # Model logits over the K·N joint cells, differentiable.
+            # gather along last dim so grad flows into each cell.
+            topk_model_logits = per_slot_thick_logits.gather(
+                dim=-1, index=topk_thick_bins_per_slot,
+            ).reshape(-1)                                           # [K_eff*N_thick]
+        elif topk_mode == "joint":
             # Top-K over the flattened joint (slot × thickness) grid.
             joint_logits = layer_logits.reshape(-1)   # [M_MAX*NUM_THICKNESSES]
             joint_slot_mask = active_mask_bool.unsqueeze(-1).expand(
@@ -817,10 +860,12 @@ def _topK_sim_loss_for_example(
             model_argmax_thick_bin = model_argmax_joint % NUM_THICKNESSES
 
             # Where does the model's greedy pick sit inside top-K?
-            if topk_mode == "joint":
-                same = (topk_joint == model_argmax_joint).nonzero(as_tuple=False)
-            else:
-                same = (topk_slots == model_argmax_slot).nonzero(as_tuple=False)
+            # Build joint IDs for the candidates to compare consistently
+            # across modes (slot mode uses argmax-thick per top-K slot,
+            # hierarchical enumerates K·N joint cells, joint mode's
+            # topk_joint already is joint IDs).
+            topk_joint_ids = topk_slots * NUM_THICKNESSES + topk_thick_bins
+            same = (topk_joint_ids == model_argmax_joint).nonzero(as_tuple=False)
             model_pick_idx_in_topk = int(same[0, 0].item()) if same.numel() > 0 else 0
             de_model_pick = float(delta_e[model_pick_idx_in_topk].item())
             de_best_topk = float(delta_e.min().item())
@@ -894,6 +939,7 @@ def finetune_de_loss(
     sim_target_beta: float = 1.0,
     topk_mode: str = "slot",
     epsilon: float = 0.0,
+    thickness_topn: int = 1,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Compute the finetune loss + diagnostics for one batch.
 
@@ -1049,6 +1095,7 @@ def finetune_de_loss(
                 beta=sim_target_beta,
                 topk_mode=topk_mode,
                 epsilon=epsilon,
+                thickness_topn=thickness_topn,
             )
         else:
             loss_b, metrics_b, n_pos = _rollout_one(

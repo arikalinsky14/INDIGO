@@ -146,12 +146,18 @@ fi
 : "${REAL_SIM_TOPK:=0}"
 : "${SIM_TARGET_BETA:=1.0}"
 
-# Top-K mode. 'slot' = top-K over per-slot scores (max-over-thickness),
-# candidates use argmax thickness → gradient only into (slot, argmax_thick)
-# cells. 'joint' = top-K over the flattened (slot × thickness) grid →
-# gradient into K joint cells with real thickness training. Use 'joint'
-# with a bigger K (10-20) when thickness training matters.
+# Top-K mode.
+#   slot         top-K over per-slot scores (max-over-thickness), each
+#                candidate uses its argmax thickness.
+#   joint        top-K over the flat (slot × thickness) grid. Sept 10
+#                finding: concentrates on 1-2 slots' neighbor-thickness
+#                bins, loss stalls at log(K). Not recommended.
+#   hierarchical top-K slots AND top-N thicknesses per slot (N via
+#                THICKNESS_TOPN). Total K·N sims/pos, all distinct
+#                (slot, thick) pairs — material diversity AND
+#                thickness training.
 : "${TOPK_MODE:=slot}"
+: "${THICKNESS_TOPN:=1}"
 
 # LR schedule after warmup. 'cosine' decays to 0 by end (matches pretrain).
 # 'constant' holds base LR flat — better for long runs where cosine decay
@@ -182,6 +188,7 @@ echo "CE_LOSS_WEIGHT        : ${CE_LOSS_WEIGHT}"
 echo "REAL_SIM_TOPK         : ${REAL_SIM_TOPK}  ($([ "${REAL_SIM_TOPK}" = "0" ] && echo "STE mode" || echo "top-K real-sim mode"))"
 echo "SIM_TARGET_BETA       : ${SIM_TARGET_BETA}"
 echo "TOPK_MODE             : ${TOPK_MODE}"
+echo "THICKNESS_TOPN        : ${THICKNESS_TOPN}"
 echo "LR_SCHEDULE           : ${LR_SCHEDULE}"
 echo "EPSILON               : start=${EPSILON_START}  end=${EPSILON_END}  decay_frac=${EPSILON_DECAY_FRACTION}"
 echo "EPOCHS                : ${EPOCHS}"
@@ -226,6 +233,7 @@ ARGS=(
     --real-sim-topk       "${REAL_SIM_TOPK}"
     --sim-target-beta     "${SIM_TARGET_BETA}"
     --topk-mode           "${TOPK_MODE}"
+    --thickness-topn      "${THICKNESS_TOPN}"
     --lr-schedule         "${LR_SCHEDULE}"
     --epsilon-start       "${EPSILON_START}"
     --epsilon-end         "${EPSILON_END}"

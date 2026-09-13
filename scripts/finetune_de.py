@@ -122,6 +122,12 @@ def save_checkpoint(model, config: ModelConfig, optimizer, step: int,
     }
     with open(subdir / "meta.json", "w") as f:
         json.dump(meta, f, indent=2, default=str)
+    # Also write config.json alongside — the inference pipeline
+    # (inference.src.generate.load_inference_model) expects it as a
+    # top-level file. This makes finetune checkpoints drop-in usable
+    # with inference/scripts/test_eval.py, gamut_eval.py, etc.
+    with open(subdir / "config.json", "w") as f:
+        json.dump(config.__dict__, f, indent=2, default=str)
 
 
 def append_history(history_path: Path, row: Dict) -> None:
@@ -257,13 +263,20 @@ def parse_args() -> argparse.Namespace:
                    help="Target-dist sharpness for real-sim CE: "
                         "softmax(-β·ΔE). Higher β = sharper on argmin.")
     p.add_argument("--topk-mode", type=str, default="slot",
-                   choices=["slot", "joint"],
+                   choices=["slot", "joint", "hierarchical"],
                    help="'slot': top-K over per-slot scores (max-over-thickness), "
                         "each candidate uses its argmax thickness bin. "
                         "'joint': top-K over the flat (slot × thickness) "
-                        "logit grid — gradient hits joint cells directly, "
-                        "giving real thickness training. Only used when "
-                        "--real-sim-topk > 0.")
+                        "grid — Sept 10 finding: concentrates on 1-2 slots' "
+                        "neighbor-thickness bins, learning stalls. "
+                        "'hierarchical': top-K slots AND top-N thicknesses "
+                        "per slot (N via --thickness-topn). Total K·N sims "
+                        "per position, distinct (slot, thick) pairs. Only "
+                        "used when --real-sim-topk > 0.")
+    p.add_argument("--thickness-topn", type=int, default=1,
+                   help="Only used with --topk-mode hierarchical. N "
+                        "thickness bins per slot in the K·N candidate grid. "
+                        "N=1 = equivalent to 'slot' mode.")
 
     # LR schedule.
     p.add_argument("--lr-schedule", type=str, default="cosine",
@@ -460,6 +473,7 @@ def main() -> None:
                 sim_target_beta=args.sim_target_beta,
                 topk_mode=args.topk_mode,
                 epsilon=epsilon,
+                thickness_topn=args.thickness_topn,
             )
             if not torch.isfinite(loss):
                 print(f"[WARN] non-finite loss at step {global_step}, skipping",
