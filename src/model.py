@@ -404,6 +404,16 @@ class FlexMaterialCrossAttn(nn.Module):
         self.lab_proj = nn.Linear(3 + 1, config.d_model)
         self.start_token = nn.Parameter(torch.zeros(1, config.d_model))
 
+        # Sim-feedback residual projection: at each decoding position k, an
+        # OPTIONAL residual (target_lab − partial_stack_sim_lab, normalised)
+        # tells the model how far off the prefix already is. Added element-
+        # wise to the sequence input at each position. Zero-initialised so
+        # that (a) a pretrained checkpoint loaded here behaves identically
+        # to before, and (b) if the caller passes residual_labs=None the
+        # forward is bit-identical to the original. Enabled during the
+        # finetune phase only — see analyses/de_finetune/README.md.
+        self.residual_proj = nn.Linear(3, config.d_model)
+
         # Combined decoder: causal self-attn over the sequence + cross-attn
         # onto slot keys. Standard transformer decoder pattern.
         dec_layer = nn.TransformerDecoderLayer(
@@ -453,6 +463,11 @@ class FlexMaterialCrossAttn(nn.Module):
                     nn.init.zeros_(module.bias)
         nn.init.normal_(self.layer_pos_emb, std=0.02)
         nn.init.normal_(self.start_token, std=0.02)
+        # residual_proj is deliberately zero-init so a pretrained
+        # checkpoint loaded into this architecture behaves identically to
+        # the pre-residual model at init.
+        nn.init.zeros_(self.residual_proj.weight)
+        nn.init.zeros_(self.residual_proj.bias)
 
     def forward(
         self,
@@ -462,6 +477,7 @@ class FlexMaterialCrossAttn(nn.Module):
         structure_matrix: torch.Tensor,
         pool_size: torch.Tensor,
         apply_output_mask: bool = True,
+        residual_labs: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Same input signature as FlexMaterialMLP.forward; output shape is
         [B, MAX_LAYERS+1, VOCAB_SIZE] (one prediction per sequence position).
@@ -504,6 +520,20 @@ class FlexMaterialCrossAttn(nn.Module):
         # 6. Assemble the sequence and add positional embeddings.
         seq = torch.cat([start, past_tokens], dim=1)                   # [B, SEQ_LEN, d_model]
         seq = seq + self.layer_pos_emb.unsqueeze(0)
+
+        # 6a. Optional sim-feedback residual: element-wise add a
+        # per-position embedding of (target_lab − partial_stack_sim_lab)
+        # so position k's prediction is conditioned on "how far off the
+        # prefix already is". residual_labs is [B, SEQ_LEN, 3] in
+        # normalised-Lab space; residual_labs[b, k] = residual for the
+        # prediction at output position k (k=0 typically zero — no prefix).
+        # Zero-init self.residual_proj means residual_labs=None or a
+        # zeros tensor makes this pass a no-op — the model behaves exactly
+        # like the pre-residual version at init. Enabled in finetune only.
+        if residual_labs is not None:
+            if residual_labs.dtype != seq.dtype:
+                residual_labs = residual_labs.to(dtype=seq.dtype)
+            seq = seq + self.residual_proj(residual_labs)
 
         # 7. Per-sequence-position key-padding mask. Position 0 (start) is
         # always valid; position j ∈ [1, MAX_LAYERS] is valid iff layer j-1

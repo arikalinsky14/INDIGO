@@ -176,6 +176,14 @@ fi
 : "${EPSILON_END:=0.0}"
 : "${EPSILON_DECAY_FRACTION:=1.0}"
 
+# Sim-feedback residual (Sept 13). Enables the finetune-only
+# architectural addition: at each decoding position k, the model gets
+# residual = target − sim(GT[0:k]) as an extra input (zero-init proj,
+# so pretrained checkpoints load and behave identically at init).
+# Adds N-1 partial sims per example (~25% overhead). Set to 1 to
+# enable, 0 to disable (default).
+: "${SIM_FEEDBACK:=0}"
+
 echo "============================================================================"
 echo "FINETUNE CONFIGURATION"
 echo "============================================================================"
@@ -191,6 +199,7 @@ echo "TOPK_MODE             : ${TOPK_MODE}"
 echo "THICKNESS_TOPN        : ${THICKNESS_TOPN}"
 echo "LR_SCHEDULE           : ${LR_SCHEDULE}"
 echo "EPSILON               : start=${EPSILON_START}  end=${EPSILON_END}  decay_frac=${EPSILON_DECAY_FRACTION}"
+echo "SIM_FEEDBACK          : ${SIM_FEEDBACK}"
 echo "EPOCHS                : ${EPOCHS}"
 echo "BATCH_SIZE            : ${BATCH_SIZE}"
 echo "NUM_WORKERS           : ${NUM_WORKERS}"
@@ -239,6 +248,11 @@ ARGS=(
     --epsilon-end         "${EPSILON_END}"
     --epsilon-decay-fraction "${EPSILON_DECAY_FRACTION}"
 )
+
+# Sim-feedback is a flag, not a value — only add when enabled.
+if [[ "${SIM_FEEDBACK}" == "1" ]]; then
+    ARGS+=(--sim-feedback)
+fi
 
 if [[ "${FREEZE_ENCODER}" == "1" ]]; then
     ARGS+=(--freeze-encoder)
@@ -363,6 +377,27 @@ exit ${EXIT_CODE}
 # Both auto-save `best/` on val_loss_de improvements. Compare best@step
 # vs 7.978 baseline. Only then commit to a multi-day 1M-example run
 # with the winning config.
+#
+# ---------------------------------------------------------------------------
+# Sim-feedback residual (Sept 13). Enables the architectural addition
+# that lets the decoder see "how far off the prefix is" at each
+# position — should help edge-of-gamut high-chroma cases where blind
+# left-to-right AR decoding compounds early errors.
+#
+# Zero-init projection means pretrained checkpoints load and behave
+# identically at init; the finetune trains the residual weights.
+#
+#   FREEZE_ENCODER=0 LR=1e-5 REAL_SIM_TOPK=3 CE_LOSS_WEIGHT=0.1 \
+#       TOPK_MODE=slot LR_SCHEDULE=constant SIM_FEEDBACK=1 \
+#       PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+#       SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb \
+#       EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
+#       NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
+#       sbatch --time=05:00:00 slurms/finetune_de.sh
+#
+# Compare against the SIM_FEEDBACK=0 run at same config
+# (finetune_de_B_slot3_ce0p1_lr1e5_213k_const, best=8.022) — the delta
+# is the value of feedback.
 #
 # Fresh 1M finetune data (HC=0.30) — one-time smp job:
 #   TOTAL_ROWS=1000000 START_SHARD_ID=3000000 \

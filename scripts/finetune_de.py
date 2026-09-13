@@ -140,7 +140,8 @@ def append_history(history_path: Path, row: Dict) -> None:
 # ============================================================================
 
 
-def evaluate_val(model, val_loader, device, ce_loss_weight: float = 0.0) -> Dict[str, float]:
+def evaluate_val(model, val_loader, device, ce_loss_weight: float = 0.0,
+                 sim_feedback: bool = False) -> Dict[str, float]:
     """Val eval. Threads ce_loss_weight through so val loss_ce is also
     reported when the anchor is on; val_loss_de is always the primary
     metric regardless of weight (that's the target objective).
@@ -150,7 +151,11 @@ def evaluate_val(model, val_loader, device, ce_loss_weight: float = 0.0) -> Dict
     same quantity across all training modes (STE, top-K K=5/10/15,
     with/without CE anchor). Otherwise different K would spend
     different sim budgets on val and val_loss_de wouldn't be
-    apples-to-apples across runs."""
+    apples-to-apples across runs.
+
+    sim_feedback MUST match the training-time setting: if training used
+    residual conditioning, val must also compute + pass residuals or the
+    model's forward is under-conditioned and val_de is pessimistic."""
     model.eval()
     metrics_accum: Dict[str, float] = {}
     n_total_positions = 0
@@ -160,6 +165,7 @@ def evaluate_val(model, val_loader, device, ce_loss_weight: float = 0.0) -> Dict
                 model, batch, device=device,
                 ce_loss_weight=ce_loss_weight,
                 real_sim_topk=0,
+                sim_feedback=sim_feedback,
             )
             n_pos = int(m.get("n_positions", 0))
             if n_pos == 0:
@@ -278,6 +284,16 @@ def parse_args() -> argparse.Namespace:
                         "thickness bins per slot in the K·N candidate grid. "
                         "N=1 = equivalent to 'slot' mode.")
 
+    # Sim-feedback residual (Sept 13). At each decoding position, feed
+    # the model residual = target - sim(GT prefix) so it knows how far
+    # off the prefix already is. Zero-init projection in the model
+    # means enabling this on top of a pretrained checkpoint is safe
+    # (behaves identically at init, learns to use residual during
+    # finetune). Adds ~N-1 partial sims per example (~25% overhead).
+    p.add_argument("--sim-feedback", action="store_true",
+                   help="Enable sim-feedback residual conditioning "
+                        "(finetune-only architectural addition).")
+
     # LR schedule.
     p.add_argument("--lr-schedule", type=str, default="cosine",
                    choices=["cosine", "constant"],
@@ -342,9 +358,24 @@ def main() -> None:
         args.pretrained_checkpoint / "model.pt",
         map_location=device, weights_only=True,
     )
-    model.load_state_dict(pretrained_state)
-    print(f"[INFO] Loaded pretrained state from {args.pretrained_checkpoint}",
-          flush=True)
+    # strict=False so the residual_proj module (added in Sept 13 for
+    # sim-feedback finetune, zero-init) can be absent from older
+    # pretrained checkpoints. Any keys present in state but not in model
+    # (unexpected_keys) still surface here for review.
+    load_result = model.load_state_dict(pretrained_state, strict=False)
+    if load_result.missing_keys:
+        print(
+            f"[INFO] Loaded pretrained state; missing_keys (using init): "
+            f"{load_result.missing_keys}", flush=True,
+        )
+    if load_result.unexpected_keys:
+        print(
+            f"[WARN] Loaded pretrained state; unexpected_keys (ignored): "
+            f"{load_result.unexpected_keys}", flush=True,
+        )
+    if not load_result.missing_keys and not load_result.unexpected_keys:
+        print(f"[INFO] Loaded pretrained state from {args.pretrained_checkpoint}",
+              flush=True)
 
     # --- Freezing (Experiment A vs B) ---
     if args.freeze_encoder:
@@ -474,6 +505,7 @@ def main() -> None:
                 topk_mode=args.topk_mode,
                 epsilon=epsilon,
                 thickness_topn=args.thickness_topn,
+                sim_feedback=args.sim_feedback,
             )
             if not torch.isfinite(loss):
                 print(f"[WARN] non-finite loss at step {global_step}, skipping",
@@ -533,6 +565,7 @@ def main() -> None:
                 val_out = evaluate_val(
                     model, val_loader, device,
                     ce_loss_weight=args.ce_loss_weight,
+                    sim_feedback=args.sim_feedback,
                 )
                 # Save the ΔE-only component in checkpoint meta so we can
                 # compare across ce_loss_weight settings later.
@@ -573,6 +606,7 @@ def main() -> None:
                     "epsilon_start": args.epsilon_start,
                     "epsilon_end": args.epsilon_end,
                     "epsilon_decay_fraction": args.epsilon_decay_fraction,
+                    "sim_feedback": args.sim_feedback,
                     "best_val_loss_de": best_val_loss_de,
                     "best_step": best_step,
                     "is_new_best": new_best,

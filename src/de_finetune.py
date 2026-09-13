@@ -64,6 +64,7 @@ from src.materials_vocab import (
     VOCAB_SIZE,
     build_structure_matrix,
     denormalize_lab,
+    normalize_lab,
 )
 from src.optical_sim_diff import (
     compute_lab_no_grad,
@@ -558,6 +559,93 @@ def _rollout_one(
 
 
 # ============================================================================
+# Sim-feedback residual — helper to compute partial-stack Lab residuals
+# ============================================================================
+#
+# Called once per batch before the model forward. For every example, for
+# every position k in the batched sequence layout [0 .. MAX_LAYERS], we
+# compute:
+#
+#     residual[b, k] = normalized(target_lab_b) − normalized(sim(GT[0:k]))
+#
+# where sim(GT[0:k]) is the real-JLL Lab of the stack formed by the first
+# k GT layers of example b.
+#
+#   • k = 0: prefix is empty. Residual is undefined; we set it to 0. The
+#     model at position k=0 only sees the target and has no "residual" to
+#     react to.
+#   • k = N_b (past this example's real layer count): position doesn't
+#     make a prediction that ever contributes to loss. Residual = 0.
+#
+# Residual is in NORMALISED Lab space (matching the model's `lab` input)
+# because the residual projection lives in that same feature space.
+#
+# Cost: N_b − 1 partial sims per example. For a 4-layer example that's
+# 3 partial sims — ~25% overhead on top of the K sims/position for the
+# top-K path. Trivial vs the value of "how am I doing" feedback.
+# ============================================================================
+
+
+def _compute_partial_residuals(
+    batch: Dict[str, torch.Tensor],
+    incidence_angle: float,
+    device: torch.device,
+) -> torch.Tensor:
+    """Compute [B, MAX_LAYERS+1, 3] partial-Lab residuals in normalised
+    Lab space. Uses real (non-differentiable) JLL sim on GT prefixes."""
+    from src.optical_sim_diff import compute_lab_no_grad
+
+    from src.materials_vocab import _L_SCALE, _AB_SCALE  # local: avoid cycle
+    scale = torch.tensor(
+        [_L_SCALE, _AB_SCALE, _AB_SCALE], device=device, dtype=torch.float64,
+    )
+
+    B = batch["lab"].size(0)
+    SEQ_LEN = MAX_LAYERS + 1
+    residuals = torch.zeros(B, SEQ_LEN, 3, device=device, dtype=torch.float32)
+
+    pool_features = batch["pool_features"].to(device=device, dtype=torch.float64)
+
+    for b in range(B):
+        gt_slots = list(batch["target_slots"][b])[:MAX_LAYERS]
+        gt_thicknesses = list(batch["target_thicknesses"][b])[:MAX_LAYERS]
+        n_layers = len(gt_slots)
+        if n_layers == 0:
+            continue
+
+        # Denormalised target Lab for this example.
+        target_lab_denorm = torch.tensor(
+            denormalize_lab(batch["lab"][b]),
+            device=device, dtype=torch.float64,
+        )
+
+        # Prefix n/k stacks — GT one-hot selects the material.
+        pool_n_b = pool_features[b, :, 0, :]                        # [M_MAX, L]
+        pool_k_b = pool_features[b, :, 1, :]
+        gt_onehots = F.one_hot(
+            torch.tensor(gt_slots, device=device), num_classes=M_MAX,
+        ).to(dtype=torch.float64)                                   # [N, M_MAX]
+        gt_n_stack = gt_onehots @ pool_n_b                          # [N, L]
+        gt_k_stack = gt_onehots @ pool_k_b
+        gt_thick_nm = torch.tensor(
+            gt_thicknesses, device=device, dtype=torch.float64,
+        )                                                            # [N]
+
+        # For each k in 1..n_layers-1: sim the first k GT layers, get Lab,
+        # compute residual = (target − partial) / scale. k=0 stays 0.
+        # Also for k = n_layers .. MAX_LAYERS: keep 0 (no prediction there).
+        for k in range(1, n_layers):
+            partial_lab = compute_lab_no_grad(
+                gt_n_stack[:k], gt_k_stack[:k], gt_thick_nm[:k],
+                incidence_angle=incidence_angle,
+            )                                                       # [3]
+            residual_denorm = target_lab_denorm - partial_lab
+            residual_norm = (residual_denorm / scale).to(dtype=torch.float32)
+            residuals[b, k, :] = residual_norm
+    return residuals
+
+
+# ============================================================================
 # Top-K real-sim loss — replaces the STE linearization with actual ΔE
 # ============================================================================
 #
@@ -940,6 +1028,7 @@ def finetune_de_loss(
     topk_mode: str = "slot",
     epsilon: float = 0.0,
     thickness_topn: int = 1,
+    sim_feedback: bool = False,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Compute the finetune loss + diagnostics for one batch.
 
@@ -1010,6 +1099,17 @@ def finetune_de_loss(
     pool_mask = batch["pool_mask"].to(device)
     pool_size = batch["pool_size"].to(device)
 
+    # Optional sim-feedback: real (JLL) sim on each GT prefix gives a
+    # per-position residual (target − partial-sim), fed to the model so
+    # position k's prediction knows how far off the prefix already is.
+    # Adds N-1 sims per example (~25% overhead) but closes the "how am
+    # I doing" loop the pre-residual model didn't have.
+    residual_labs = None
+    if sim_feedback:
+        residual_labs = _compute_partial_residuals(
+            batch, incidence_angle, device,
+        )
+
     # One model forward for the whole batch.
     # For FlexMaterialCrossAttn.forward, we pass lab / pool_features /
     # pool_mask / pool_size / structure_matrix and get [B, MAX_LAYERS+1,
@@ -1021,6 +1121,7 @@ def finetune_de_loss(
         pool_size=pool_size,
         structure_matrix=structure_matrix,
         apply_output_mask=True,
+        residual_labs=residual_labs,
     )
     if logits.dim() != 3:
         raise RuntimeError(

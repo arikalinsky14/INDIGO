@@ -11,7 +11,9 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 
-#SBATCH --time=03:00:00
+# 12h — from the Sept 13 tier_a run: ~0.03 rows/s at ENSEMBLE_N=200 means
+# 500 rows × 2 tiers ≈ 9h wall. 3h was insufficient; 12h gives 30% buffer.
+#SBATCH --time=12:00:00
 #SBATCH --qos=short
 #SBATCH --mail-user=ajk245@pitt.edu
 #SBATCH --mail-type=END,FAIL
