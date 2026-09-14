@@ -184,6 +184,20 @@ fi
 # enable, 0 to disable (default).
 : "${SIM_FEEDBACK:=0}"
 
+# Prefix augmentation for the sim-feedback residual (Sept 14). Only
+# active when SIM_FEEDBACK=1. Per prefix layer independently, with
+# probability PREFIX_AUG_PROB, jitter thickness by ×Uniform(1-scale,
+# 1+scale) BEFORE sim'ing for the residual. Model input tokens
+# (teacher-forced GT) and the top-K target computation are unchanged.
+# Purpose: narrow the train↔val/inference distribution gap on the
+# residual channel — training sees sim(GT_prefix), inference sees
+# sim(model_prefix). Aug injects realistic per-layer noise so the model
+# learns to consume a noisy residual. Suggested starting point:
+# PREFIX_AUG_PROB=0.20, PREFIX_AUG_THICKNESS_SCALE=0.15.
+# Both 0 (default) = no aug — matches the Sept 13 winning recipe.
+: "${PREFIX_AUG_PROB:=0.0}"
+: "${PREFIX_AUG_THICKNESS_SCALE:=0.15}"
+
 echo "============================================================================"
 echo "FINETUNE CONFIGURATION"
 echo "============================================================================"
@@ -200,6 +214,7 @@ echo "THICKNESS_TOPN        : ${THICKNESS_TOPN}"
 echo "LR_SCHEDULE           : ${LR_SCHEDULE}"
 echo "EPSILON               : start=${EPSILON_START}  end=${EPSILON_END}  decay_frac=${EPSILON_DECAY_FRACTION}"
 echo "SIM_FEEDBACK          : ${SIM_FEEDBACK}"
+echo "PREFIX_AUG            : prob=${PREFIX_AUG_PROB}  scale=${PREFIX_AUG_THICKNESS_SCALE}  (only active when SIM_FEEDBACK=1)"
 echo "EPOCHS                : ${EPOCHS}"
 echo "BATCH_SIZE            : ${BATCH_SIZE}"
 echo "NUM_WORKERS           : ${NUM_WORKERS}"
@@ -247,6 +262,8 @@ ARGS=(
     --epsilon-start       "${EPSILON_START}"
     --epsilon-end         "${EPSILON_END}"
     --epsilon-decay-fraction "${EPSILON_DECAY_FRACTION}"
+    --prefix-aug-prob     "${PREFIX_AUG_PROB}"
+    --prefix-aug-thickness-scale "${PREFIX_AUG_THICKNESS_SCALE}"
 )
 
 # Sim-feedback is a flag, not a value — only add when enabled.
