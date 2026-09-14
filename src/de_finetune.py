@@ -590,9 +590,22 @@ def _compute_partial_residuals(
     batch: Dict[str, torch.Tensor],
     incidence_angle: float,
     device: torch.device,
+    prefix_aug_prob: float = 0.0,
+    prefix_aug_thickness_scale: float = 0.15,
 ) -> torch.Tensor:
     """Compute [B, MAX_LAYERS+1, 3] partial-Lab residuals in normalised
-    Lab space. Uses real (non-differentiable) JLL sim on GT prefixes."""
+    Lab space. Uses real (non-differentiable) JLL sim on GT prefixes.
+
+    prefix_aug_prob > 0 enables prefix augmentation: for each example,
+    each prefix layer's thickness is independently jittered with prob
+    p_aug by multiplying by Uniform(1-scale, 1+scale). The perturbed
+    thicknesses are used ONLY to compute the residual sim'd here — the
+    model's teacher-forced input tokens and the top-K target computation
+    both still use true GT. This trains the model to consume a noisy
+    residual channel, narrowing the gap between the clean train
+    residual (sim(GT_prefix)) and the noisier val/inference residual
+    (sim(model_prefix)). Cost is unchanged vs the no-aug path.
+    """
     from src.optical_sim_diff import compute_lab_no_grad
 
     from src.materials_vocab import _L_SCALE, _AB_SCALE  # local: avoid cycle
@@ -605,6 +618,9 @@ def _compute_partial_residuals(
     residuals = torch.zeros(B, SEQ_LEN, 3, device=device, dtype=torch.float32)
 
     pool_features = batch["pool_features"].to(device=device, dtype=torch.float64)
+
+    aug_on = float(prefix_aug_prob) > 0.0
+    aug_scale = max(0.0, float(prefix_aug_thickness_scale))
 
     for b in range(B):
         gt_slots = list(batch["target_slots"][b])[:MAX_LAYERS]
@@ -631,12 +647,37 @@ def _compute_partial_residuals(
             gt_thicknesses, device=device, dtype=torch.float64,
         )                                                            # [N]
 
-        # For each k in 1..n_layers-1: sim the first k GT layers, get Lab,
-        # compute residual = (target − partial) / scale. k=0 stays 0.
-        # Also for k = n_layers .. MAX_LAYERS: keep 0 (no prediction there).
+        # Prefix augmentation: perturb the thickness we'll sim through
+        # for the residual signal only. One draw per prefix layer,
+        # coherent across k so growing prefixes see a consistent noisy
+        # trajectory (matches inference where the model's prefix state
+        # persists across positions). Materials are NOT swapped —
+        # material errors produce residuals too large / off-distribution
+        # to be useful supervision here.
+        sim_thick_nm = gt_thick_nm
+        if aug_on and aug_scale > 0.0:
+            perturb_mask = (
+                torch.rand(n_layers, device=device, dtype=torch.float64)
+                < prefix_aug_prob
+            )
+            if perturb_mask.any():
+                # Multiplicative jitter in [1-scale, 1+scale].
+                jitter = (
+                    torch.rand(n_layers, device=device, dtype=torch.float64)
+                    * (2.0 * aug_scale) + (1.0 - aug_scale)
+                )
+                factor = torch.where(
+                    perturb_mask, jitter,
+                    torch.ones(n_layers, device=device, dtype=torch.float64),
+                )
+                sim_thick_nm = gt_thick_nm * factor
+
+        # For each k in 1..n_layers-1: sim the first k prefix layers,
+        # get Lab, compute residual = (target − partial) / scale. k=0
+        # stays 0. For k = n_layers .. MAX_LAYERS: keep 0.
         for k in range(1, n_layers):
             partial_lab = compute_lab_no_grad(
-                gt_n_stack[:k], gt_k_stack[:k], gt_thick_nm[:k],
+                gt_n_stack[:k], gt_k_stack[:k], sim_thick_nm[:k],
                 incidence_angle=incidence_angle,
             )                                                       # [3]
             residual_denorm = target_lab_denorm - partial_lab
@@ -1029,6 +1070,8 @@ def finetune_de_loss(
     epsilon: float = 0.0,
     thickness_topn: int = 1,
     sim_feedback: bool = False,
+    prefix_aug_prob: float = 0.0,
+    prefix_aug_thickness_scale: float = 0.15,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Compute the finetune loss + diagnostics for one batch.
 
@@ -1108,6 +1151,8 @@ def finetune_de_loss(
     if sim_feedback:
         residual_labs = _compute_partial_residuals(
             batch, incidence_angle, device,
+            prefix_aug_prob=prefix_aug_prob,
+            prefix_aug_thickness_scale=prefix_aug_thickness_scale,
         )
 
     # One model forward for the whole batch.

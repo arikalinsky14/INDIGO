@@ -62,10 +62,42 @@ Also:
   SEQ_LEN, 3]` cache. At step k>0 it fills position k for each
   replica from prefix sim. `sim_feedback` flag threads through
   `solve()` → `test_eval.py` → SLURM env `SIM_FEEDBACK=1`.
+- **Loader** (`load_inference_model`): uses `strict=False`. Any
+  pre-sim-feedback checkpoint (including the production pretrain
+  baseline) loads cleanly; `residual_proj.{weight,bias}` init to zero
+  and the residual path is a bit-identical no-op. Fixed Sept 14 after
+  the first eval attempt hit `Missing key(s) in state_dict: "residual_proj.*"`.
 
 **Only checkpoints finetuned with `--sim-feedback` have non-zero
 residual weights.** Running inference with `SIM_FEEDBACK=1` on a
 pretrain-only checkpoint is a no-op (zero-init residual_proj).
+
+### Prefix augmentation for the residual (Sept 14)
+
+**Why**: at training, residual = target − sim(GT_prefix). At val /
+inference, residual = target − sim(model_prefix). Model_prefix drifts
+on hard examples, so the residual distribution the model sees at
+deployment is systematically noisier than what it trained on. Prefix
+aug narrows the gap by perturbing GT prefix thicknesses before sim'ing
+the residual — teaches the model to consume a noisy residual channel.
+
+**Design** (`src/de_finetune.py:_compute_partial_residuals`): per
+example, per prefix layer independently, with prob `PREFIX_AUG_PROB`,
+multiply thickness by Uniform(1-`scale`, 1+`scale`). Perturbations are
+coherent across k (one draw per layer, used at every prefix depth
+that touches that layer) so growing prefixes see a consistent noisy
+trajectory. Materials are NOT swapped — material errors produce
+residuals too large / off-distribution to be useful supervision.
+
+**Model input tokens and top-K target are unchanged.** Only the
+residual-sim input is noisy. This is the cheapest useful form of
+train↔inference alignment; the more principled scheduled-sampling /
+DAgger version would also perturb the tokens the model sees, but
+that breaks CE loss and adds bookkeeping.
+
+**Knobs** (env vars): `PREFIX_AUG_PROB` (default 0.0, off),
+`PREFIX_AUG_THICKNESS_SCALE` (default 0.15). Only active when
+`SIM_FEEDBACK=1`. No effect on wall clock.
 
 ### Inference-time search — `inference/src/`
 
@@ -236,6 +268,23 @@ PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3e
     EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
     NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
     sbatch --time=05:00:00 slurms/finetune_de.sh
+```
+
+**Finetune (Sept 14 experiment: hierarchical M=4 × N=3 + sim-feedback +
+prefix-aug 0.20):** targets the "sim-feedback advantage peaks early"
+plateau. Wider candidate set (12 per position vs 3) gives the residual
+signal more resolution to matter; prefix-aug narrows the train/inference
+residual-distribution gap. Wall clock ~2-3× the K=3-slot run because
+sim cost scales with M·N; bump wall time accordingly.
+```bash
+PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_hier4x3_ce0p1_lr1e5_213k_const_simfb_paug20 \
+    FREEZE_ENCODER=0 LR=1e-5 CE_LOSS_WEIGHT=0.1 LR_SCHEDULE=constant \
+    TOPK_MODE=hierarchical REAL_SIM_TOPK=4 THICKNESS_TOPN=3 \
+    SIM_FEEDBACK=1 PREFIX_AUG_PROB=0.20 PREFIX_AUG_THICKNESS_SCALE=0.15 \
+    EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
+    NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
+    sbatch --time=12:00:00 slurms/finetune_de.sh
 ```
 
 **Inference eval with sim-feedback:**

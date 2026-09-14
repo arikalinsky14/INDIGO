@@ -294,6 +294,21 @@ def parse_args() -> argparse.Namespace:
                    help="Enable sim-feedback residual conditioning "
                         "(finetune-only architectural addition).")
 
+    # Prefix augmentation for the sim-feedback residual (Sept 14). At
+    # training time the residual is computed from sim(GT_prefix); at
+    # val/inference it's sim(model_prefix), which drifts on hard
+    # examples. Prefix aug narrows that gap by perturbing GT prefix
+    # thicknesses (uniform ±scale) before sim'ing for the residual — the
+    # model learns to consume a noisy residual channel. Model input
+    # tokens and top-K target are unchanged. No effect when
+    # --sim-feedback is off.
+    p.add_argument("--prefix-aug-prob", type=float, default=0.0,
+                   help="Per-prefix-layer probability of thickness "
+                        "jitter for residual sim (0 disables).")
+    p.add_argument("--prefix-aug-thickness-scale", type=float, default=0.15,
+                   help="Multiplicative jitter half-range; each jittered "
+                        "layer scales by Uniform(1-scale, 1+scale).")
+
     # LR schedule.
     p.add_argument("--lr-schedule", type=str, default="cosine",
                    choices=["cosine", "constant"],
@@ -506,6 +521,8 @@ def main() -> None:
                 epsilon=epsilon,
                 thickness_topn=args.thickness_topn,
                 sim_feedback=args.sim_feedback,
+                prefix_aug_prob=args.prefix_aug_prob,
+                prefix_aug_thickness_scale=args.prefix_aug_thickness_scale,
             )
             if not torch.isfinite(loss):
                 print(f"[WARN] non-finite loss at step {global_step}, skipping",
@@ -607,6 +624,8 @@ def main() -> None:
                     "epsilon_end": args.epsilon_end,
                     "epsilon_decay_fraction": args.epsilon_decay_fraction,
                     "sim_feedback": args.sim_feedback,
+                    "prefix_aug_prob": args.prefix_aug_prob,
+                    "prefix_aug_thickness_scale": args.prefix_aug_thickness_scale,
                     "best_val_loss_de": best_val_loss_de,
                     "best_step": best_step,
                     "is_new_best": new_best,
