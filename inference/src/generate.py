@@ -488,7 +488,17 @@ def load_inference_model(checkpoint_dir: Path,
         config = ModelConfig.from_dict(json.load(f))
     model = build_model(config)
     state = torch.load(model_path, map_location=device, weights_only=True)
-    model.load_state_dict(state)
+    # strict=False so pretrain-era checkpoints (no residual_proj.* keys)
+    # load cleanly. The freshly built model has residual_proj zero-init,
+    # which makes the residual conditioning a bit-identical no-op unless a
+    # sim-feedback finetune checkpoint provides trained weights.
+    missing, unexpected = model.load_state_dict(state, strict=False)
+    if missing:
+        print(f"[load_inference_model] missing keys (init default): "
+              f"{sorted(missing)}", flush=True)
+    if unexpected:
+        print(f"[load_inference_model] WARN unexpected keys (ignored): "
+              f"{sorted(unexpected)}", flush=True)
     model = model.to(device).eval()
 
     sha = hashlib.sha256(model_path.read_bytes()).hexdigest()[:16]
