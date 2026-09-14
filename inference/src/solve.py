@@ -67,6 +67,7 @@ def solve(
     n_random_restarts: int = 0,
     device: Optional[torch.device] = None,
     on_progress=None,
+    sim_feedback: bool = False,
 ) -> Result:
     """Run the full inference pipeline. Returns a Result either way:
     success → `chosen` populated; failure → `chosen=None`, `errors[...]`."""
@@ -96,6 +97,8 @@ def solve(
         ensemble_N=knobs.ensemble_N,
         temperature=knobs.temperature,
         base_seed=knobs.seed,
+        sim_feedback=sim_feedback,
+        incidence_angle=incidence_angle,
     )
     try:
         candidates, ens_stats = generate_ensemble(

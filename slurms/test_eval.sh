@@ -96,6 +96,12 @@ MC_SAMPLES="${MC_SAMPLES:-0}"
 SEED="${SEED:-42}"
 LOG_EVERY="${LOG_EVERY:-25}"
 
+# Sim-feedback residual conditioning at inference. Match to the checkpoint:
+# only checkpoints finetuned with --sim-feedback have non-zero
+# residual_proj weights. Set to 1 for such checkpoints, 0 (default)
+# otherwise. Adds ~15-25% wall time from per-step partial-stack sims.
+SIM_FEEDBACK="${SIM_FEEDBACK:-0}"
+
 # Pass-through positional args.
 USER_ARGS=("$@")
 
@@ -131,6 +137,10 @@ ARGS=(
   --log-every "${LOG_EVERY}"
 )
 
+if [[ "${SIM_FEEDBACK}" == "1" ]]; then
+    ARGS+=(--sim-feedback)
+fi
+
 CMD=(python inference/scripts/test_eval.py "${ARGS[@]}" "${USER_ARGS[@]}")
 
 # ============================================================================
@@ -158,6 +168,7 @@ echo "  top_k:             ${TOP_K}"
 echo "  refine_iters:      ${REFINE_ITERS}"
 echo "  mc_samples:        ${MC_SAMPLES}"
 echo "  seed:              ${SEED}"
+echo "  sim_feedback:      ${SIM_FEEDBACK}"
 echo
 echo "Output:"
 echo "  Root:              ${OUTPUT_DIR}"

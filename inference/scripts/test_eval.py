@@ -202,6 +202,7 @@ def evaluate_tier(
             result = solve(
                 model=model, pool=pool, spec=spec,
                 model_tag=model_tag, model_sha256=model_sha256,
+                sim_feedback=args.sim_feedback,
             )
         except Exception as exc:
             rows.append({"row_idx": row_idx,
@@ -332,6 +333,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-dir", type=str, default=None,
                    help="Root for evaluation outputs "
                         "(default: <repo>/inference/outputs/test_eval).")
+    p.add_argument("--sim-feedback", action="store_true",
+                   help="Feed per-step partial-stack sim residuals to the "
+                        "model during ensemble decoding. Match to the "
+                        "checkpoint: only checkpoints finetuned with "
+                        "--sim-feedback have non-zero residual_proj weights; "
+                        "on a pretrain-only checkpoint this flag is a no-op.")
     p.add_argument("--log-every", type=int, default=25,
                    help="Print a rolling ΔE summary every N rows (default 25).")
     return p.parse_args()

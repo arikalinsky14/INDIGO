@@ -86,6 +86,16 @@ class GenerationConfig:
     # If True, after decoding emit Candidate objects with normalised Lab and
     # placeholder reflectance/ΔE fields — the sim/select pass fills those in.
     emit_candidates: bool = True
+    # If True, compute a partial-stack sim per replica per step and feed the
+    # residual (target − partial_sim, normalised Lab) to the model as extra
+    # decoder input. REQUIRES a checkpoint that was finetuned with
+    # --sim-feedback (residual_proj weights are learned; a pretrain-only
+    # checkpoint has zero-init and this flag is a no-op). Adds ~N × (avg
+    # layer count − 1) sims per test example — Sept 13 estimate: ~15 min
+    # per tier of test_eval at ENSEMBLE_N=200.
+    sim_feedback: bool = False
+    # Incidence angle for partial-stack sims (must match training).
+    incidence_angle: float = 0.0
 
 
 # ----------------------------------------------------------------------------
@@ -181,6 +191,32 @@ def generate_ensemble(
     thick_by_replica: List[List[int]] = [[] for _ in range(N)]
     done = np.zeros(N, dtype=bool)
 
+    # Sim-feedback plumbing (Sept 14). Optional: matches the finetune
+    # training path so the model gets its residual signal at inference.
+    # Precompute per-material n,k arrays and target Lab in denorm space;
+    # populate residual_labs_all[r, k] incrementally as replicas grow
+    # their prefixes. residual_labs_all[r, k] = target_norm − sim(prefix
+    # 0..k-1)_norm; position 0 stays zero (no prefix). We cache across
+    # steps: step k only recomputes position k for replicas that actually
+    # placed a new layer at step k-1.
+    residual_labs_all: Optional[torch.Tensor] = None
+    _pool_n_arrs: List[np.ndarray] = []
+    _pool_k_arrs: List[np.ndarray] = []
+    _residual_scale: Optional[np.ndarray] = None
+    _target_lab_denorm: Optional[np.ndarray] = None
+    _compute_lab_no_grad = None
+    if cfg.sim_feedback:
+        from src.optical_sim_diff import compute_lab_no_grad as _cln
+        from src.materials_vocab import _L_SCALE, _AB_SCALE
+        _compute_lab_no_grad = _cln
+        _pool_n_arrs = [np.asarray(m.n, dtype=np.float64) for m in pool]
+        _pool_k_arrs = [np.asarray(m.k, dtype=np.float64) for m in pool]
+        _residual_scale = np.array([_L_SCALE, _AB_SCALE, _AB_SCALE], dtype=np.float64)
+        _target_lab_denorm = np.array(target_lab_raw, dtype=np.float64)
+        residual_labs_all = torch.zeros(
+            N, MAX_LAYERS + 1, 3, dtype=torch.float32, device=device,
+        )
+
     # Decoding loop. The cross_attn model returns
     #   logits[B, MAX_LAYERS+1, VOCAB_SIZE]
     # and we read position `step` at each iteration. With the model's causal
@@ -199,18 +235,51 @@ def generate_ensemble(
                 struct_np[r, s, layer_idx] = t / 200.0  # normalize_thickness
         struct_t = torch.from_numpy(struct_np).to(device)
 
+        # Sim-feedback: populate residual_labs_all[:, step] from each
+        # replica's prefix 0..step-1. Position 0 has no prefix so its
+        # residual stays 0. Cached across steps — position k is written
+        # exactly once (the first time step==k).
+        if cfg.sim_feedback and step > 0:
+            for r in range(N):
+                if done[r]:
+                    continue
+                prefix_len = min(len(slots_by_replica[r]), step)
+                if prefix_len == 0:
+                    continue
+                prefix_slots = slots_by_replica[r][:prefix_len]
+                prefix_thicks = thick_by_replica[r][:prefix_len]
+                n_stack = torch.from_numpy(
+                    np.stack([_pool_n_arrs[s] for s in prefix_slots], axis=0),
+                )
+                k_stack = torch.from_numpy(
+                    np.stack([_pool_k_arrs[s] for s in prefix_slots], axis=0),
+                )
+                t_arr = torch.tensor(prefix_thicks, dtype=torch.float64)
+                partial_lab = _compute_lab_no_grad(
+                    n_stack, k_stack, t_arr,
+                    incidence_angle=cfg.incidence_angle,
+                )
+                residual_denorm = _target_lab_denorm - partial_lab.numpy()
+                residual_norm = (residual_denorm / _residual_scale).astype(np.float32)
+                residual_labs_all[r, step] = torch.from_numpy(residual_norm).to(device)
+
         # Run model in chunks if requested, otherwise the whole N at once.
         all_step_logits = torch.empty((N, VOCAB_SIZE),
                                       dtype=torch.float32, device=device)
         for chunk_lo, chunk_hi in chunks:
             cs = chunk_hi - chunk_lo
-            logits = model(
+            model_kwargs = dict(
                 lab=lab_one.expand(cs, -1),
                 pool_features=pool_feats_one.expand(cs, -1, -1, -1),
                 pool_mask=pool_mask_one.expand(cs, -1),
                 structure_matrix=struct_t[chunk_lo:chunk_hi],
                 pool_size=pool_size_t.expand(cs),
             )
+            if cfg.sim_feedback:
+                model_kwargs["residual_labs"] = (
+                    residual_labs_all[chunk_lo:chunk_hi]
+                )
+            logits = model(**model_kwargs)
             # cross_attn → [cs, MAX_LAYERS+1, V]; mlp would be [cs, V]. The
             # ensemble decoder targets cross_attn (the head we trained for
             # production), but we keep the mlp path working for cheap.
