@@ -13,8 +13,13 @@
 
 # 12h — from the Sept 13 tier_a run: ~0.03 rows/s at ENSEMBLE_N=200 means
 # 500 rows × 2 tiers ≈ 9h wall. 3h was insufficient; 12h gives 30% buffer.
+#
+# NOTE: `--qos=short` caps wall time at 3 h on Pitt CRC regardless of the
+# --time value below (Sept 13 confirmation: job cancelled at exactly
+# 3:00:20 despite --time=12:00:00). Omitting --qos so SLURM uses the
+# default QoS, which respects the --time value. If your account doesn't
+# have a default long-enough QoS, override with QOS env var or edit here.
 #SBATCH --time=12:00:00
-#SBATCH --qos=short
 #SBATCH --mail-user=ajk245@pitt.edu
 #SBATCH --mail-type=END,FAIL
 
