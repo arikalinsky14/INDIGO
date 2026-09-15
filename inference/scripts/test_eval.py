@@ -232,6 +232,20 @@ def evaluate_tier(
                 "objective":    float(c.objective),
                 "refined":      bool(c.refined),
             })
+
+        # Sampling-diversity diagnostics (Sept 15). Per-row scalars are
+        # position-averaged; nan when the run produced zero decoded
+        # positions.
+        es = result.ensemble_stats
+        rec["fraction_unique"] = float(es.fraction_unique)
+        rec["mean_slot_entropy"] = (
+            float(np.mean(es.mean_slot_entropy_by_pos))
+            if es.mean_slot_entropy_by_pos else float("nan")
+        )
+        rec["mean_thick_entropy"] = (
+            float(np.mean(es.mean_thick_entropy_by_pos))
+            if es.mean_thick_entropy_by_pos else float("nan")
+        )
         rows.append(rec)
 
         # Visualization: only the first N succeed-or-fail Results.
@@ -258,6 +272,29 @@ def evaluate_tier(
 
     runtime = time.time() - t_start
     summary = _aggregate_delta_e(rows)
+
+    # Aggregate sampling-diversity diagnostics across successful rows.
+    # A model whose sampling is near-uniform (H ≈ log(pool_size)) means
+    # the ensemble decoder is doing all the work; a model with sharply
+    # concentrated sampling would show a lower entropy. If these mean
+    # entropies barely move between checkpoints, model bias is not what
+    # drives ensemble ΔE — physics-driven search is.
+    ent_slot = [r["mean_slot_entropy"] for r in rows
+                if r.get("mean_slot_entropy") is not None
+                and not (isinstance(r["mean_slot_entropy"], float)
+                         and np.isnan(r["mean_slot_entropy"]))]
+    ent_thick = [r["mean_thick_entropy"] for r in rows
+                 if r.get("mean_thick_entropy") is not None
+                 and not (isinstance(r["mean_thick_entropy"], float)
+                          and np.isnan(r["mean_thick_entropy"]))]
+    frac_u = [r["fraction_unique"] for r in rows if "fraction_unique" in r]
+    summary["sampling"] = {
+        "mean_slot_entropy": float(np.mean(ent_slot)) if ent_slot else None,
+        "mean_thick_entropy": float(np.mean(ent_thick)) if ent_thick else None,
+        "mean_fraction_unique": float(np.mean(frac_u)) if frac_u else None,
+        "n_rows_with_diagnostics": len(ent_slot),
+    }
+
     summary.update({
         "tier": tier_label,
         "model_tag": model_tag,
@@ -292,6 +329,15 @@ def evaluate_tier(
         line = "  ".join(f"{k}: {v['fraction']*100:.1f}%"
                          for k, v in bs.items())
         print(f"[tier_{tier_label}]   ΔE buckets: {line}", flush=True)
+    if summary.get("sampling", {}).get("mean_slot_entropy") is not None:
+        s = summary["sampling"]
+        print(
+            f"[tier_{tier_label}]   sampling: "
+            f"H_slot={s['mean_slot_entropy']:.3f}  "
+            f"H_thick={s['mean_thick_entropy']:.3f}  "
+            f"frac_unique={s['mean_fraction_unique']:.3f}",
+            flush=True,
+        )
 
     return summary
 

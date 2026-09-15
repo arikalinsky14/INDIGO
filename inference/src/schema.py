@@ -266,6 +266,19 @@ class EnsembleStats:
     n_refined: int = 0
     n_returned: int = 0
     dropped_per_constraint: Dict[str, int] = field(default_factory=dict)
+    # Sampling-diversity diagnostics (Sept 15). Populated by
+    # generate_ensemble; empty when the ensemble had zero positions.
+    #   mean_slot_entropy_by_pos    per-position mean H(P_sampled_slots)
+    #                               across the N replicas; log(pool_size)
+    #                               = uniform, 0 = one slot picked N/N times
+    #   mean_thick_entropy_by_pos   per-position mean H(P_sampled_thicks)
+    #                               across replicas
+    #   fraction_unique             len(unique candidates) / n_sampled;
+    #                               near 1 = highly diverse sampling,
+    #                               near 1/K = degenerate.
+    mean_slot_entropy_by_pos: List[float] = field(default_factory=list)
+    mean_thick_entropy_by_pos: List[float] = field(default_factory=list)
+    fraction_unique: float = 0.0
 
 
 @dataclass
