@@ -557,9 +557,18 @@ def main() -> None:
                     if args.real_sim_topk > 0 and (args.epsilon_start > 0 or args.epsilon_end > 0)
                     else ""
                 )
+                # Flat-target diagnostics (Sept 15): target_H is target
+                # softmax entropy (0 = fully peaked, log(K) = uniform);
+                # tgt_max is max target weight (1/K = uniform, 1 =
+                # peaked); dE_rng is (max ΔE − min ΔE) across top-K
+                # candidates. If target_H is near log(K_total) and
+                # dE_rng is small, β is too low for this candidate set.
                 topk_str = (
                     f"  loss_topk={metrics.get('loss_topk', float('nan')):.3f}"
                     f"  argmin_hit={metrics.get('topk_argmin_matches_model', 0):.2f}"
+                    f"  tgt_H={metrics.get('target_entropy', float('nan')):.3f}"
+                    f"  tgt_max={metrics.get('target_max_prob', float('nan')):.3f}"
+                    f"  dE_rng={metrics.get('topk_delta_e_range', float('nan')):.2f}"
                     f"{eps_str}"
                     if args.real_sim_topk > 0 else ""
                 )
