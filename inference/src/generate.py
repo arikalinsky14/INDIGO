@@ -351,6 +351,44 @@ def generate_ensemble(
         slots_by_replica, thick_by_replica, pool, target_lab_raw,
     )
 
+    # Sampling-diversity diagnostics (Sept 15). If the model's sampled
+    # slot/thickness distributions across replicas are near-uniform, the
+    # ensemble decoder is doing most of the work (physics-driven search);
+    # if concentrated, model bias is doing the work. Empirically we
+    # suspect near-uniform based on train-time slot_ent ≈ log(pool_size).
+    max_pos = max((len(s) for s in slots_by_replica), default=0)
+    slot_ents: List[float] = []
+    thick_ents: List[float] = []
+    for pos in range(max_pos):
+        slots_at_pos = [
+            slots_by_replica[r][pos]
+            for r in range(N) if len(slots_by_replica[r]) > pos
+        ]
+        thicks_at_pos = [
+            thick_by_replica[r][pos]
+            for r in range(N) if len(thick_by_replica[r]) > pos
+        ]
+        if len(slots_at_pos) == 0:
+            continue
+        # Empirical distribution → Shannon entropy in nats.
+        # Slots use a variable-size bin set (pool_size); thicknesses
+        # come from the discrete thickness grid on device (integer nm).
+        def _emp_entropy(xs: List[int]) -> float:
+            n = len(xs)
+            counts: Dict[int, int] = {}
+            for x in xs:
+                counts[x] = counts.get(x, 0) + 1
+            H = 0.0
+            for c in counts.values():
+                p = c / n
+                if p > 0:
+                    H -= p * np.log(p)
+            return H
+        slot_ents.append(_emp_entropy(slots_at_pos))
+        thick_ents.append(_emp_entropy(thicks_at_pos))
+
+    fraction_unique = (n_unique / N) if N > 0 else 0.0
+
     stats = EnsembleStats(
         n_sampled=N,
         n_unique_after_dedup=n_unique,
@@ -358,6 +396,9 @@ def generate_ensemble(
         n_refined=0,
         n_returned=0,
         dropped_per_constraint={},
+        mean_slot_entropy_by_pos=slot_ents,
+        mean_thick_entropy_by_pos=thick_ents,
+        fraction_unique=fraction_unique,
     )
     return candidates, stats
 

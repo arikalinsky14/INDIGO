@@ -15,18 +15,17 @@ layer; the material pool varies per example (encoder is pool-agnostic).
 | **K=3 slot finetune + sim-feedback** | **7.92** | Same recipe + `SIM_FEEDBACK=1`; step 1250 of 1665 — current champion |
 | hier M=4 × N=3 + simfb + prefix-aug 0.20 (Sept 14) | 8.06 | worse than K=3+simfb; fell into flat-target pathology |
 
-**Inference-time (ensemble N=200 + real-sim select) on 500 rows × 2 tiers:**
+**Inference-time (ensemble + real-sim select) on 500 rows × 2 tiers:**
 
-| Model | tier_a med / p95 | tier_b med / p95 |
+| Model | N=200 tier_a med / p95 | N=20 tier_a med / p95 |
 |---|---|---|
-| Pretrain (no simfb) | 0.717 / 3.735 | 0.535 / 2.726 |
-| K=3 slot finetune (no simfb) | 0.658 / 3.423 | 0.564 / 3.008 |
-| K=3 slot + simfb, SIM_FEEDBACK=1 | 0.710 / 3.438 | **0.509** / 2.836 |
+| Pretrain (no simfb) | 0.717 / 3.735 | 1.552 / 6.756 |
+| K=3 slot finetune (no simfb) | 0.658 / 3.423 | 1.652 / 6.422 |
+| K=3 slot + simfb, SIM_FEEDBACK=1 | 0.710 / 3.438 | 1.545 / 7.114 |
 
-Bucket rates (<1.0, <2.0, <5.0, <10.0) all within ~1 percentage point
-of each other on tier_a. **The 200-replica ensemble washes out
-val_de differences of 0.6 units — measurement problem** (see Sept 15
-findings below).
+Val_de spread = 0.63 units. Ensemble N=200 tier_a spread = 0.06 units.
+Ensemble N=20 tier_a spread = 0.10 units. **The ensemble decoder is
+largely model-agnostic in its current form** — see Sept 15 finding #1.
 
 **The bottleneck is high-chroma / edge-of-gamut colors** — the ~5% p95+
 tail. Median already crushes the target. HC=0.30 finetune data was
@@ -175,120 +174,162 @@ that breaks CE loss and adds bookkeeping.
    (target_entropy near log(12), argmin_hit near 1/12). Fix under
    test: bump β to 5-10 to sharpen the target distribution.
 
-## Sept 15 findings (what we learned overnight)
+## Sept 15 findings (what we learned overnight and today)
 
-### 1. Hierarchical M=4 × N=3 fell into the flat-target pathology
+### 1. Ensemble decoder is largely model-agnostic (the primary finding)
 
-The hier + simfb + prefix-aug 0.20 run (job 3946535) hit val_de=8.06
-peak at step 1000, worse than the K=3 slot + simfb baseline (7.92)
-and degraded past step 1000 (8.42, 8.50).
+val_de spans **7.92 → 8.55** across our checkpoints (0.63 unit gap).
+At N=200 ensemble the tier_a medians span **0.658 → 0.717** (0.06
+unit). Reducing to N=20 didn't help: medians spanned **1.545 → 1.652**
+(0.10 unit). At both N the spread is a small fraction of the val_de
+gap.
 
-**Diagnostic signature**: `loss_topk ≈ 2.4` throughout (log(12) =
-2.485 → uniform). `argmin_hit ≈ 0.12` (1/12 = 0.083 → random). The
-model is not learning to rank the 12 candidates.
+**Interpretation**: the ensemble decoder finds low-ΔE candidates in
+the sampling *tail*; finetune moves the *mode*. Different things.
+Because the pretrain-era model already samples with high entropy
+(slot_ent ≈ log(pool_size), thick_ent ≈ log(NUM_THICKNESSES)),
+temperature=1.0 sampling produces ~200 diverse candidates that the
+real-sim reranker can pick from — model quality barely matters as
+long as sampling is diverse. The training objective (make greedy
+val_de lower) and the deployed metric (ensemble ΔE) are only weakly
+correlated.
 
-**Root cause hypothesis**: the target distribution `softmax(-β·ΔE)`
-with β=1 is nearly uniform because the 12 candidates within any
-position have small ΔE spread relative to β. The K=3 slot mode
-worked because 3 slot-diverse candidates have wider ΔE spread (each
-material fundamentally different) and log(3)=1.10 is easier to
-beat.
+**What this means for the roadmap**: driving val_de below 7.92 by any
+of the standard tricks (bigger K, prefix aug, β tuning, longer runs)
+looks unlikely to move the ensemble inference metric that matters.
+The interesting question shifts from "how do we lower val_de?" to
+"can we make the *ensemble* itself better?"
 
-**Fix to test**: bump `SIM_TARGET_BETA` from 1.0 to 5-10, keeping
-everything else identical. β=5 concentrates ~80% of the target mass
-on the top-2 candidates and gives the model something to rank
-toward. **Flat-target diagnostics wired Sept 15** (see below) will
-tell us whether the fix worked at step 1, not step 1000.
+### 2. β sharpening for hierarchical FAILED
 
-### 2. Ensemble decoder is the measurement bottleneck at inference
+Sept 15 P2/P3 (β=5, β=10) tested my Sept 14 flat-target hypothesis:
 
-val_de spans 7.92 → 8.55 across our checkpoints (0.63 unit gap), but
-at N=200 ensemble the tier_a medians span 0.658 → 0.717 (~0.06 unit,
-= noise). **The 200-replica real-sim selector is too generous** —
-with that many diverse samples and real-sim scoring, model quality
-barely matters. We can't distinguish models with N=200.
+| Run | val_de best | tgt_max | tgt_H | argmin_hit |
+|---|---|---|---|---|
+| hier β=1 | 8.06 | ~0.09 | ~2.4 | 0.12 |
+| hier β=5 | 8.20 | ~0.49 | ~1.3 | 0.12 |
+| hier β=10 | 8.21 | ~0.51 | ~1.2 | 0.12 |
 
-**Fix to test**: rerun test_eval with `ENSEMBLE_N=20` (or even 10).
-If model quality matters, tier_a medians should widen and we'll see
-which model actually helps. Bonus: 10× faster.
+The `tgt_max` jumped from ~1/K (uniform) to ~0.5 (mass on top-2)
+exactly as expected. So β sharpening DID make the target peaked.
+But `argmin_hit` didn't move (still random-over-12) and val_de got
+**worse** by 0.15 units. Sharpening made the model overcommit to a
+specific (slot, thick) that didn't generalize.
+
+**Revised understanding**: With a flat target, gradient spreads
+across all K candidates weighted by their ΔE ordering — a smooth
+learning signal. With a peaked target, the model force-pushes toward
+the argmin candidate and collapses. In hierarchical mode, β=1 is
+apparently the best of the bad options.
 
 ### 3. Sim-feedback at inference: winning on tier_b, losing on tier_a
 
-The SIM_FEEDBACK=1 test won on tier_b median (0.509 vs 0.564 non-simfb
-finetune) but LOST on tier_a median (0.710 vs 0.658). Consistent with
-the "residual-distribution-shift" hypothesis: training saw
-sim(GT_prefix), inference sees sim(model_prefix), which differs
-systematically — the residual channel becomes noise on hard examples.
+The N=200 SIM_FEEDBACK=1 test won on tier_b median (0.509 vs 0.564
+non-simfb finetune) but LOST on tier_a median (0.710 vs 0.658).
+Consistent with the "residual-distribution-shift" hypothesis:
+training saw sim(GT_prefix), inference sees sim(model_prefix). But
+given the primary finding above, the whole SIM_FEEDBACK=1 vs =0
+difference is within ensemble noise anyway.
 
-**Fix to test**: run K=3 slot + simfb WITH prefix-aug (the whole point
-of prefix-aug — this was mixed into the hier run and masked by the
-flat-target problem, so we still don't know if prefix-aug helps).
+### 4. Diagnostics added Sept 15
 
-### 4. Flat-target diagnostics (added Sept 15)
-
-`_topK_sim_loss_for_example` now logs three per-position metrics that
-identify the pathology from step 1:
-
+**Training-side** (`_topK_sim_loss_for_example`):
 - `target_entropy` — H(softmax(-β·ΔE)); log(K) = uniform, 0 = peaked
 - `target_max_prob` — max target weight; 1/K = uniform, 1 = peaked
-- `topk_delta_e_range` — (max ΔE − min ΔE) across candidates; small
-  range means no β can peak the target (candidates are too similar)
+- `topk_delta_e_range` — (max ΔE − min ΔE) across candidates
+- Printed in the log as `tgt_H`, `tgt_max`, `dE_rng`
 
-Watch the training log — new fields `tgt_H`, `tgt_max`, `dE_rng`.
-Guideline: if `tgt_max < 2/K`, β is too low OR the candidate set is
-too correlated.
+**Inference-side** (`generate_ensemble` + `test_eval.py`):
+- `mean_slot_entropy_by_pos` — per-position empirical H of slots
+  actually sampled across the N replicas
+- `mean_thick_entropy_by_pos` — same for thicknesses
+- `fraction_unique` — unique-after-dedup / N; near 1 = highly diverse
+  sampling, near 1/K = degenerate
+- Aggregated in `summary.json["sampling"]` and printed in the tier
+  summary line as `H_slot`, `H_thick`, `frac_unique`
 
-Also: **ε-exploration is now wired into hierarchical mode** (was
-future work Sept 13). Setting `EPSILON_START>0` in hierarchical picks
+These are the ONLY way to tell if our finetune is reducing the
+sampling diversity that ensemble inference depends on. Watch them
+across the P1-P4 checkpoints.
+
+**Also**: ε-exploration is wired into hierarchical mode (was future
+work Sept 13). Setting `EPSILON_START>0` in hierarchical picks
 floor(K·ε) random slots per position, each still getting its own
 top-N thickness.
 
 ## Open threads / suggested next work
 
-### Immediate — parallel experiments to launch (Sept 15)
+The primary Sept 15 finding (ensemble decoder is model-agnostic)
+changes the strategy. Instead of chasing val_de improvements, we
+need to understand what actually moves ensemble ΔE.
 
-Fires four SLURM jobs in parallel; total ~29 GPU-hours to answer the
-four questions above.
+### Immediate diagnostic runs (Sept 15 followup)
 
-**P1** (finetune, ~5h): **prefix-aug on K=3 slot + simfb** — clean
-single-variable test of prefix aug on the winning recipe.
-**P2** (finetune, ~12h): **hier M=4×N=3 + simfb + prefix-aug + β=5**
-— unstick the flat-target pathology.
-**P3** (finetune, ~12h): **hier M=4×N=3 + simfb + prefix-aug + β=10**
-— aggressive β, in case β=5 isn't enough.
-**P4** (test_eval, ~1h × 3): **ensemble N=20 on the 3 existing
-checkpoints** — unmask the model quality differences the N=200
-ensemble is hiding.
+**P5-P7** — cheap test_evals that isolate model quality from ensemble
+brute-force. All three use existing code + new sampling-entropy
+diagnostics (added Sept 15). Small wall times, run in parallel.
 
-Copy-paste commands are in Common Invocations.
+**P5** (test_eval, ~15 min × 3): **greedy inference (TEMPERATURE=0.01,
+ENSEMBLE_N=1)** on the same 3 checkpoints as P4. Does the 0.63-unit
+val_de gap actually show up in inference ΔE when ensemble effects are
+turned off? If yes, model quality matters at pure greedy but the
+ensemble washes it out. If no, the val_de improvements are illusory.
 
-### Post-P1-P4 decisions (what to do based on results)
+**P6** (test_eval, ~30 min × 3): **N=5 ensemble at TEMPERATURE=1.0**.
+Halfway between greedy and N=20. Complete the ΔE(N) scaling picture.
 
-- If P4 shows N=20 spreads the medians: **run all future test_evals at
-  N=20** as a discrimination probe, keeping N=200 for the "final
-  product" number.
-- If P2/P3 loss_topk drops well below log(12) AND val_de beats 7.92:
-  hierarchical is unlocked → try M=6 × N=3 next.
-- If P2/P3 fixes loss_topk but val_de still plateaus at 8: candidate
-  diversity isn't the bottleneck — try ε-exploration on top of the
-  fixed recipe.
-- If P1 beats 7.92: prefix-aug alone is the win; sim-feedback +
-  prefix-aug becomes the new baseline for all future work.
+**P7** (test_eval, ~1h × 3): **N=200 at TEMPERATURE=1.0** re-runs
+with the new sampling-entropy diagnostics enabled — completes the
+per-checkpoint entropy profile. (The N=200 runs from Sept 14 didn't
+have these diagnostics.)
 
-### Longer-term ideas
+Copy-paste in Common Invocations.
 
-- **EMA / weight averaging** across recent-best checkpoints to smooth
-  the peak-then-oscillate pattern.
-- **Curriculum by chroma magnitude**: train easy → hard so the model
-  builds representations before hitting the hard tail.
-- **Larger dataset**: 213k might not be enough. Scale to 500k or 1M
-  once the recipe is settled.
-- **Batched-vmap partial-residual sim** to cut the current 25% wall
-  overhead of `_compute_partial_residuals`.
-- **DAgger / scheduled sampling**: during training, sometimes feed
-  the model its own generated prefix (no-grad rollout) and use the
-  resulting sim residual. Directly closes the train↔inference gap
-  (cleaner than prefix-aug's mild inconsistency) but more complex.
+### Interpretation guide for P5-P7 results
+
+- **If P5 medians spread by ~0.6 units**: model matters at greedy;
+  the ensemble is the equalizer. Next: reduce ensemble reliance —
+  ideas include (i) fewer replicas but higher-quality proposal
+  (nucleus-p, learned temperature), (ii) train the model to be a
+  BETTER PROPOSER for the ensemble rather than a better greedy
+  predictor, (iii) reduce N and use the savings to sim more candidates
+  per position.
+- **If P5 medians spread by <0.1 units**: greedy val_de is a noisy
+  proxy, model quality has never been the bottleneck. Radical
+  rethink needed — maybe the physics search IS the whole product,
+  and the model should be replaced with a much smaller distribution
+  (fixed uniform over "likely" materials + pool-conditioned thickness
+  distribution).
+- **If P6/P7 entropies differ across checkpoints**: finetune is
+  changing sampling diversity, which explains the tier_a/tier_b
+  split (simfb wins tier_b but loses tier_a). Then: constrained
+  finetune that preserves entropy might be the direction.
+- **If entropies are all ~equal at ~log(pool_size)**: finetune is
+  NOT reducing sampling diversity — the model is a near-uniform
+  proposer regardless of training. Then: pushing entropy DOWN on
+  correct picks (making it a better proposer) is the direction.
+
+### The pending P1 run (K=3 slot + simfb + prefix-aug)
+
+Not yet in the .out set we received. If val_de comes out ≤ 7.92,
+prefix-aug on the winning recipe is confirmed. But given the primary
+finding, even a val_de win won't matter for ensemble inference.
+Still worth running because it's the cleanest signal on whether
+prefix-aug alone helps the residual signal.
+
+### Longer-term ideas (unchanged from Sept 14)
+
+- **Best-of-N-in-training**: sample K candidates from the model, sim
+  each, backprop to increase the probability of the best one. This
+  is exactly the ensemble decoder as a training objective — should
+  align train and deploy metrics.
+- **EMA / weight averaging** across recent-best checkpoints.
+- **Curriculum by chroma magnitude**.
+- **Larger dataset** (500k-1M).
+- **Batched-vmap partial-residual sim** to cut the 25% simfb overhead.
+- **DAgger / scheduled sampling**: sometimes feed the model its own
+  generated prefix during training, use the resulting sim residual.
+  Directly closes the train↔inference residual-distribution gap.
 
 ## Cluster / environment gotchas
 
@@ -317,7 +358,49 @@ The trailer is auto-inserted from the session's attribution config.
 
 ## Common invocations (copy-paste ready)
 
-### Sept 15 parallel experiments (P1-P4)
+### Sept 15 followup: P5-P7 (isolate model quality from ensemble)
+
+**P5 — greedy inference on all 3 checkpoints, N=1 TEMP=0.01:**
+```bash
+for CKPT in \
+    data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const/best \
+    data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb/best
+do
+  CHECKPOINT=$CKPT \
+      LIMIT=500 ENSEMBLE_N=1 TEMPERATURE=0.01 \
+      OUTPUT_DIR=inference/outputs/test_eval_greedy \
+      sbatch --time=01:30:00 slurms/test_eval.sh
+done
+# For the simfb checkpoint add SIM_FEEDBACK=1 on that one command:
+CHECKPOINT=data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb/best \
+    LIMIT=500 ENSEMBLE_N=1 TEMPERATURE=0.01 SIM_FEEDBACK=1 \
+    OUTPUT_DIR=inference/outputs/test_eval_greedy_simfb \
+    sbatch --time=01:30:00 slurms/test_eval.sh
+```
+
+**P6 — N=5 tiny ensemble:**
+```bash
+# Same triplet with ENSEMBLE_N=5, output to test_eval_n5. Estimated ~30 min each.
+CHECKPOINT=data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    LIMIT=500 ENSEMBLE_N=5 TEMPERATURE=1.0 \
+    OUTPUT_DIR=inference/outputs/test_eval_n5 \
+    sbatch --time=02:00:00 slurms/test_eval.sh
+# (repeat for the other two checkpoints)
+```
+
+**P7 — N=200 re-runs with the new sampling entropy diagnostic:**
+```bash
+# Re-run N=200 so summary.json now includes the "sampling" block with
+# H_slot, H_thick, frac_unique per checkpoint.
+CHECKPOINT=data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    LIMIT=500 ENSEMBLE_N=200 TEMPERATURE=1.0 \
+    OUTPUT_DIR=inference/outputs/test_eval_n200_v2 \
+    sbatch slurms/test_eval.sh
+# (repeat for the other two checkpoints, + SIM_FEEDBACK=1 on the simfb one)
+```
+
+### Earlier Sept 15 experiments (P1-P4)
 
 **P1 — prefix-aug on K=3 slot + simfb (clean single-variable test):**
 ```bash
