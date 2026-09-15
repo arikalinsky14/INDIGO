@@ -176,6 +176,14 @@ fi
 : "${EPSILON_END:=0.0}"
 : "${EPSILON_DECAY_FRACTION:=1.0}"
 
+# Neighbor-mode ε-exploration (Sept 15). 0 = uniform-over-pool draws
+# (current default); M > 0 restricts ε-random picks to the M non-top-K
+# slots with the highest model logits — the model's "next-best"
+# ambiguous predictions. Purpose: give ε-exploration gradient signal
+# on candidates the model is uncertain about, instead of on obvious
+# garbage from the pool tail. Sensible starting value: M = 2 · REAL_SIM_TOPK.
+: "${EPSILON_NEIGHBOR_M:=0}"
+
 # Sim-feedback residual (Sept 13). Enables the finetune-only
 # architectural addition: at each decoding position k, the model gets
 # residual = target − sim(GT[0:k]) as an extra input (zero-init proj,
@@ -212,7 +220,7 @@ echo "SIM_TARGET_BETA       : ${SIM_TARGET_BETA}"
 echo "TOPK_MODE             : ${TOPK_MODE}"
 echo "THICKNESS_TOPN        : ${THICKNESS_TOPN}"
 echo "LR_SCHEDULE           : ${LR_SCHEDULE}"
-echo "EPSILON               : start=${EPSILON_START}  end=${EPSILON_END}  decay_frac=${EPSILON_DECAY_FRACTION}"
+echo "EPSILON               : start=${EPSILON_START}  end=${EPSILON_END}  decay_frac=${EPSILON_DECAY_FRACTION}  neighbor_M=${EPSILON_NEIGHBOR_M}"
 echo "SIM_FEEDBACK          : ${SIM_FEEDBACK}"
 echo "PREFIX_AUG            : prob=${PREFIX_AUG_PROB}  scale=${PREFIX_AUG_THICKNESS_SCALE}  (only active when SIM_FEEDBACK=1)"
 echo "EPOCHS                : ${EPOCHS}"
@@ -262,6 +270,7 @@ ARGS=(
     --epsilon-start       "${EPSILON_START}"
     --epsilon-end         "${EPSILON_END}"
     --epsilon-decay-fraction "${EPSILON_DECAY_FRACTION}"
+    --epsilon-neighbor-m  "${EPSILON_NEIGHBOR_M}"
     --prefix-aug-prob     "${PREFIX_AUG_PROB}"
     --prefix-aug-thickness-scale "${PREFIX_AUG_THICKNESS_SCALE}"
 )

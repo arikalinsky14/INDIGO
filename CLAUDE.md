@@ -257,6 +257,33 @@ work Sept 13). Setting `EPSILON_START>0` in hierarchical picks
 floor(K·ε) random slots per position, each still getting its own
 top-N thickness.
 
+### 5. Neighbor-mode ε-exploration (added Sept 15)
+
+**Motivation**: uniform ε-random draws sample slots from the pool
+tail — candidates the model already discriminates against as
+obviously bad. The learning signal comes from candidates the model
+is AMBIGUOUS about (its 4th-8th ranked slots), not garbage.
+
+**Design** (`_topK_sim_loss_for_example`, applies to slot and
+hierarchical modes): with `epsilon_neighbor_m = M > 0`, restrict
+ε-random draws to the M non-top-K slots with the HIGHEST model
+logits (uniform draw within that pool). With `M = 0` (default),
+old uniform-over-pool behavior.
+
+**Knob**: `EPSILON_NEIGHBOR_M` env var, `--epsilon-neighbor-m` CLI
+arg. Sensible starting value: `M = 2 · REAL_SIM_TOPK` (gives the
+model ~2× more "next-best" candidates than the top-K itself). No
+effect when `EPSILON_START = EPSILON_END = 0`.
+
+**Why this may help the ensemble-agnosticism finding**: if finetune
+is concentrating the model's sampling distribution (verifiable via
+the sampling-entropy diagnostic in P6/P7), neighbor-mode training
+may keep it peaked-but-not-collapsed — the model learns nuanced
+ranking over plausible candidates, keeping sampling diversity where
+it matters. If sampling entropy is already high across all
+checkpoints, neighbor-mode is a moderate-expected-win but low-risk
+addition.
+
 ## Open threads / suggested next work
 
 The primary Sept 15 finding (ensemble decoder is model-agnostic)
@@ -357,6 +384,51 @@ Claude-Session: <session URL>
 The trailer is auto-inserted from the session's attribution config.
 
 ## Common invocations (copy-paste ready)
+
+### P8 — K=3 slot + simfb + neighbor-mode ε-exploration (Sept 15)
+
+Tests the "middle-of-the-road exploration" hypothesis: ε-random
+draws restricted to slots ranked 4-9 by model logit (M=6 = 2×K),
+instead of uniform over the pool. ε=0.20 injects one such
+"ambiguous next-best" candidate per position on average (1/3 of the
+K=3 top-K are randomized).
+
+```bash
+PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb_eps20_nbr6 \
+    FREEZE_ENCODER=0 LR=1e-5 REAL_SIM_TOPK=3 CE_LOSS_WEIGHT=0.1 \
+    TOPK_MODE=slot LR_SCHEDULE=constant SIM_FEEDBACK=1 \
+    EPSILON_START=0.20 EPSILON_END=0.20 EPSILON_DECAY_FRACTION=1.0 \
+    EPSILON_NEIGHBOR_M=6 \
+    EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
+    NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
+    sbatch --time=05:00:00 slurms/finetune_de.sh
+```
+
+### P9 — gamut eval on pretrain + best simfb checkpoint (Sept 15)
+
+Runs the 28-target gamut battery (sRGB corners, L/a/b sweeps,
+chromatic corners) on both checkpoints. Distinct from test_eval:
+gamut eval hits worst-case edge-of-gamut colors that expose the
+p95+ tail directly.
+
+```bash
+# Pretrain baseline
+CHECKPOINT=data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    PRESET=balanced OPTIMIZER=dog \
+    OUTPUT_NAME=gamut_pretrain_balanced_dog.json \
+    sbatch slurms/gamut_eval.sh
+
+# Best simfb checkpoint — with SIM_FEEDBACK=1 to unlock the residual
+CHECKPOINT=data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb/best \
+    PRESET=balanced OPTIMIZER=dog SIM_FEEDBACK=1 \
+    OUTPUT_NAME=gamut_simfb_balanced_dog.json \
+    sbatch slurms/gamut_eval.sh
+```
+
+Bumps to `PRESET=best` (~1.5h) or `PRESET=max` (~3h) trade time for
+tighter numbers per target. The `dog` optimizer is the current
+production default; add `OPTIMIZER=both` to also run Adam.
 
 ### Sept 15 followup: P5-P7 (isolate model quality from ensemble)
 

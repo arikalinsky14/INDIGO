@@ -189,6 +189,7 @@ def _run_one(
     preset_knobs: Dict[str, Any],
     optimizer: str,
     base_seed: int,
+    sim_feedback: bool = False,
 ) -> Dict[str, Any]:
     from inference.src.schema import InferenceKnobs, InferenceSpec
     from src.materials_vocab import normalize_lab
@@ -212,6 +213,7 @@ def _run_one(
         result = solve_fn(
             model=model, pool=pool, spec=spec,
             model_tag=model_tag, model_sha256=model_sha, device=device,
+            sim_feedback=sim_feedback,
         )
     except Exception as exc:
         return {
@@ -482,6 +484,7 @@ def _run_all_batteries(
     preset_knobs: Dict[str, Any],
     optimizer: str,
     base_seed: int,
+    sim_feedback: bool = False,
 ) -> Dict[str, Any]:
     out_batteries: Dict[str, Any] = {}
     all_rows: List[Dict[str, Any]] = []
@@ -492,6 +495,7 @@ def _run_all_batteries(
             row = _run_one(
                 solve_fn, model, pool, model_tag, model_sha, device,
                 tgt, preset_knobs, optimizer, per_seed,
+                sim_feedback=sim_feedback,
             )
             rows.append(row)
             de_str = ("—" if row["delta_e"] is None
@@ -532,6 +536,11 @@ def main() -> int:
                    help="Base seed. Per-battery per-index seeds derive from it.")
     p.add_argument("--cpu", action="store_true",
                    help="Force CPU even if CUDA is technically present.")
+    p.add_argument("--sim-feedback", action="store_true",
+                   help="Enable sim-feedback residual conditioning at "
+                        "inference. Only affects checkpoints trained with "
+                        "--sim-feedback (others have zero-init residual_proj "
+                        "so the flag is a no-op).")
     args = p.parse_args()
 
     # Lazy imports so `--help` is fast.
@@ -573,6 +582,8 @@ def main() -> int:
         "pool_size": len(pool),
     }
 
+    result_root["sim_feedback"] = bool(args.sim_feedback)
+
     if args.optimizer == "both":
         # A/B: run DoG and Adam on the same seeds so per-target rows line up.
         result_root["ab_comparison"] = {}
@@ -581,11 +592,13 @@ def main() -> int:
             result_root["ab_comparison"][opt] = _run_all_batteries(
                 solve_fn, model, pool, tag, sha, device,
                 preset_knobs, opt, args.seed,
+                sim_feedback=args.sim_feedback,
             )
     else:
         run = _run_all_batteries(
             solve_fn, model, pool, tag, sha, device,
             preset_knobs, args.optimizer, args.seed,
+            sim_feedback=args.sim_feedback,
         )
         result_root.update(run)
 
