@@ -327,6 +327,14 @@ def parse_args() -> argparse.Namespace:
                    help="Initial ε-exploration fraction (0 disables).")
     p.add_argument("--epsilon-end", type=float, default=0.0,
                    help="Final ε-exploration fraction after decay.")
+    # Neighbor-mode ε-exploration (Sept 15). 0 = uniform-over-pool
+    # (current default); M > 0 restricts ε-random draws to the top-M
+    # non-top-K slots by model logit — the model's "next-best"
+    # ambiguous predictions, where the learning signal is highest.
+    # Sensible starting value: M = 2 · REAL_SIM_TOPK.
+    p.add_argument("--epsilon-neighbor-m", type=int, default=0,
+                   help="0 = uniform ε-exploration (default), M>0 = "
+                        "restrict ε-random draws to top-M non-top-K slots.")
     p.add_argument("--epsilon-decay-fraction", type=float, default=1.0,
                    help="Fraction of training over which ε anneals from "
                         "start to end (rest holds at end).")
@@ -523,6 +531,7 @@ def main() -> None:
                 sim_feedback=args.sim_feedback,
                 prefix_aug_prob=args.prefix_aug_prob,
                 prefix_aug_thickness_scale=args.prefix_aug_thickness_scale,
+                epsilon_neighbor_m=args.epsilon_neighbor_m,
             )
             if not torch.isfinite(loss):
                 print(f"[WARN] non-finite loss at step {global_step}, skipping",
@@ -635,6 +644,7 @@ def main() -> None:
                     "sim_feedback": args.sim_feedback,
                     "prefix_aug_prob": args.prefix_aug_prob,
                     "prefix_aug_thickness_scale": args.prefix_aug_thickness_scale,
+                    "epsilon_neighbor_m": args.epsilon_neighbor_m,
                     "best_val_loss_de": best_val_loss_de,
                     "best_step": best_step,
                     "is_new_best": new_best,

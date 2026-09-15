@@ -731,6 +731,9 @@ def _topK_sim_loss_for_example(
     topk_mode: str = "slot",             # "slot" | "joint" | "hierarchical"
     epsilon: float = 0.0,                # ε-exploration fraction
     thickness_topn: int = 1,             # N thicknesses per slot in "hierarchical" mode
+    epsilon_neighbor_m: int = 0,         # 0 = uniform over pool, M>0 = restrict
+                                         # ε-random draws to slots ranked
+                                         # K_top+1..K_top+M by model logit
 ) -> Tuple[torch.Tensor, Dict[str, float], int]:
     """Per-example top-K real-sim loss. Returns (sum_loss, metrics, n_pos).
 
@@ -754,14 +757,27 @@ def _topK_sim_loss_for_example(
                         equivalent to "slot" mode.
 
     ε-exploration (RL-inspired). If `epsilon > 0`, replace
-    floor(K · epsilon) of the K candidates with uniform-random draws
-    over the active grid (never duplicating a top-K pick). The random
-    picks broaden the search — if a random candidate has low ΔE, the
-    target softmax(-β·ΔE) puts weight on it and the model gets a
-    strong "raise this logit" gradient, escaping local minima where
-    top-K is always similar. Same loss form (softmax over all K) so
-    no code path changes downstream. Caller anneals epsilon over
-    training (typical schedule: 0.3 → 0.0).
+    floor(K · epsilon) of the K candidates with random draws that are
+    NOT already in the top-K. The random picks broaden the search —
+    if a random candidate has low ΔE, the target softmax(-β·ΔE) puts
+    weight on it and the model gets a strong "raise this logit"
+    gradient, escaping local minima where top-K is always similar.
+
+    Two exploration modes controlled by `epsilon_neighbor_m`:
+      neighbor_m == 0  (uniform, default)
+        Draw uniformly from ALL non-top-K active slots. Simple; risk
+        is that random picks land on obviously-bad candidates the
+        model already discriminates against — the gradient signal
+        may be low-information.
+      neighbor_m >  0  (neighbor)
+        Draw uniformly from the M non-top-K slots with the HIGHEST
+        model logits — the model's "next-best" beliefs. The Sept 15
+        motivation: put gradient signal on candidates the model is
+        AMBIGUOUS about (its 4th–8th choices), not obvious-garbage
+        candidates. Sensible starting value: M = 2·K_top.
+    Same loss form (softmax over all K) so no code path changes
+    downstream. Caller anneals epsilon over training (typical
+    schedule: 0.3 → 0.0).
 
     `metrics["loss_de"]` mirrors the STE path's semantics — the ΔE at
     the model's greedy (argmax slot × argmax thickness) pick — so
@@ -846,6 +862,17 @@ def _topK_sim_loss_for_example(
                 )
                 top_set[top_by_logit] = True
                 pool_for_random = active_slots[~top_set[active_slots]]
+                # Neighbor mode: restrict ε-random draws to the top-M
+                # non-top-K slots by model logit (the model's ambiguous
+                # "next-best" beliefs), instead of uniformly over the
+                # full pool. Falls back to uniform when M >= pool size.
+                if epsilon_neighbor_m > 0 \
+                        and pool_for_random.numel() > epsilon_neighbor_m:
+                    pool_logits_ = slot_scores_masked[pool_for_random]
+                    _, next_m_local = torch.topk(
+                        pool_logits_, epsilon_neighbor_m, dim=-1,
+                    )
+                    pool_for_random = pool_for_random[next_m_local]
                 k_r = min(K_random, pool_for_random.numel())
                 if k_r > 0:
                     perm = torch.randperm(
@@ -938,6 +965,17 @@ def _topK_sim_loss_for_example(
                 )
                 top_set[top_by_logit] = True
                 pool_for_random = active_slots[~top_set[active_slots]]
+                # Neighbor mode: restrict ε-random draws to the top-M
+                # non-top-K slots by model logit (the model's ambiguous
+                # "next-best" beliefs), instead of uniformly over the
+                # full pool. Falls back to uniform when M >= pool size.
+                if epsilon_neighbor_m > 0 \
+                        and pool_for_random.numel() > epsilon_neighbor_m:
+                    pool_logits_ = slot_scores_masked[pool_for_random]
+                    _, next_m_local = torch.topk(
+                        pool_logits_, epsilon_neighbor_m, dim=-1,
+                    )
+                    pool_for_random = pool_for_random[next_m_local]
                 k_r = min(K_random, pool_for_random.numel())
                 if k_r > 0:
                     perm = torch.randperm(
@@ -1122,6 +1160,7 @@ def finetune_de_loss(
     sim_feedback: bool = False,
     prefix_aug_prob: float = 0.0,
     prefix_aug_thickness_scale: float = 0.15,
+    epsilon_neighbor_m: int = 0,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Compute the finetune loss + diagnostics for one batch.
 
@@ -1292,6 +1331,7 @@ def finetune_de_loss(
                 topk_mode=topk_mode,
                 epsilon=epsilon,
                 thickness_topn=thickness_topn,
+                epsilon_neighbor_m=epsilon_neighbor_m,
             )
         else:
             loss_b, metrics_b, n_pos = _rollout_one(

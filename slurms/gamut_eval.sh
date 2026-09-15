@@ -100,6 +100,13 @@ SEED="${SEED:-42}"
 # $JLL_MATERIALS_DIR if you've exported one).
 POOL_DIR="${POOL_DIR:-}"
 
+# Sim-feedback residual conditioning at inference (Sept 15 plumbing).
+# Match to the checkpoint: only checkpoints finetuned with
+# --sim-feedback have non-zero residual_proj weights. Setting =1 on a
+# pretrain checkpoint is a no-op (zero-init residual_proj). Setting =0
+# on a sim-feedback checkpoint disables the residual signal at inference.
+SIM_FEEDBACK="${SIM_FEEDBACK:-0}"
+
 # Anything after the script name flows through to gamut_eval.py.
 USER_ARGS=("$@")
 
@@ -135,6 +142,9 @@ ARGS=(
 if [[ -n "${POOL_DIR}" ]]; then
   ARGS+=(--pool-dir "${POOL_DIR}")
 fi
+if [[ "${SIM_FEEDBACK}" == "1" ]]; then
+  ARGS+=(--sim-feedback)
+fi
 
 CMD=(python -m inference.scripts.gamut_eval "${ARGS[@]}" "${USER_ARGS[@]}")
 
@@ -159,6 +169,7 @@ echo
 echo "Sweep knobs:"
 echo "  preset:            ${PRESET}"
 echo "  optimizer:         ${OPTIMIZER}"
+echo "  sim_feedback:      ${SIM_FEEDBACK}"
 echo "  seed:              ${SEED}"
 if [[ -n "${POOL_DIR}" ]]; then
   echo "  pool_dir:          ${POOL_DIR}"
