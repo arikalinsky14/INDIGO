@@ -819,33 +819,60 @@ def _topK_sim_loss_for_example(
         )                                              # [M_MAX, NUM_THICKNESSES]
 
         if is_hierarchical:
-            # Hierarchical M × N: top-K slots by marginal, then top-N
-            # thickness bins per slot. Every candidate has a distinct
-            # (slot, thick) pair → material diversity AND thickness
-            # exploration. Not affected by ε here (ε applies to slot
-            # selection only in the slot/joint branches); adding it
-            # here would be a cleaner future work item.
+            # Hierarchical M × N: K slots × N_thick thickness bins per
+            # slot. Every candidate has a distinct (slot, thick) pair →
+            # material diversity AND thickness exploration.
+            # ε-exploration applies at the SLOT level (matching slot
+            # mode): floor(K_eff · ε) of the K slots are uniform-random
+            # draws; each such slot still gets its own top-N thickness
+            # bins. This diversifies material choice; the "random slot
+            # + argmax thick" candidates might have high ΔE, but the
+            # softmax target then puts weight on the top-scored slots
+            # regardless, so the exploration is bounded.
             slot_scores = layer_logits.max(dim=-1).values      # [M_MAX]
             slot_scores_masked = slot_scores.masked_fill(
                 ~active_mask_bool, -1e9,
             )
-            topk_slots_only = torch.topk(
-                slot_scores_masked, K_eff, dim=-1,
-            ).indices                                          # [K_eff]
-            # For each of top-K slots, top-N thickness bins by conditional
-            # logit. Shape [K_eff, N_thick].
-            per_slot_thick_logits = layer_logits[topk_slots_only]  # [K_eff, NT]
+            top_by_logit = torch.topk(
+                slot_scores_masked, K_top, dim=-1,
+            ).indices                                          # [K_top]
+            if K_random > 0:
+                active_slots = torch.nonzero(
+                    active_mask_bool, as_tuple=False,
+                ).squeeze(-1)                                  # [n_active]
+                top_set = torch.zeros(
+                    active_mask_bool.numel(), dtype=torch.bool,
+                    device=device,
+                )
+                top_set[top_by_logit] = True
+                pool_for_random = active_slots[~top_set[active_slots]]
+                k_r = min(K_random, pool_for_random.numel())
+                if k_r > 0:
+                    perm = torch.randperm(
+                        pool_for_random.numel(), device=device,
+                    )[:k_r]
+                    random_picks = pool_for_random[perm]
+                    topk_slots_only = torch.cat(
+                        [top_by_logit, random_picks], dim=0,
+                    )
+                else:
+                    topk_slots_only = top_by_logit
+            else:
+                topk_slots_only = top_by_logit
+            # For each selected slot, top-N thickness bins by conditional
+            # logit. Shape [K_slots, N_thick].
+            per_slot_thick_logits = layer_logits[topk_slots_only]  # [K_s, NT]
             topk_thick_bins_per_slot = torch.topk(
                 per_slot_thick_logits, N_thick, dim=-1,
-            ).indices                                              # [K_eff, N_thick]
-            # Flatten to lists of (slot, thick_bin) pairs of length K_eff * N_thick.
-            topk_slots = topk_slots_only.repeat_interleave(N_thick)  # [K_eff*N_thick]
-            topk_thick_bins = topk_thick_bins_per_slot.reshape(-1)   # [K_eff*N_thick]
+            ).indices                                              # [K_s, N_thick]
+            # Flatten to lists of (slot, thick_bin) pairs of length K_s * N_thick.
+            topk_slots = topk_slots_only.repeat_interleave(N_thick)  # [K_s*N_thick]
+            topk_thick_bins = topk_thick_bins_per_slot.reshape(-1)   # [K_s*N_thick]
             # Model logits over the K·N joint cells, differentiable.
             # gather along last dim so grad flows into each cell.
             topk_model_logits = per_slot_thick_logits.gather(
                 dim=-1, index=topk_thick_bins_per_slot,
-            ).reshape(-1)                                           # [K_eff*N_thick]
+            ).reshape(-1)                                           # [K_s*N_thick]
         elif topk_mode == "joint":
             # Top-K over the flattened joint (slot × thickness) grid.
             joint_logits = layer_logits.reshape(-1)   # [M_MAX*NUM_THICKNESSES]
@@ -1028,6 +1055,24 @@ def _topK_sim_loss_for_example(
                 * argmax_slot_thick_probs.clamp_min(1e-12).log()
             ).sum().item()
 
+            # Flat-target diagnostics (Sept 15). Answer "is the target
+            # distribution meaningfully peaked, or is it near-uniform?"
+            # A near-uniform target gives no rank signal — the pathology
+            # observed on hierarchical M=4×N=3 where loss_topk hovered
+            # at log(12) throughout training.
+            #   target_entropy   — H(softmax(-β·ΔE)); log(K) = uniform
+            #   target_max_prob  — max target weight; 1/K = uniform,
+            #                      1.0 = fully peaked on one candidate
+            #   delta_e_range    — max ΔE − min ΔE across candidates;
+            #                      small range → no β can peak it
+            target_entropy = -(
+                target_probs * target_probs.clamp_min(1e-12).log()
+            ).sum().item()
+            target_max_prob = float(target_probs.max().item())
+            delta_e_range = float(
+                (delta_e.max() - delta_e.min()).item()
+            )
+
             per_pos_diag.append({
                 "loss_de": de_model_pick,
                 "loss_de_best_topk": de_best_topk,
@@ -1038,10 +1083,15 @@ def _topK_sim_loss_for_example(
                 "topk_argmin_matches_model": topk_argmin_matches_model,
                 "slot_entropy": slot_entropy,
                 "thickness_entropy": thick_entropy,
-                # Fraction of the K sim slots filled by ε-random picks
-                # this step. Constant across positions within a batch,
-                # but averaged over positions like everything else here.
-                "explore_frac": (K_actual - K_top) / max(K_actual, 1),
+                # Flat-target diagnostics: is the CE target peaked?
+                "target_entropy": target_entropy,
+                "target_max_prob": target_max_prob,
+                "topk_delta_e_range": delta_e_range,
+                # Fraction of the K slot picks filled by ε-random draws
+                # this step (K_random / K_eff). Uniform across modes:
+                # counted in slots, not cells, so hierarchical N_thick
+                # doesn't inflate the number.
+                "explore_frac": K_random / max(K_eff, 1),
             })
 
     total_loss = torch.stack(losses).sum()

@@ -4,19 +4,29 @@ Repo: **INDIGO** (Pitt CRC). Flexible-material RGB/Lab → thin-film-stack
 generative model. Autoregressive decoder predicts (slot, thickness) per
 layer; the material pool varies per example (encoder is pool-agnostic).
 
-## Current state (Sept 14, 2026)
+## Current state (Sept 15, 2026)
 
-**Numbers (val_loss_de = mean ΔE₀₀ at greedy pick on 500 val examples):**
+**Val (greedy ΔE₀₀ on 1000 val examples):**
 
 | Model | val_loss_de | Notes |
 |---|---|---|
 | Pretrain (`prod_3ep_bs512_lr6e-5/step_13000`) | ~8.55 | 3 epochs CE, val-optimal step |
-| Best finetune, no sim-feedback | 8.02 | K=3 slot, LR=1e-5, CE=0.1, const LR, unfrozen encoder |
-| **Best finetune, WITH sim-feedback** | **7.92** | Same recipe + `SIM_FEEDBACK=1`; step 1250 of 1665 |
+| K=3 slot finetune, no sim-feedback | 8.02 | LR=1e-5, CE=0.1, const LR, unfrozen encoder |
+| **K=3 slot finetune + sim-feedback** | **7.92** | Same recipe + `SIM_FEEDBACK=1`; step 1250 of 1665 — current champion |
+| hier M=4 × N=3 + simfb + prefix-aug 0.20 (Sept 14) | 8.06 | worse than K=3+simfb; fell into flat-target pathology |
 
-**Inference-time (ensemble decode + real-sim select) on test set:**
-Median ΔE ≈ **0.65**, p95 ≈ **3.3** — for tier_a partial (350/500).
-Full 500×2-tier eval is pending resubmit (see Open Threads below).
+**Inference-time (ensemble N=200 + real-sim select) on 500 rows × 2 tiers:**
+
+| Model | tier_a med / p95 | tier_b med / p95 |
+|---|---|---|
+| Pretrain (no simfb) | 0.717 / 3.735 | 0.535 / 2.726 |
+| K=3 slot finetune (no simfb) | 0.658 / 3.423 | 0.564 / 3.008 |
+| K=3 slot + simfb, SIM_FEEDBACK=1 | 0.710 / 3.438 | **0.509** / 2.836 |
+
+Bucket rates (<1.0, <2.0, <5.0, <10.0) all within ~1 percentage point
+of each other on tier_a. **The 200-replica ensemble washes out
+val_de differences of 0.6 units — measurement problem** (see Sept 15
+findings below).
 
 **The bottleneck is high-chroma / edge-of-gamut colors** — the ~5% p95+
 tail. Median already crushes the target. HC=0.30 finetune data was
@@ -154,83 +164,131 @@ that breaks CE loss and adds bookkeeping.
    softmax(-β·ΔE_real)). This is when things started working.
 4. **Unfrozen encoder (Experiment B)** unlocked ~0.15 val_de vs frozen.
 5. **Constant LR** avoided cosine-death degradation past mid-training.
-6. **Joint mode failed** because top-K concentrates on 1-2 slots.
-   Hierarchical M×N is the proper thickness-training design (not yet
-   run at scale).
+6. **Joint mode failed** because top-K concentrates on 1-2 slots'
+   neighbor thicknesses → target dist is flat → no rank signal.
 7. **Sim-feedback residual** finally broke through the ~8.0 plateau
    → 7.92 (Sept 13). Small but real, and beat all previous variants.
+8. **Hierarchical M=4×N=3 also failed at β=1** (Sept 14 run) for
+   the same "flat target" reason as joint mode: with 12 candidates
+   whose ΔE spans only a few units, softmax(-1·ΔE) is nearly
+   uniform. Diagnosed Sept 15 via new flat-target metrics
+   (target_entropy near log(12), argmin_hit near 1/12). Fix under
+   test: bump β to 5-10 to sharpen the target distribution.
+
+## Sept 15 findings (what we learned overnight)
+
+### 1. Hierarchical M=4 × N=3 fell into the flat-target pathology
+
+The hier + simfb + prefix-aug 0.20 run (job 3946535) hit val_de=8.06
+peak at step 1000, worse than the K=3 slot + simfb baseline (7.92)
+and degraded past step 1000 (8.42, 8.50).
+
+**Diagnostic signature**: `loss_topk ≈ 2.4` throughout (log(12) =
+2.485 → uniform). `argmin_hit ≈ 0.12` (1/12 = 0.083 → random). The
+model is not learning to rank the 12 candidates.
+
+**Root cause hypothesis**: the target distribution `softmax(-β·ΔE)`
+with β=1 is nearly uniform because the 12 candidates within any
+position have small ΔE spread relative to β. The K=3 slot mode
+worked because 3 slot-diverse candidates have wider ΔE spread (each
+material fundamentally different) and log(3)=1.10 is easier to
+beat.
+
+**Fix to test**: bump `SIM_TARGET_BETA` from 1.0 to 5-10, keeping
+everything else identical. β=5 concentrates ~80% of the target mass
+on the top-2 candidates and gives the model something to rank
+toward. **Flat-target diagnostics wired Sept 15** (see below) will
+tell us whether the fix worked at step 1, not step 1000.
+
+### 2. Ensemble decoder is the measurement bottleneck at inference
+
+val_de spans 7.92 → 8.55 across our checkpoints (0.63 unit gap), but
+at N=200 ensemble the tier_a medians span 0.658 → 0.717 (~0.06 unit,
+= noise). **The 200-replica real-sim selector is too generous** —
+with that many diverse samples and real-sim scoring, model quality
+barely matters. We can't distinguish models with N=200.
+
+**Fix to test**: rerun test_eval with `ENSEMBLE_N=20` (or even 10).
+If model quality matters, tier_a medians should widen and we'll see
+which model actually helps. Bonus: 10× faster.
+
+### 3. Sim-feedback at inference: winning on tier_b, losing on tier_a
+
+The SIM_FEEDBACK=1 test won on tier_b median (0.509 vs 0.564 non-simfb
+finetune) but LOST on tier_a median (0.710 vs 0.658). Consistent with
+the "residual-distribution-shift" hypothesis: training saw
+sim(GT_prefix), inference sees sim(model_prefix), which differs
+systematically — the residual channel becomes noise on hard examples.
+
+**Fix to test**: run K=3 slot + simfb WITH prefix-aug (the whole point
+of prefix-aug — this was mixed into the hier run and masked by the
+flat-target problem, so we still don't know if prefix-aug helps).
+
+### 4. Flat-target diagnostics (added Sept 15)
+
+`_topK_sim_loss_for_example` now logs three per-position metrics that
+identify the pathology from step 1:
+
+- `target_entropy` — H(softmax(-β·ΔE)); log(K) = uniform, 0 = peaked
+- `target_max_prob` — max target weight; 1/K = uniform, 1 = peaked
+- `topk_delta_e_range` — (max ΔE − min ΔE) across candidates; small
+  range means no β can peak the target (candidates are too similar)
+
+Watch the training log — new fields `tgt_H`, `tgt_max`, `dE_rng`.
+Guideline: if `tgt_max < 2/K`, β is too low OR the candidate set is
+too correlated.
+
+Also: **ε-exploration is now wired into hierarchical mode** (was
+future work Sept 13). Setting `EPSILON_START>0` in hierarchical picks
+floor(K·ε) random slots per position, each still getting its own
+top-N thickness.
 
 ## Open threads / suggested next work
 
-### Immediate
+### Immediate — parallel experiments to launch (Sept 15)
 
-1. **Rerun test_eval on our two best checkpoints** (12h wall now,
-   `--qos=short` removed):
-   - `finetune_de_B_slot3_ce0p1_lr1e5_213k_const/best` — pretrain
-     comparison baseline (no sim_feedback needed)
-   - `finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb/best` — **run
-     with `SIM_FEEDBACK=1`** to unlock the residual signal at inference
-     (this is the whole point of the plumbing added Sept 14)
-2. **Compare summary.json** — sim-feedback should show measurable
-   improvement on the p95+ high-chroma tail if the residual signal
-   generalizes.
+Fires four SLURM jobs in parallel; total ~29 GPU-hours to answer the
+four questions above.
 
-### The Big Open Question (user flagged for next session)
+**P1** (finetune, ~5h): **prefix-aug on K=3 slot + simfb** — clean
+single-variable test of prefix aug on the winning recipe.
+**P2** (finetune, ~12h): **hier M=4×N=3 + simfb + prefix-aug + β=5**
+— unstick the flat-target pathology.
+**P3** (finetune, ~12h): **hier M=4×N=3 + simfb + prefix-aug + β=10**
+— aggressive β, in case β=5 isn't enough.
+**P4** (test_eval, ~1h × 3): **ensemble N=20 on the 3 existing
+checkpoints** — unmask the model quality differences the N=200
+ensemble is hiding.
 
-**Sim-feedback trajectory oscillates and peaks early — how do we
-extend the advantage?** All our finetune runs share a pattern: val_de
-drops sharply in the first 300-600 steps, then oscillates around a
-noisy plateau for the rest. The sim-feedback run hit val_de=7.99 at
-step 250 (already best) and 7.92 at step 1250 — genuinely better peak
-but same oscillation pattern.
+Copy-paste commands are in Common Invocations.
 
-**User's own hypothesis to explore:** more simulations per example
-during finetune (larger K, or hierarchical M×N) might give the
-residual-conditioned model richer per-position choice sets to learn
-from. The intuition: residual conditioning changes what "good pick"
-looks like; if the top-K set is still narrow (K=3 slot), we're not
-giving the model enough opportunity to rerank.
+### Post-P1-P4 decisions (what to do based on results)
 
-**Other ideas worth trying:**
+- If P4 shows N=20 spreads the medians: **run all future test_evals at
+  N=20** as a discrimination probe, keeping N=200 for the "final
+  product" number.
+- If P2/P3 loss_topk drops well below log(12) AND val_de beats 7.92:
+  hierarchical is unlocked → try M=6 × N=3 next.
+- If P2/P3 fixes loss_topk but val_de still plateaus at 8: candidate
+  diversity isn't the bottleneck — try ε-exploration on top of the
+  fixed recipe.
+- If P1 beats 7.92: prefix-aug alone is the win; sim-feedback +
+  prefix-aug becomes the new baseline for all future work.
 
-- **Hierarchical M×N + sim-feedback**: pair the two additions. M=3,
-  N=3 gives 9 candidates per position with distinct (slot, thickness)
-  pairs; combined with residual conditioning the model gets both a
-  richer choice set AND state feedback per step.
-- **ε-exploration + sim-feedback**: the residual tells the model
-  "you're off by X"; random exploration might surface candidates the
-  model wouldn't ordinarily consider that better match the residual.
-- **Different LR for residual_proj**: the base model may be
-  over-training while residual_proj is under-training. Split LR groups
-  in the optimizer.
-- **EMA / weight averaging across recent-best checkpoints** to smooth
-  the oscillation and capture "the average of the peak region."
+### Longer-term ideas
+
+- **EMA / weight averaging** across recent-best checkpoints to smooth
+  the peak-then-oscillate pattern.
 - **Curriculum by chroma magnitude**: train easy → hard so the model
   builds representations before hitting the hard tail.
-- **Larger dataset**: 213k examples might just not be enough for the
-  residual signal to fully develop. Scale to 500k or 1M once we know
-  the recipe works.
-- **Longer training + best-checkpoint retention**: we already have
-  best-checkpoint save; a longer run at winning recipe might find a
-  deeper trough somewhere later than step 1250.
-- **Data augmentation of prefixes**: during training, perturb GT
-  prefix layers (small thickness jitter or occasional wrong-material
-  swap) so the residual distribution the model sees at training is
-  wider — closer to what inference will produce.
-
-**Design constraint to keep in mind**: the residual at inference is
-computed from the model's OWN partial prefix, not GT. During training
-we compute it from GT prefix. Distribution shift is real. Prefix
-augmentation might close that gap.
-
-### Also-nice-to-have
-
-- Plumb sim-feedback through `inference/src/generate.py` was done
-  Sept 14; not yet exercised at scale. First test_eval with
-  `SIM_FEEDBACK=1` will validate the plumbing end-to-end.
-- Consider MOVING the `_compute_partial_residuals` loop to
-  batched-vmap sim. Current per-example Python loop is fine but adds
-  25% wall clock; a batched JAX call could nearly eliminate it.
+- **Larger dataset**: 213k might not be enough. Scale to 500k or 1M
+  once the recipe is settled.
+- **Batched-vmap partial-residual sim** to cut the current 25% wall
+  overhead of `_compute_partial_residuals`.
+- **DAgger / scheduled sampling**: during training, sometimes feed
+  the model its own generated prefix (no-grad rollout) and use the
+  resulting sim residual. Directly closes the train↔inference gap
+  (cleaner than prefix-aug's mild inconsistency) but more complex.
 
 ## Cluster / environment gotchas
 
@@ -259,7 +317,73 @@ The trailer is auto-inserted from the session's attribution config.
 
 ## Common invocations (copy-paste ready)
 
-**Finetune (winning recipe with sim-feedback):**
+### Sept 15 parallel experiments (P1-P4)
+
+**P1 — prefix-aug on K=3 slot + simfb (clean single-variable test):**
+```bash
+PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb_paug20 \
+    FREEZE_ENCODER=0 LR=1e-5 REAL_SIM_TOPK=3 CE_LOSS_WEIGHT=0.1 \
+    TOPK_MODE=slot LR_SCHEDULE=constant SIM_FEEDBACK=1 \
+    PREFIX_AUG_PROB=0.20 PREFIX_AUG_THICKNESS_SCALE=0.15 \
+    EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
+    NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
+    sbatch --time=05:00:00 slurms/finetune_de.sh
+```
+
+**P2 — hier M=4×N=3 + simfb + prefix-aug + β=5 (unstick flat target):**
+```bash
+PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_hier4x3_ce0p1_lr1e5_213k_const_simfb_paug20_beta5 \
+    FREEZE_ENCODER=0 LR=1e-5 CE_LOSS_WEIGHT=0.1 LR_SCHEDULE=constant \
+    TOPK_MODE=hierarchical REAL_SIM_TOPK=4 THICKNESS_TOPN=3 \
+    SIM_TARGET_BETA=5.0 \
+    SIM_FEEDBACK=1 PREFIX_AUG_PROB=0.20 PREFIX_AUG_THICKNESS_SCALE=0.15 \
+    EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
+    NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
+    sbatch --time=12:00:00 slurms/finetune_de.sh
+```
+
+**P3 — hier M=4×N=3 + simfb + prefix-aug + β=10 (aggressive β):**
+```bash
+PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_hier4x3_ce0p1_lr1e5_213k_const_simfb_paug20_beta10 \
+    FREEZE_ENCODER=0 LR=1e-5 CE_LOSS_WEIGHT=0.1 LR_SCHEDULE=constant \
+    TOPK_MODE=hierarchical REAL_SIM_TOPK=4 THICKNESS_TOPN=3 \
+    SIM_TARGET_BETA=10.0 \
+    SIM_FEEDBACK=1 PREFIX_AUG_PROB=0.20 PREFIX_AUG_THICKNESS_SCALE=0.15 \
+    EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
+    NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
+    sbatch --time=12:00:00 slurms/finetune_de.sh
+```
+
+**P4 — small-ensemble test_evals (unmask model differences):** fire
+all three in parallel. Each ~1h at N=20. Use a distinct
+`OUTPUT_DIR_SUFFIX` so results don't collide with the N=200 runs.
+
+```bash
+# P4a: pretrain baseline @ N=20
+CHECKPOINT=data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    LIMIT=500 ENSEMBLE_N=20 TEMPERATURE=1.0 \
+    OUTPUT_DIR=inference/outputs/test_eval_n20 \
+    sbatch --time=03:00:00 slurms/test_eval.sh
+
+# P4b: K=3 slot no simfb @ N=20
+CHECKPOINT=data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const/best \
+    LIMIT=500 ENSEMBLE_N=20 TEMPERATURE=1.0 \
+    OUTPUT_DIR=inference/outputs/test_eval_n20 \
+    sbatch --time=03:00:00 slurms/test_eval.sh
+
+# P4c: K=3 slot + simfb, SIM_FEEDBACK=1 @ N=20
+CHECKPOINT=data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb/best \
+    LIMIT=500 ENSEMBLE_N=20 TEMPERATURE=1.0 SIM_FEEDBACK=1 \
+    OUTPUT_DIR=inference/outputs/test_eval_n20 \
+    sbatch --time=03:00:00 slurms/test_eval.sh
+```
+
+### Standing recipes
+
+**Finetune (winning K=3 slot + simfb baseline, Sept 13):**
 ```bash
 PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
     SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb \
@@ -270,24 +394,7 @@ PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3e
     sbatch --time=05:00:00 slurms/finetune_de.sh
 ```
 
-**Finetune (Sept 14 experiment: hierarchical M=4 × N=3 + sim-feedback +
-prefix-aug 0.20):** targets the "sim-feedback advantage peaks early"
-plateau. Wider candidate set (12 per position vs 3) gives the residual
-signal more resolution to matter; prefix-aug narrows the train/inference
-residual-distribution gap. Wall clock ~2-3× the K=3-slot run because
-sim cost scales with M·N; bump wall time accordingly.
-```bash
-PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
-    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_hier4x3_ce0p1_lr1e5_213k_const_simfb_paug20 \
-    FREEZE_ENCODER=0 LR=1e-5 CE_LOSS_WEIGHT=0.1 LR_SCHEDULE=constant \
-    TOPK_MODE=hierarchical REAL_SIM_TOPK=4 THICKNESS_TOPN=3 \
-    SIM_FEEDBACK=1 PREFIX_AUG_PROB=0.20 PREFIX_AUG_THICKNESS_SCALE=0.15 \
-    EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
-    NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
-    sbatch --time=12:00:00 slurms/finetune_de.sh
-```
-
-**Inference eval with sim-feedback:**
+**Test eval (final-product N=200 setting):**
 ```bash
 CHECKPOINT=data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb/best \
     LIMIT=500 ENSEMBLE_N=200 TEMPERATURE=1.0 SIM_FEEDBACK=1 \
