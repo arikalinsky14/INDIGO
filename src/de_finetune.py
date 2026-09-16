@@ -814,11 +814,18 @@ def _topK_sim_loss_for_example(
     N_thick = max(1, min(int(thickness_topn), NUM_THICKNESSES))
     is_hierarchical = (topk_mode == "hierarchical") and N_thick > 1
 
-    # ε-exploration slot budget. floor(K · ε) of the K candidates are
-    # uniform-random draws; the rest come from top-K by logit. Clamped
-    # so K_top ≥ 1 (never fully-random — the model's own picks are
-    # what we're training).
-    K_random = int(K_eff * max(0.0, min(1.0, epsilon)))
+    # ε-exploration slot budget. round(K · ε) of the K candidates are
+    # random draws; the rest come from top-K by logit. Clamped so
+    # K_top ≥ 1 (never fully-random — the model's own picks are what
+    # we're training). Round-to-nearest instead of floor so small ε
+    # values at small K actually engage the exploration path (Sept 16
+    # bug: floor(3 · 0.20) = 0 silently disabled the P8 neighbor-mode
+    # run). When neighbor mode is on and any ε > 0, force K_random ≥ 1
+    # so the intent of "use neighbor exploration" is always honored.
+    eps_eff = max(0.0, min(1.0, epsilon))
+    K_random = int(round(K_eff * eps_eff))
+    if epsilon_neighbor_m > 0 and eps_eff > 0 and K_random < 1:
+        K_random = 1
     K_random = min(K_random, K_eff - 1)  # keep at least 1 top-K pick
     K_top = K_eff - K_random
 

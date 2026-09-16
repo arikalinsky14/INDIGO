@@ -17,15 +17,18 @@ layer; the material pool varies per example (encoder is pool-agnostic).
 
 **Inference-time (ensemble + real-sim select) on 500 rows × 2 tiers:**
 
-| Model | N=200 tier_a med / p95 | N=20 tier_a med / p95 |
-|---|---|---|
-| Pretrain (no simfb) | 0.717 / 3.735 | 1.552 / 6.756 |
-| K=3 slot finetune (no simfb) | 0.658 / 3.423 | 1.652 / 6.422 |
-| K=3 slot + simfb, SIM_FEEDBACK=1 | 0.710 / 3.438 | 1.545 / 7.114 |
+| Model | N=200 tier_a med / p95 | H_slot | H_thick | N=20 tier_a med / p95 |
+|---|---|---|---|---|
+| Pretrain (no simfb) | 0.717 / 3.735 | 2.30 | 3.49 | 1.552 / 6.756 |
+| K=3 slot finetune (no simfb) | 0.658 / 3.423 | 2.62 | 4.30 | 1.652 / 6.422 |
+| K=3 slot + simfb, SIM_FEEDBACK=1 | 0.710 / 3.438 | 2.63 | 4.31 | 1.545 / 7.114 |
 
 Val_de spread = 0.63 units. Ensemble N=200 tier_a spread = 0.06 units.
-Ensemble N=20 tier_a spread = 0.10 units. **The ensemble decoder is
-largely model-agnostic in its current form** — see Sept 15 finding #1.
+Ensemble N=20 tier_a spread = 0.10 units. `frac_unique = 1.000`
+across all three (every one of 200 samples is a unique candidate).
+**The ensemble decoder is largely model-agnostic in its current
+form** — see Sept 15 finding #1. Note that log(pool=15)=2.71, so
+finetune samples are at 97% of uniform vs pretrain at 85%.
 
 **The bottleneck is high-chroma / edge-of-gamut colors** — the ~5% p95+
 tail. Median already crushes the target. HC=0.30 finetune data was
@@ -257,6 +260,41 @@ work Sept 13). Setting `EPSILON_START>0` in hierarchical picks
 floor(K·ε) random slots per position, each still getting its own
 top-N thickness.
 
+### Sept 16 addendum: sampling-entropy hypothesis was reversed
+
+P7 (N=200 with the new sampling diagnostic) shows the OPPOSITE of
+what I predicted. I hypothesized finetune might be *reducing*
+sampling entropy (concentrating the model's proposal distribution
+and hurting the ensemble). Actual:
+
+| Checkpoint | H_slot | H_thick | tier_a med |
+|---|---|---|---|
+| Pretrain | 2.296 | 3.487 | 0.717 |
+| K=3 slot finetune | 2.625 | 4.305 | 0.658 |
+| K=3 slot + simfb | 2.626 | 4.306 | 0.710 |
+
+Finetune INCREASES sampling entropy (85% → 97% of log(pool_size)).
+And the two finetunes are essentially identical proposers — H_slot
+matches to 3 decimals despite differing training objectives and a
+0.10 val_de gap between them. This explains why their ensemble ΔE
+is within noise of each other: they produce virtually the same
+sampling distribution.
+
+Implications:
+- The "sampling collapse" concern from Sept 15 is dead. The current
+  top-K real-sim loss with β=1 spreads probability across candidates
+  because the flat-ish target puts non-negligible gradient on
+  multiple candidates per step — the model raises multiple logits
+  rather than concentrating.
+- The finetune's val_de improvements come from making argmax pick
+  match GT better, without concentrating overall sampling mass.
+  Two proposers can have identical sampling distributions but
+  different argmax picks.
+- Suggests "make model a BETTER PROPOSER" is not "make it more
+  peaked" — the pretrain is more peaked but samples worse
+  candidates. What we'd need is peaked ON THE RIGHT CANDIDATES,
+  which is exactly what best-of-N-in-training would optimize.
+
 ### 5. Neighbor-mode ε-exploration (added Sept 15)
 
 **Motivation**: uniform ε-random draws sample slots from the pool
@@ -283,6 +321,26 @@ ranking over plausible candidates, keeping sampling diversity where
 it matters. If sampling entropy is already high across all
 checkpoints, neighbor-mode is a moderate-expected-win but low-risk
 addition.
+
+**Sept 16 activation footgun (fixed)**: the original ε formula was
+`K_random = int(K_eff * ε)` — floor rounding. With K=3 and ε=0.20,
+that's `int(0.6) = 0`. The P8 run configured ε=0.20 + neighbor M=6
+and got val_de=7.89@step500 (nominally beating 7.92) BUT with
+K_random=0 — neighbor mode never activated. The "champion" was
+seed variance, not a real neighbor-mode result.
+
+Sept 16 fix: `K_random = int(round(K_eff * ε))` (round-to-nearest,
+so ε=0.20 at K=3 now gives K_random=1). AND when neighbor mode is
+on with any ε > 0, force K_random ≥ 1 so the intent is always
+honored. Both changes to `_topK_sim_loss_for_example`. Backward
+compatibility notes:
+  - Old K=3, ε=0.15 → 0 random (unchanged, rounds down)
+  - Old K=3, ε=0.20 → 0 random → **new: 1 random** (round to nearest)
+  - Old K=3, ε=0.34 → 1 random (unchanged)
+  - K=5, ε=0.15 → old 0, new 1 (round to nearest)
+
+To engage neighbor mode reliably: use ε ≥ 0.34 at K=3, or ε ≥ 0.20
+at K=5. Or just rely on the "≥ 1 when neighbor is on" clamp.
 
 ## Open threads / suggested next work
 
@@ -385,24 +443,42 @@ The trailer is auto-inserted from the session's attribution config.
 
 ## Common invocations (copy-paste ready)
 
-### P8 — K=3 slot + simfb + neighbor-mode ε-exploration (Sept 15)
+### P8v2 — K=3 slot + simfb + neighbor-mode ε (Sept 16, K_random fix)
 
-Tests the "middle-of-the-road exploration" hypothesis: ε-random
-draws restricted to slots ranked 4-9 by model logit (M=6 = 2×K),
-instead of uniform over the pool. ε=0.20 injects one such
-"ambiguous next-best" candidate per position on average (1/3 of the
-K=3 top-K are randomized).
+The Sept 15 P8 run configured EPSILON_START=0.20 with K=3, but
+floor(3 · 0.20) = 0 meant K_random=0 and neighbor mode never
+activated. The reported val_de=7.89 was seed variance, not a real
+result. Fixed Sept 16 by switching K_random to round-to-nearest AND
+forcing K_random ≥ 1 whenever neighbor mode is on. This re-run
+GUARANTEES 1 random slot per position from the neighbor pool.
+
+Recipe below uses K=3 with ε=0.34 (unambiguously K_random=1 even
+without the new clamp), so the run is reproducible even if the
+clamp is reverted.
 
 ```bash
 PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
-    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb_eps20_nbr6 \
+    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb_eps34_nbr6 \
     FREEZE_ENCODER=0 LR=1e-5 REAL_SIM_TOPK=3 CE_LOSS_WEIGHT=0.1 \
     TOPK_MODE=slot LR_SCHEDULE=constant SIM_FEEDBACK=1 \
-    EPSILON_START=0.20 EPSILON_END=0.20 EPSILON_DECAY_FRACTION=1.0 \
+    EPSILON_START=0.34 EPSILON_END=0.34 EPSILON_DECAY_FRACTION=1.0 \
     EPSILON_NEIGHBOR_M=6 \
     EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
     NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
     sbatch --time=05:00:00 slurms/finetune_de.sh
+```
+
+Alternate at K=5 (more candidates per position, ε=0.20 → 1 random):
+```bash
+PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_slot5_ce0p1_lr1e5_213k_const_simfb_eps20_nbr10 \
+    FREEZE_ENCODER=0 LR=1e-5 REAL_SIM_TOPK=5 CE_LOSS_WEIGHT=0.1 \
+    TOPK_MODE=slot LR_SCHEDULE=constant SIM_FEEDBACK=1 \
+    EPSILON_START=0.20 EPSILON_END=0.20 EPSILON_DECAY_FRACTION=1.0 \
+    EPSILON_NEIGHBOR_M=10 \
+    EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
+    NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
+    sbatch --time=06:00:00 slurms/finetune_de.sh
 ```
 
 ### P9 — gamut eval on pretrain + best simfb checkpoint (Sept 15)
