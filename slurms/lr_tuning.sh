@@ -87,6 +87,12 @@ EPOCHS="${EPOCHS:-1}"                            # single-pass for the scaling f
 LR_MIN="${LR_MIN:-1e-5}"
 LR_MAX="${LR_MAX:-5e-3}"
 N_LRS="${N_LRS:-6}"
+# DeltaE-based LR selection (Porian correction #3 done against the metric
+# that matters). CE and DeltaE are decoupled on INDIGO, so selecting an LR
+# on val_loss can pick a different LR than DeltaE would.
+LIMIT_DE_EXAMPLES="${LIMIT_DE_EXAMPLES:-256}"   # Examples per-LR for the
+                                                # DeltaE eval. 0 disables.
+SELECTION_METRIC="${SELECTION_METRIC:-delta_e}" # delta_e | val_loss
 
 # Model architecture (must match your production training).
 FEATURE_MODE="${FEATURE_MODE:-raw_spectrum}"
@@ -169,6 +175,8 @@ ARGS=(
     --data-dir "${DATA_DIR}"
     --epochs "${EPOCHS}"
     --seed "${SEED}"
+    --limit-de-examples "${LIMIT_DE_EXAMPLES}"
+    --selection-metric "${SELECTION_METRIC}"
     --lr-min "${LR_MIN}"
     --lr-max "${LR_MAX}"
     --n-lrs "${N_LRS}"

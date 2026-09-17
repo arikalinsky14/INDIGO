@@ -37,7 +37,7 @@ import math
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -55,6 +55,11 @@ from scripts.training import (
 )
 from src.dataset import FlexThinFilmDataset, find_repo_root
 from src.model import ModelConfig, build_model, compute_loss, compute_loss_packed
+from src.delta_e_eval import (
+    evaluate_delta_e,
+    primary_metric as delta_e_primary_metric,
+    OPTICAL_SIM_AVAILABLE,
+)
 
 
 @dataclass
@@ -69,6 +74,25 @@ class LRSearchResult:
     train_losses: List[float]
     val_losses: List[float]
     val_accs: List[float]
+    # DeltaE_00 on the held-out slice after the final epoch. This, not
+    # val_loss, is what LR selection should key on: the CE/DeltaE decoupling
+    # is verified on INDIGO, so the lowest-CE LR is not necessarily the
+    # lowest-DeltaE LR. None when the optical simulator is unavailable or
+    # DeltaE was disabled.
+    final_val_de: Optional[float] = None
+    final_val_de_p95: Optional[float] = None
+    final_val_de_by_chroma: Optional[dict] = None
+    de_result: Optional[dict] = None
+
+    def selection_metric(self, metric: str) -> float:
+        """Scalar to minimise. Falls back to CE only when DeltaE is absent."""
+        if metric == "delta_e":
+            if self.final_val_de is None:
+                return float("inf")
+            return self.final_val_de
+        if metric == "val_loss":
+            return self.best_val_loss
+        raise ValueError(f"unknown selection metric {metric!r}")
 
 
 def evaluate_validation(model, val_loader, device, loss_fn=compute_loss) -> Tuple[float, float]:
@@ -108,6 +132,9 @@ def train_with_lr(
     verbose: bool = True,
     packed_tf: bool = False,
     bf16: bool = False,
+    de_examples: Optional[List] = None,
+    de_limit: int = 0,
+    de_simulator=None,
 ) -> LRSearchResult:
     model = build_model(config).to(device)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -175,6 +202,22 @@ def train_with_lr(
                 flush=True,
             )
 
+    # DeltaE on the final weights. Run once per LR rather than per epoch:
+    # it is ~100x more expensive per example than CE, and what we need is a
+    # single comparable number per LR.
+    de_result = None
+    if de_examples and de_limit > 0:
+        de_result = evaluate_delta_e(
+            model, de_examples, device, limit=de_limit,
+            simulator=de_simulator,
+        )
+        if verbose and de_result.get("n_scored"):
+            print(f"    dE: median={de_result['delta_e_median']:.3f} "
+                  f"p95={de_result['delta_e_p95']:.3f} "
+                  f"(n={de_result['n_scored']}, "
+                  f"valid={de_result['valid_rate']:.2f})", flush=True)
+
+    scored = bool(de_result and de_result.get("n_scored"))
     return LRSearchResult(
         lr=lr,
         epochs=epochs,
@@ -186,6 +229,10 @@ def train_with_lr(
         train_losses=train_losses,
         val_losses=val_losses,
         val_accs=val_accs,
+        final_val_de=de_result["delta_e_median"] if scored else None,
+        final_val_de_p95=de_result["delta_e_p95"] if scored else None,
+        final_val_de_by_chroma=de_result.get("by_chroma") if scored else None,
+        de_result=de_result,
     )
 
 
@@ -208,6 +255,10 @@ def lr_tuning(
     verbose: bool = True,
     packed_tf: bool = False,
     bf16: bool = False,
+    de_examples: Optional[List] = None,
+    de_limit: int = 0,
+    de_simulator=None,
+    selection_metric: str = "delta_e",
 ) -> Tuple[float, List[LRSearchResult]]:
     lrs = np.logspace(np.log10(lr_min), np.log10(lr_max), n_lrs)
     print(f"\n{'=' * 70}")
@@ -218,6 +269,9 @@ def lr_tuning(
     print(f"Train examples: {len(train_dataset):,}")
     print(f"Val examples: {len(val_dataset):,}")
     print(f"Warmup fraction: {warmup_fraction:.1%}")
+    print(f"Selection metric: {selection_metric}"
+          + (f" (dE on {de_limit} examples)" if selection_metric == "delta_e"
+             and de_limit else ""))
     print(f"{'=' * 70}\n")
 
     results: List[LRSearchResult] = []
@@ -233,13 +287,32 @@ def lr_tuning(
             warmup_fraction=warmup_fraction,
             log_every=log_every, verbose=verbose,
             packed_tf=packed_tf, bf16=bf16,
+            de_examples=de_examples, de_limit=de_limit,
+            de_simulator=de_simulator,
         )
         results.append(result)
+        de_str = ("" if result.final_val_de is None
+                  else f", val_de={result.final_val_de:.3f}")
         print(f"    Final: train_loss={result.final_train_loss:.4f}, "
               f"val_loss={result.final_val_loss:.4f}, "
-              f"best_val_loss={result.best_val_loss:.4f}\n")
+              f"best_val_loss={result.best_val_loss:.4f}{de_str}\n")
 
-    best_result = min(results, key=lambda r: r.best_val_loss)
+    # Select on DeltaE when we have it. If DeltaE was requested but no LR
+    # produced a scorable result (simulator missing, or every generation
+    # invalid at every LR), fall back to val_loss rather than returning an
+    # arbitrary LR -- and say so, loudly, because a silent fallback to the
+    # wrong metric is exactly the failure this plumbing exists to prevent.
+    effective_metric = selection_metric
+    if selection_metric == "delta_e" and all(r.final_val_de is None for r in results):
+        print("[WARN] DeltaE selection requested but no LR produced a scorable "
+              "DeltaE (optical sim unavailable, or every generation invalid). "
+              "FALLING BACK to val_loss selection. The chosen LR optimises "
+              "cross-entropy, which is NOT a reliable proxy for DeltaE on "
+              "INDIGO -- treat the result with suspicion.", flush=True)
+        effective_metric = "val_loss"
+
+    best_result = min(results, key=lambda r: r.selection_metric(effective_metric))
+    print(f"[INFO] Selected LR={best_result.lr:.3e} by {effective_metric}")
     return best_result.lr, results
 
 
@@ -339,6 +412,21 @@ def main() -> None:
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--warmup-fraction", type=float, default=0.02)
+    # -- DeltaE-based LR selection. Porian et al. correction #3 says re-tune
+    # LR per scale; on INDIGO that has to be done against DeltaE, because CE
+    # and DeltaE are decoupled -- the lowest-CE LR is not necessarily the
+    # lowest-DeltaE one, and DeltaE is what the scaling study fits.
+    parser.add_argument("--limit-de-examples", type=int, default=256,
+                        help="Examples for the per-LR DeltaE_00 eval "
+                             "(default: 256). Run once per LR on the final "
+                             "weights. 0 disables, which forces val_loss "
+                             "selection.")
+    parser.add_argument("--selection-metric", type=str, default="delta_e",
+                        choices=["delta_e", "val_loss"],
+                        help="Metric the optimal LR is chosen by. Default "
+                             "delta_e. 'val_loss' is offered for "
+                             "reproducing pre-DeltaE results only -- CE is "
+                             "not a reliable proxy for DeltaE on INDIGO.")
 
     parser.add_argument("--output-dir", type=str, default=None)
     parser.add_argument("--plot", action="store_true")
@@ -393,6 +481,25 @@ def main() -> None:
           f"d_model={args.d_model}, n_layers={args.n_layers}, "
           f"packed_tf={packed_tf}, bf16={args.bf16}")
 
+    # DeltaE slice, read once and shared across every LR so all LRs are
+    # scored on identical examples. One simulator instance keeps
+    # jaxlayerlumos' per-stack-depth trace cache warm across the sweep.
+    de_examples = None
+    de_simulator = None
+    de_limit = args.limit_de_examples if args.selection_metric == "delta_e" else 0
+    if de_limit > 0:
+        if not OPTICAL_SIM_AVAILABLE:
+            print("[WARN] --selection-metric delta_e requested but the optical "
+                  "simulator is unavailable (jaxlayerlumos missing). LR "
+                  "selection will fall back to val_loss.", flush=True)
+            de_limit = 0
+        else:
+            de_examples = list(val_dataset)[:de_limit]
+            from src.optical_sim import OpticalSimulator
+            de_simulator = OpticalSimulator(incidence_angle=0)
+            print(f"[INFO] DeltaE selection slice: {len(de_examples):,} examples "
+                  f"(greedy), scored once per LR", flush=True)
+
     optimal_lr, results = lr_tuning(
         epochs=args.epochs,
         train_dataset=train_dataset, val_dataset=val_dataset,
@@ -404,20 +511,42 @@ def main() -> None:
         warmup_fraction=args.warmup_fraction,
         log_every=args.log_every, verbose=args.verbose,
         packed_tf=packed_tf, bf16=args.bf16,
+        de_examples=de_examples, de_limit=de_limit,
+        de_simulator=de_simulator,
+        selection_metric=args.selection_metric,
     )
 
     print("\n" + "=" * 70)
     print("LR SEARCH RESULTS SUMMARY")
     print("=" * 70)
-    print(f"\n{'LR':>12} | {'Best Val Loss':>14} | {'Final Val Loss':>14} | {'Final Train':>12}")
-    print("-" * 60)
+    print(f"\n{'LR':>12} | {'val_de (sel)':>13} | {'dE p95':>8} | "
+          f"{'Best Val Loss':>14} | {'Final Train':>12}")
+    print("-" * 74)
     for r in sorted(results, key=lambda x: x.lr):
         marker = " *" if r.lr == optimal_lr else ""
-        print(f"{r.lr:>12.2e} | {r.best_val_loss:>14.4f} | {r.final_val_loss:>14.4f} | {r.final_train_loss:>12.4f}{marker}")
-    print("-" * 60)
+        de_s = "n/a" if r.final_val_de is None else f"{r.final_val_de:.4f}"
+        p95_s = "n/a" if r.final_val_de_p95 is None else f"{r.final_val_de_p95:.3f}"
+        print(f"{r.lr:>12.2e} | {de_s:>13} | {p95_s:>8} | "
+              f"{r.best_val_loss:>14.4f} | {r.final_train_loss:>12.4f}{marker}")
+    print("-" * 74)
     print(f"\n* OPTIMAL LR for {args.epochs} epochs: {optimal_lr:.2e}")
     best_result = next(r for r in results if r.lr == optimal_lr)
-    print(f"  Best validation loss: {best_result.best_val_loss:.4f} (epoch {best_result.best_val_epoch})")
+    if best_result.final_val_de is not None:
+        print(f"  Selected on val_de (median): {best_result.final_val_de:.4f}")
+        by_c = best_result.final_val_de_by_chroma or {}
+        parts = [f"{b}={by_c[b]['median']:.3f}" for b in ("low", "mid", "high")
+                 if by_c.get(b, {}).get("n")]
+        if parts:
+            print(f"  Per-chroma median: {'  '.join(parts)}")
+    print(f"  Best validation loss (diagnostic): {best_result.best_val_loss:.4f} "
+          f"(epoch {best_result.best_val_epoch})")
+    # An explicit disagreement check: if CE would have picked a different LR,
+    # that is the decoupling showing up in this very sweep, and worth
+    # recording in the log rather than leaving implicit.
+    ce_pick = min(results, key=lambda r: r.best_val_loss).lr
+    if best_result.final_val_de is not None and ce_pick != optimal_lr:
+        print(f"  NOTE: val_loss would have selected LR={ce_pick:.3e} instead "
+              f"-- CE/DeltaE disagree on this sweep.")
     print("=" * 70)
 
     if args.output_dir:
@@ -441,6 +570,13 @@ def main() -> None:
         json.dump({
             "epochs": args.epochs,
             "optimal_lr": optimal_lr,
+            "selection_metric": args.selection_metric,
+            "optimal_val_de": best_result.final_val_de,
+            "optimal_val_de_p95": best_result.final_val_de_p95,
+            "optimal_val_de_by_chroma": best_result.final_val_de_by_chroma,
+            "limit_de_examples": de_limit,
+            "val_loss_would_pick_lr": min(
+                results, key=lambda r: r.best_val_loss).lr,
             "lr_range": [args.lr_min, args.lr_max],
             "n_lrs": args.n_lrs,
             "head_mode": args.head_mode,
@@ -467,6 +603,9 @@ def main() -> None:
     print(f"EPOCHS={args.epochs}")
     print(f"OPTIMAL_LR={optimal_lr}")
     print(f"BEST_VAL_LOSS={best_result.best_val_loss}")
+    print(f"SELECTION_METRIC={args.selection_metric}")
+    if best_result.final_val_de is not None:
+        print(f"OPTIMAL_VAL_DE={best_result.final_val_de}")
 
 
 if __name__ == "__main__":
