@@ -123,7 +123,7 @@ def evaluate_teacher_forcing(model, dataset, device, batch_size=32,
 
     total_loss = 0.0
     total_correct = 0
-    total_samples = 0
+    total_tokens = 0
 
     print("[INFO] Running teacher forcing evaluation...")
 
@@ -131,19 +131,21 @@ def evaluate_teacher_forcing(model, dataset, device, batch_size=32,
         for batch_idx, batch in enumerate(loader):
             batch_on_device = {k: v.to(device) for k, v in batch.items()}
             losses = compute_loss(model, batch_on_device)
-            count = batch_on_device["lab"].size(0)
-            total_loss += losses["loss"].item() * count
-            total_correct += int(losses["accuracy"].item() * count)
-            total_samples += count
+            # Token-weighted; `n_correct` is exact. See the note in
+            # src/model.py:compute_loss_packed.
+            n_tok = int(losses["n_tokens"].item())
+            total_loss += losses["loss"].item() * n_tok
+            total_correct += int(losses["n_correct"].item())
+            total_tokens += n_tok
             if (batch_idx + 1) % 100 == 0:
-                running_loss = total_loss / total_samples
-                running_acc = total_correct / total_samples
+                running_loss = total_loss / total_tokens
+                running_acc = total_correct / total_tokens
                 print(f"  Batch {batch_idx + 1}: loss={running_loss:.4f}, acc={running_acc:.3f}")
 
     return {
-        "loss": total_loss / max(total_samples, 1),
-        "accuracy": total_correct / max(total_samples, 1),
-        "n_samples": total_samples,
+        "loss": total_loss / max(total_tokens, 1),
+        "accuracy": total_correct / max(total_tokens, 1),
+        "n_samples": total_tokens,
     }
 
 

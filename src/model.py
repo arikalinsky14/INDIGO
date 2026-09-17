@@ -596,8 +596,18 @@ def compute_loss(
         gather_idx = n_laid.view(-1, 1, 1).expand(-1, 1, logits.size(-1))
         logits = logits.gather(1, gather_idx).squeeze(1)                     # [B, V]
     loss = F.cross_entropy(logits, target)
-    accuracy = (logits.argmax(dim=-1) == target).float().mean()
-    return {"loss": loss, "accuracy": accuracy}
+    correct = logits.argmax(dim=-1) == target
+    accuracy = correct.float().mean()
+    # `n_tokens` / `n_correct` let callers aggregate across batches exactly.
+    # In the fanned-out collate every row IS one scored token, so n_tokens
+    # equals the batch size here. See `compute_loss_packed` for the packed
+    # case, where the two differ.
+    return {
+        "loss": loss,
+        "accuracy": accuracy,
+        "n_tokens": torch.tensor(target.numel(), device=logits.device),
+        "n_correct": correct.sum(),
+    }
 
 
 def compute_loss_packed(
@@ -632,11 +642,24 @@ def compute_loss_packed(
     )
     pred = logits.argmax(dim=-1)
     valid = target != -100
+    n_tokens = valid.sum()
+    n_correct = ((pred == target) & valid).sum()
     if valid.any():
         accuracy = (pred[valid] == target[valid]).float().mean()
     else:
         accuracy = torch.tensor(0.0, device=logits.device)
-    return {"loss": loss, "accuracy": accuracy}
+    # `loss` and `accuracy` are means over VALID TOKENS, of which there are
+    # `n_tokens` -- not over the `B` examples in the batch. Callers
+    # aggregating across batches must weight by `n_tokens`, not by batch
+    # size, or they compute an example-weighted average of per-token means
+    # (biased whenever tokens-per-example varies, which it does: structures
+    # are 2-10 layers).
+    return {
+        "loss": loss,
+        "accuracy": accuracy,
+        "n_tokens": n_tokens,
+        "n_correct": n_correct,
+    }
 
 
 # ============================================================================

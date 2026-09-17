@@ -75,16 +75,20 @@ def evaluate_validation(model, val_loader, device, loss_fn=compute_loss) -> Tupl
     model.eval()
     total_loss = 0.0
     total_correct = 0
-    total_samples = 0
+    total_tokens = 0
     with torch.no_grad():
         for batch in val_loader:
             batch_on_device = {k: v.to(device) for k, v in batch.items()}
             losses = loss_fn(model, batch_on_device)
-            count = batch_on_device["lab"].size(0)
-            total_loss += losses["loss"].item() * count
-            total_correct += int(losses["accuracy"].item() * count)
-            total_samples += count
-    return total_loss / max(total_samples, 1), total_correct / max(total_samples, 1)
+            # Token-weighted; `n_correct` is exact. See the note in
+            # src/model.py:compute_loss_packed. This matters more here than
+            # elsewhere: the LR sweep's short runs sit at low accuracy, where
+            # the old int(accuracy * batch_size) truncation collapsed to 0.0.
+            n_tok = int(losses["n_tokens"].item())
+            total_loss += losses["loss"].item() * n_tok
+            total_correct += int(losses["n_correct"].item())
+            total_tokens += n_tok
+    return total_loss / max(total_tokens, 1), total_correct / max(total_tokens, 1)
 
 
 def train_with_lr(

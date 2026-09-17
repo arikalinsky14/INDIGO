@@ -212,21 +212,28 @@ def evaluate_validation(
     )
     total_loss = 0.0
     total_correct = 0
-    total_samples = 0
+    total_tokens = 0
     try:
         with torch.no_grad():
             for batch in val_loader:
                 batch_on_device = {k: v.to(device) for k, v in batch.items()}
                 with amp_ctx:
                     losses = loss_fn(model, batch_on_device)
-                count = batch_on_device["lab"].size(0)
-                total_loss += losses["loss"].item() * count
-                total_correct += int(losses["accuracy"].item() * count)
-                total_samples += count
+                # Weight by scored TOKENS, not by batch size. `loss` and
+                # `accuracy` are per-token means, so example-weighting them
+                # gives a biased estimator whenever tokens-per-example varies
+                # (structures are 2-10 layers). `n_correct` is an exact
+                # integer count -- deriving it as int(accuracy * count) used
+                # to truncate, which reads as exactly 0.0 whenever accuracy
+                # is below 1/batch_size (the regime small models start in).
+                n_tok = int(losses["n_tokens"].item())
+                total_loss += losses["loss"].item() * n_tok
+                total_correct += int(losses["n_correct"].item())
+                total_tokens += n_tok
     finally:
         if was_training:
             model.train()
-    denom = max(total_samples, 1)
+    denom = max(total_tokens, 1)
     return total_loss / denom, total_correct / denom
 
 
