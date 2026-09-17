@@ -9,6 +9,7 @@ Conversions to/from sRGB are kept around purely for human-readable display
 
 from __future__ import annotations
 
+import math
 from typing import List, Sequence, Tuple
 
 import numpy as np
@@ -116,6 +117,65 @@ def lab_chroma(lab: Sequence[float]) -> float:
 def srgb_chroma(rgb: Sequence[float]) -> float:
     """Convenience: chroma directly from sRGB."""
     return lab_chroma(srgb_to_lab(rgb))
+
+
+# ============================================================================
+# CIEDE2000 (ΔE₀₀) — the project's headline color-difference metric
+# ============================================================================
+#
+# Moved here from `scripts/evaluate.py` so the training loop, the LR sweep
+# and the offline eval all score ΔE with one implementation. Note there are
+# still other copies in the tree (a JAX one in `inference/src/simulate.py`
+# that must stay JAX-native for jit/vmap, plus copies in
+# `scripts/k_nearest_structures.py` and `inference/scripts/sim_spike.py`);
+# consolidating those is tracked separately.
+
+def ciede2000(lab1, lab2) -> float:
+    L1, a1, b1 = lab1
+    L2, a2, b2 = lab2
+    C1 = math.sqrt(a1**2 + b1**2)
+    C2 = math.sqrt(a2**2 + b2**2)
+    C_bar = (C1 + C2) / 2
+    G = 0.5 * (1 - math.sqrt(C_bar**7 / (C_bar**7 + 25**7)))
+    a1_prime = a1 * (1 + G)
+    a2_prime = a2 * (1 + G)
+    C1_prime = math.sqrt(a1_prime**2 + b1**2)
+    C2_prime = math.sqrt(a2_prime**2 + b2**2)
+    h1_prime = math.degrees(math.atan2(b1, a1_prime)) % 360
+    h2_prime = math.degrees(math.atan2(b2, a2_prime)) % 360
+    dL_prime = L2 - L1
+    dC_prime = C2_prime - C1_prime
+    dh_prime = h2_prime - h1_prime
+    if C1_prime * C2_prime == 0:
+        dh_prime = 0
+    elif abs(dh_prime) > 180:
+        dh_prime -= 360 if dh_prime > 180 else -360
+    dH_prime = 2 * math.sqrt(C1_prime * C2_prime) * math.sin(math.radians(dh_prime / 2))
+    L_bar_prime = (L1 + L2) / 2
+    C_bar_prime = (C1_prime + C2_prime) / 2
+    h_bar_prime = (h1_prime + h2_prime) / 2
+    if C1_prime * C2_prime != 0 and abs(h1_prime - h2_prime) > 180:
+        h_bar_prime += 180 if h1_prime + h2_prime < 360 else -180
+    T = (1 - 0.17 * math.cos(math.radians(h_bar_prime - 30))
+         + 0.24 * math.cos(math.radians(2 * h_bar_prime))
+         + 0.32 * math.cos(math.radians(3 * h_bar_prime + 6))
+         - 0.20 * math.cos(math.radians(4 * h_bar_prime - 63)))
+    dTheta = 30 * math.exp(-((h_bar_prime - 275) / 25) ** 2)
+    R_C = 2 * math.sqrt(C_bar_prime**7 / (C_bar_prime**7 + 25**7))
+    S_L = 1 + (0.015 * (L_bar_prime - 50) ** 2) / math.sqrt(20 + (L_bar_prime - 50) ** 2)
+    S_C = 1 + 0.045 * C_bar_prime
+    S_H = 1 + 0.015 * C_bar_prime * T
+    R_T = -math.sin(math.radians(2 * dTheta)) * R_C
+    return math.sqrt(
+        (dL_prime / S_L) ** 2 + (dC_prime / S_C) ** 2 + (dH_prime / S_H) ** 2
+        + R_T * (dC_prime / S_C) * (dH_prime / S_H)
+    )
+
+
+def lab_diff_ciede2000(lab1, lab2) -> float:
+    """ΔE_00 between two Lab colors. Targets and predictions are already
+    Lab in the new pipeline, so no sRGB conversion is needed."""
+    return ciede2000(lab1, lab2)
 
 
 # ============================================================================

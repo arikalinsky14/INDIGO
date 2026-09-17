@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader
 _repo_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_repo_root))
 
-from src.color_utils import lab_to_srgb_int
+from src.color_utils import ciede2000, lab_diff_ciede2000, lab_to_srgb_int
 from src.dataset import FlexThinFilmDataset, TrainingExample, find_repo_root
 from src.material_features import featurize_pool, pad_pool_features
 from src.materials_vocab import (
@@ -147,59 +147,6 @@ def evaluate_teacher_forcing(model, dataset, device, batch_size=32,
         "accuracy": total_correct / max(total_tokens, 1),
         "n_samples": total_tokens,
     }
-
-
-# ============================================================================
-# Color utilities (CIEDE2000)
-# ============================================================================
-
-
-def ciede2000(lab1, lab2) -> float:
-    L1, a1, b1 = lab1
-    L2, a2, b2 = lab2
-    C1 = math.sqrt(a1**2 + b1**2)
-    C2 = math.sqrt(a2**2 + b2**2)
-    C_bar = (C1 + C2) / 2
-    G = 0.5 * (1 - math.sqrt(C_bar**7 / (C_bar**7 + 25**7)))
-    a1_prime = a1 * (1 + G)
-    a2_prime = a2 * (1 + G)
-    C1_prime = math.sqrt(a1_prime**2 + b1**2)
-    C2_prime = math.sqrt(a2_prime**2 + b2**2)
-    h1_prime = math.degrees(math.atan2(b1, a1_prime)) % 360
-    h2_prime = math.degrees(math.atan2(b2, a2_prime)) % 360
-    dL_prime = L2 - L1
-    dC_prime = C2_prime - C1_prime
-    dh_prime = h2_prime - h1_prime
-    if C1_prime * C2_prime == 0:
-        dh_prime = 0
-    elif abs(dh_prime) > 180:
-        dh_prime -= 360 if dh_prime > 180 else -360
-    dH_prime = 2 * math.sqrt(C1_prime * C2_prime) * math.sin(math.radians(dh_prime / 2))
-    L_bar_prime = (L1 + L2) / 2
-    C_bar_prime = (C1_prime + C2_prime) / 2
-    h_bar_prime = (h1_prime + h2_prime) / 2
-    if C1_prime * C2_prime != 0 and abs(h1_prime - h2_prime) > 180:
-        h_bar_prime += 180 if h1_prime + h2_prime < 360 else -180
-    T = (1 - 0.17 * math.cos(math.radians(h_bar_prime - 30))
-         + 0.24 * math.cos(math.radians(2 * h_bar_prime))
-         + 0.32 * math.cos(math.radians(3 * h_bar_prime + 6))
-         - 0.20 * math.cos(math.radians(4 * h_bar_prime - 63)))
-    dTheta = 30 * math.exp(-((h_bar_prime - 275) / 25) ** 2)
-    R_C = 2 * math.sqrt(C_bar_prime**7 / (C_bar_prime**7 + 25**7))
-    S_L = 1 + (0.015 * (L_bar_prime - 50) ** 2) / math.sqrt(20 + (L_bar_prime - 50) ** 2)
-    S_C = 1 + 0.045 * C_bar_prime
-    S_H = 1 + 0.015 * C_bar_prime * T
-    R_T = -math.sin(math.radians(2 * dTheta)) * R_C
-    return math.sqrt(
-        (dL_prime / S_L) ** 2 + (dC_prime / S_C) ** 2 + (dH_prime / S_H) ** 2
-        + R_T * (dC_prime / S_C) * (dH_prime / S_H)
-    )
-
-
-def lab_diff_ciede2000(lab1, lab2) -> float:
-    """ΔE_00 between two Lab colors. Targets and predictions are already
-    Lab in the new pipeline, so no sRGB conversion is needed."""
-    return ciede2000(lab1, lab2)
 
 
 # ============================================================================
