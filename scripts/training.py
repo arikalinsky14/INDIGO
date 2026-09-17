@@ -36,9 +36,15 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import torch
 
 
-@contextlib.contextmanager
-def _nullcontext():
-    yield
+# NOTE: must be contextlib.nullcontext (a reusable class), NOT a
+# @contextlib.contextmanager generator. The amp context below is built once
+# and re-entered every step, and a generator-based context manager is
+# single-use -- it raises "'_GeneratorContextManager' object has no attribute
+# 'args'" on the second step. That only bites when the autocast branch is not
+# taken (any CPU run, or a GPU run without --bf16), which is why it went
+# unnoticed: the production runs all used --bf16 on CUDA, where
+# torch.amp.autocast is itself reusable.
+_nullcontext = contextlib.nullcontext
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
@@ -56,6 +62,11 @@ from src.materials_vocab import (
     encode_layer,
 )
 from src.model import ModelConfig, build_model, compute_loss, compute_loss_packed
+from src.delta_e_eval import (
+    evaluate_delta_e,
+    primary_metric as delta_e_primary_metric,
+    OPTICAL_SIM_AVAILABLE,
+)
 
 
 def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
@@ -427,6 +438,33 @@ def parse_args() -> argparse.Namespace:
                         help="Cap on val examples per checkpoint eval "
                              "(default: 5000, the full 0.05%% val split). "
                              "Set to 0 to skip val eval entirely.")
+    # -- DeltaE validation. This is the metric that matters: the CE/DeltaE
+    # decoupling is verified on INDIGO, so val_loss is NOT a usable proxy
+    # for deployed quality, and the compute-optimal scaling study fits its
+    # IsoFLOP parabolas on DeltaE. Kept separate from --limit-val-examples
+    # because DeltaE costs ~100x more per example than CE (autoregressive
+    # decode + optical sim), so it runs on a much smaller slice.
+    parser.add_argument("--limit-de-examples", type=int, default=256,
+                        help="Examples per DeltaE_00 val eval (default: 256). "
+                             "Costs roughly 50ms/example of optical sim plus "
+                             "the autoregressive decode, i.e. a few percent "
+                             "overhead at the default save cadence. Set to 0 "
+                             "to skip DeltaE eval entirely.")
+    parser.add_argument("--de-every", type=int, default=0,
+                        help="Run the DeltaE eval every N steps. 0 (default) "
+                             "means every save tick, matching --save-every. "
+                             "Use a multiple of --save-every to sample DeltaE "
+                             "more coarsely than val_loss on short runs.")
+    parser.add_argument("--de-sample", action=argparse.BooleanOptionalAction,
+                        default=False,
+                        help="Temperature-sample instead of greedy-decoding "
+                             "the DeltaE eval. Default greedy, so the metric "
+                             "is deterministic and comparable across "
+                             "checkpoints. Note slurms/de_curve.sh defaults "
+                             "the other way (SAMPLE_PREDICTIONS=1), so its "
+                             "curves are not comparable to this one.")
+    parser.add_argument("--de-temperature", type=float, default=1.0,
+                        help="Temperature for --de-sample.")
     parser.add_argument("--streaming", action=argparse.BooleanOptionalAction,
                         default=False,
                         help="Stream the dataset shard-by-shard (one parquet "
@@ -594,6 +632,36 @@ def main() -> None:
     else:
         print("[INFO] Val eval disabled (--limit-val-examples 0)")
 
+    # ---- DeltaE validation slice. Held as a materialised list of
+    # TrainingExamples rather than a DataLoader: the DeltaE path decodes
+    # autoregressively one example at a time and needs each example's raw
+    # material pool, not a collated batch. Reading it once up front keeps
+    # every later eval off the parquet shards.
+    de_examples = None
+    de_simulator = None
+    if args.limit_de_examples and args.limit_de_examples > 0:
+        if not OPTICAL_SIM_AVAILABLE:
+            print("[INFO] DeltaE eval requested but the optical simulator is "
+                  "unavailable (jaxlayerlumos missing); skipping. val_de will "
+                  "be absent from history.jsonl.", flush=True)
+        else:
+            de_dataset = FlexThinFilmDataset(
+                data_dir,
+                seed=args.seed,
+                split="validation",
+                verbose=False,
+                limit_examples=args.limit_de_examples,
+                streaming=args.streaming,
+            )
+            de_examples = list(de_dataset)
+            # Reused across evals so jaxlayerlumos' trace cache stays warm
+            # (it re-traces per stack depth; see src/delta_e_eval.py).
+            from src.optical_sim import OpticalSimulator
+            de_simulator = OpticalSimulator(incidence_angle=0)
+            print(f"[INFO] DeltaE val slice: {len(de_examples):,} examples, "
+                  f"{'sampled T=' + str(args.de_temperature) if args.de_sample else 'greedy'}, "
+                  f"every {args.de_every or args.save_every} steps", flush=True)
+
     config = ModelConfig(
         feature_mode=args.feature_mode,
         encoder_hidden=args.encoder_hidden,
@@ -705,17 +773,39 @@ def main() -> None:
     history_path = save_dir / "history.jsonl"
     print(f"[INFO] Training history: {history_path.resolve()}", flush=True)
 
+    de_every = args.de_every or args.save_every
+
     def _save_and_log(step: int, train_loss: float, lr: float,
-                      subdir: Path, *, epoch: "int | None" = None) -> None:
+                      subdir: Path, *, epoch: "int | None" = None,
+                      force_de: bool = False) -> None:
         val_loss = float("nan")
         val_acc = float("nan")
         if val_loader is not None:
             val_loss, val_acc = evaluate_validation(
                 model, val_loader, device, loss_fn, bf16=args.bf16,
             )
+
+        # DeltaE_00 on the held-out slice. This is the metric checkpoint
+        # selection and the scaling study's IsoFLOP fits key on -- val_loss
+        # is recorded alongside it as a diagnostic only. Can run at a
+        # coarser cadence than val_loss since it is far more expensive.
+        de_result = None
+        if de_examples and (force_de or step % de_every == 0):
+            de_t0 = time.perf_counter()
+            de_result = evaluate_delta_e(
+                model, de_examples, device,
+                limit=args.limit_de_examples,
+                sample=args.de_sample,
+                temperature=args.de_temperature,
+                seed=args.seed if args.de_sample else None,
+                simulator=de_simulator,
+            )
+            de_result["wall_seconds"] = time.perf_counter() - de_t0
+
         save_checkpoint(model, config, optimizer, step, train_loss,
                         subdir, lr=lr)
-        append_history(history_path, {
+
+        entry = {
             "step": step,
             "epoch": epoch,
             "train_loss": train_loss,
@@ -723,10 +813,48 @@ def main() -> None:
             "val_acc": val_acc,
             "lr": lr,
             "wall_time_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        })
+        }
+        if de_result is not None and de_result.get("available"):
+            # Contract: a val_de_* DISTRIBUTION key is present only when it
+            # holds a real number. When the eval ran but scored nothing (every
+            # generation invalid, or every sim failed) we still record that it
+            # ran, via the count/rate keys, but omit the stats rather than
+            # writing nulls -- so downstream plotting and the scaling fits can
+            # treat "val_de_median present" as "usable".
+            entry["val_de_n"] = de_result.get("n_scored", 0)
+            entry["val_de_valid_rate"] = de_result.get("valid_rate")
+            entry["val_de_greedy"] = de_result.get("greedy")
+            entry["val_de_seconds"] = de_result.get("wall_seconds")
+            if de_result.get("n_scored"):
+                # Flat val_de_* keys keep history.jsonl one level deep and
+                # directly plottable; by_chroma is the nested exception, and
+                # is what the chroma-conditioned scaling fits read.
+                entry["val_de_median"] = de_result["delta_e_median"]
+                entry["val_de_mean"] = de_result["delta_e_mean"]
+                entry["val_de_p75"] = de_result["delta_e_p75"]
+                entry["val_de_p95"] = de_result["delta_e_p95"]
+                entry["val_de_by_chroma"] = {
+                    bucket: {k: stats[k] for k in
+                             ("n", "n_examples", "median", "mean", "p75", "p95")
+                             if k in stats}
+                    for bucket, stats in de_result.get("by_chroma", {}).items()
+                }
+        append_history(history_path, entry)
+
         if val_loader is not None:
-            print(f"[Val] step={step} val_loss={val_loss:.4f} "
-                  f"val_acc={val_acc:.3f}", flush=True)
+            line = f"[Val] step={step} val_loss={val_loss:.4f} val_acc={val_acc:.3f}"
+            if de_result is not None and de_result.get("n_scored"):
+                by_c = de_result.get("by_chroma", {})
+                buckets = " ".join(
+                    f"{b}={by_c[b]['median']:.2f}"
+                    for b in ("low", "mid", "high")
+                    if by_c.get(b, {}).get("n")
+                )
+                line += (f" val_de_median={de_result['delta_e_median']:.3f}"
+                         f" p95={de_result['delta_e_p95']:.3f}"
+                         f" [{buckets}]"
+                         f" ({de_result['wall_seconds']:.0f}s)")
+            print(line, flush=True)
 
     def mid_epoch_hook(step: int, train_loss: float, lr: float) -> None:
         _save_and_log(step, train_loss, lr, save_dir / f"step_{step}")
@@ -762,13 +890,13 @@ def main() -> None:
               f"acc={avg_acc:.3f}, final_lr={final_lr:.2e}")
 
         _save_and_log(global_step, avg_loss, final_lr,
-                      save_dir / "latest", epoch=epoch)
+                      save_dir / "latest", epoch=epoch, force_de=True)
 
     # Belt-and-suspenders: explicit save after the epoch loop exits, even if
     # args.epochs is somehow 0 or run_one_epoch returned early. Overwrites
     # the per-epoch "latest" with identical content if everything ran.
     _save_and_log(global_step, avg_loss, final_lr,
-                  save_dir / "final", epoch=args.epochs - 1)
+                  save_dir / "final", epoch=args.epochs - 1, force_de=True)
 
     print("[INFO] Training complete!")
     print(f"[INFO] Final checkpoint:  {save_dir / 'final'}", flush=True)
