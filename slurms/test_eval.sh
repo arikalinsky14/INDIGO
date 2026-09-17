@@ -11,8 +11,12 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 
-#SBATCH --time=03:00:00
-#SBATCH --qos=short
+#SBATCH --time=12:00:00
+# NOTE: do not add `--qos=short` here — it caps wall time at 3h on Pitt
+# CRC regardless of the --time value, so long-running evals (e.g.
+# ensemble N=200 on 500 rows × 2 tiers ≈ 9h) will be cancelled at 3h.
+# Omitting --qos lets SLURM use the account default, which respects
+# the --time value above.
 #SBATCH --mail-user=ajk245@pitt.edu
 #SBATCH --mail-type=END,FAIL
 
