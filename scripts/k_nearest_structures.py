@@ -45,7 +45,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,53 +56,10 @@ import pyarrow.parquet as pq
 _repo_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_repo_root))
 
-from src.color_utils import lab_to_srgb_int, srgb_to_lab
+from src.color_utils import ciede2000, lab_to_srgb_int, srgb_to_lab
 from src.dataset import _maybe_json, scan_files
 from src.material_features import CANONICAL_LAMBDA_NM, MaterialNK, NUM_LAMBDA
 from src.optical_sim import OpticalSimulator, is_available
-
-
-# CIEDE2000 lifted from scripts/evaluate.py — duplicated here to keep this
-# script self-contained and avoid pulling in torch.
-def _ciede2000(lab1: Tuple[float, float, float], lab2: Tuple[float, float, float]) -> float:
-    L1, a1, b1 = lab1
-    L2, a2, b2 = lab2
-    C1 = math.sqrt(a1**2 + b1**2)
-    C2 = math.sqrt(a2**2 + b2**2)
-    C_bar = (C1 + C2) / 2
-    G = 0.5 * (1 - math.sqrt(C_bar**7 / (C_bar**7 + 25**7)))
-    a1p, a2p = a1 * (1 + G), a2 * (1 + G)
-    C1p = math.sqrt(a1p**2 + b1**2)
-    C2p = math.sqrt(a2p**2 + b2**2)
-    h1p = math.degrees(math.atan2(b1, a1p)) % 360
-    h2p = math.degrees(math.atan2(b2, a2p)) % 360
-    dLp = L2 - L1
-    dCp = C2p - C1p
-    dhp = h2p - h1p
-    if C1p * C2p == 0:
-        dhp = 0
-    elif abs(dhp) > 180:
-        dhp -= 360 if dhp > 180 else -360
-    dHp = 2 * math.sqrt(C1p * C2p) * math.sin(math.radians(dhp / 2))
-    Lbp = (L1 + L2) / 2
-    Cbp = (C1p + C2p) / 2
-    hbp = (h1p + h2p) / 2
-    if C1p * C2p != 0 and abs(h1p - h2p) > 180:
-        hbp += 180 if h1p + h2p < 360 else -180
-    T = (1 - 0.17 * math.cos(math.radians(hbp - 30))
-         + 0.24 * math.cos(math.radians(2 * hbp))
-         + 0.32 * math.cos(math.radians(3 * hbp + 6))
-         - 0.20 * math.cos(math.radians(4 * hbp - 63)))
-    dTheta = 30 * math.exp(-((hbp - 275) / 25) ** 2)
-    R_C = 2 * math.sqrt(Cbp**7 / (Cbp**7 + 25**7))
-    S_L = 1 + (0.015 * (Lbp - 50) ** 2) / math.sqrt(20 + (Lbp - 50) ** 2)
-    S_C = 1 + 0.045 * Cbp
-    S_H = 1 + 0.015 * Cbp * T
-    R_T = -math.sin(math.radians(2 * dTheta)) * R_C
-    return math.sqrt(
-        (dLp / S_L) ** 2 + (dCp / S_C) ** 2 + (dHp / S_H) ** 2
-        + R_T * (dCp / S_C) * (dHp / S_H)
-    )
 
 
 @dataclass
@@ -229,7 +185,7 @@ def main() -> None:
 
     # 2. Compute distances; retain top-k.
     distances = np.fromiter(
-        (_ciede2000(query_lab, c.lab) for c in candidates),
+        (ciede2000(query_lab, c.lab) for c in candidates),
         dtype=np.float64, count=len(candidates),
     )
     top_idx = np.argsort(distances)[: args.k]

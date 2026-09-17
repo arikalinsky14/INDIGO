@@ -7,8 +7,9 @@ Verifies, in order:
      reflectance to ~1e-4.
   2. JAX reflectance_to_lab matches src.color_utils.spectrum_to_lab to
      ~1e-3 on each Lab channel.
-  3. JAX ciede2000 matches a reference numpy implementation on a few
-     hand-picked cases including the chroma=0 axis.
+  3. JAX ciede2000 matches src.color_utils.ciede2000 (the shared numpy
+     reference the pretrain eval path uses) on hand-picked cases
+     including the chroma=0 axis and the 0/360 hue wrap.
   4. jax.grad(ΔE wrt thicknesses) matches centered finite differences on
      every active layer.
   5. End-to-end pipeline (pad_structure + pad_pool_nk +
@@ -46,6 +47,7 @@ from inference.src.simulate import (
 from inference.src.schema import (
     Candidate, MaterialEntry, RobustnessReport, pool_fingerprint,
 )
+from src.color_utils import ciede2000 as np_ciede2000
 from src.material_features import NUM_LAMBDA, load_jll_directory
 from src.materials_vocab import MAX_LAYERS, M_MAX
 
@@ -91,66 +93,6 @@ def materialnk_from_entry(entry: MaterialEntry):
 
 
 # ----------------------------------------------------------------------------
-# Reference numpy CIEDE2000 (for ground-truthing the JAX version)
-# ----------------------------------------------------------------------------
-
-def _np_ciede2000(lab1, lab2):
-    """Straight numpy port of CIEDE2000 — same formula, no eps tricks."""
-    L1, a1, b1 = lab1
-    L2, a2, b2 = lab2
-    C1 = np.sqrt(a1 ** 2 + b1 ** 2)
-    C2 = np.sqrt(a2 ** 2 + b2 ** 2)
-    Cbar = 0.5 * (C1 + C2)
-    G = 0.5 * (1 - np.sqrt(Cbar ** 7 / (Cbar ** 7 + 25 ** 7)))
-    a1p, a2p = (1 + G) * a1, (1 + G) * a2
-    C1p = np.sqrt(a1p ** 2 + b1 ** 2)
-    C2p = np.sqrt(a2p ** 2 + b2 ** 2)
-
-    def hue(ap, bp):
-        if ap == 0 and bp == 0:
-            return 0.0
-        h = np.degrees(np.arctan2(bp, ap))
-        return h + 360 if h < 0 else h
-    h1p, h2p = hue(a1p, b1), hue(a2p, b2)
-
-    dLp = L2 - L1
-    dCp = C2p - C1p
-    if C1p * C2p == 0:
-        dhp = 0.0
-    else:
-        raw = h2p - h1p
-        if raw > 180:
-            dhp = raw - 360
-        elif raw <= -180:
-            dhp = raw + 360
-        else:
-            dhp = raw
-    dHp = 2 * np.sqrt(max(C1p * C2p, 0)) * np.sin(np.radians(dhp) / 2)
-
-    Lbarp = 0.5 * (L1 + L2)
-    Cbarp = 0.5 * (C1p + C2p)
-    if C1p * C2p == 0:
-        hbarp = h1p + h2p
-    elif abs(h1p - h2p) <= 180:
-        hbarp = 0.5 * (h1p + h2p)
-    else:
-        hbarp = 0.5 * (h1p + h2p + 360)
-    T = (1
-         - 0.17 * np.cos(np.radians(hbarp - 30))
-         + 0.24 * np.cos(np.radians(2 * hbarp))
-         + 0.32 * np.cos(np.radians(3 * hbarp + 6))
-         - 0.20 * np.cos(np.radians(4 * hbarp - 63)))
-    dTheta = 30 * np.exp(-(((hbarp - 275) / 25) ** 2))
-    Rc = 2 * np.sqrt(Cbarp ** 7 / (Cbarp ** 7 + 25 ** 7))
-    Rt = -np.sin(np.radians(2 * dTheta)) * Rc
-    S_L = 1 + (0.015 * (Lbarp - 50) ** 2) / np.sqrt(20 + (Lbarp - 50) ** 2)
-    S_C = 1 + 0.045 * Cbarp
-    S_H = 1 + 0.015 * Cbarp * T
-    return np.sqrt((dLp / S_L) ** 2 + (dCp / S_C) ** 2 + (dHp / S_H) ** 2
-                   + Rt * (dCp / S_C) * (dHp / S_H))
-
-
-# ----------------------------------------------------------------------------
 # Checks
 # ----------------------------------------------------------------------------
 
@@ -193,6 +135,13 @@ def check_lab_matches_numpy(pool, slot_indices, thicknesses_nm,
 
 
 def check_ciede2000_matches_reference(tol: float = 1e-3) -> None:
+    """Cross-framework equivalence: JAX ΔE₀₀ vs the shared numpy reference.
+
+    The reference is `src.color_utils.ciede2000` — the same function the
+    pretrain eval path (scripts/evaluate.py) reports its numbers with. This
+    check is therefore what guarantees the pretrain and inference pipelines
+    are measuring the same metric, not just two look-alike formulas.
+    """
     cases = [
         # Identical → 0
         ((50.0, 0.0, 0.0), (50.0, 0.0, 0.0)),
@@ -204,15 +153,77 @@ def check_ciede2000_matches_reference(tol: float = 1e-3) -> None:
         ((50.0, -10.0, -30.0), (50.0, -12.0, -28.0)),
         # Achromatic axis: hue undefined → must be safe under our eps
         ((50.0, 0.0, 0.0), (50.0, 0.5, 0.5)),
+        # Achromatic on BOTH sides (C1'·C2' == 0 exactly)
+        ((50.0, 0.0, 0.0), (72.0, 0.0, 0.0)),
+        # Hue wrap across 0/360, both directions
+        ((50.0, 39.848, 3.486), (50.0, 39.848, -3.486)),
+        ((50.0, 39.848, -3.486), (50.0, 39.848, 3.486)),
+        # |Δh'| > 180 with h1' + h2' < 360 (the +180 mean-hue branch)
+        ((50.0, 39.392, 6.946), (50.0, -37.588, -13.681)),
+        # Large ΔE, opposite gamut corners
+        ((0.0, -80.0, -80.0), (100.0, 80.0, 80.0)),
+        ((32.3, 79.2, -107.9), (97.1, -21.6, 94.5)),
         # Sharma 2005 Table 1 row 1 (known reference value)
         ((50.0000, 2.6772, -79.7751), (50.0000, 0.0000, -82.7485)),  # ≈ 2.0425
+        # Sharma 2005 Table 1 row 25
+        ((60.2574, -34.0099, 36.2677), (60.4626, -34.1751, 39.4387)),  # ≈ 1.2644
     ]
     for lab1, lab2 in cases:
-        ref = _np_ciede2000(np.array(lab1), np.array(lab2))
+        ref = np_ciede2000(lab1, lab2)
         got = float(ciede2000(jnp.array(lab1), jnp.array(lab2)))
         diff = abs(got - ref)
         print(f"  [ΔE_00]       {lab1} vs {lab2}: ref={ref:.4f} jax={got:.4f} Δ={diff:.4e}")
         assert diff < tol, f"ΔE mismatch: {diff:.4e}"
+
+    check_ciede2000_known_divergences()
+
+
+# Known, deliberately-not-asserted gaps between the JAX kernel and the numpy
+# reference. Discovered Sept 17 2026 while consolidating the four numpy copies;
+# left unfixed because changing simulate.py's numerics would move every
+# published inference number and every refine gradient, which is a separate
+# decision. Printed loudly on every spike run so they cannot be forgotten.
+#
+# Root cause (both branches are in inference/src/simulate.py:ciede2000):
+#
+#   1. The `_EPS * sign(a' + _EPS)` nudge inside the two `arctan2` calls
+#      perturbs h1' and h2' by ~1e-11°. When the true Δh' is *exactly* 180°
+#      — which happens whenever lab2's (a*, b*) is the exact float negation
+#      of lab1's — that nudge pushes Δh' just past the 180° boundary, which
+#      flips BOTH the Δh' wrap branch and the |h1' - h2'| > 180 mean-hue
+#      branch. h̄' jumps from 180° to 360°, T and S_H change, and ΔE moves by
+#      whole units. The numpy reference matches Sharma Table 1 here; the JAX
+#      one does not (row 14: 4.8045 published, 4.7461 from JAX).
+#
+#   2. `hbar_minus_360 = (h1' + h2' + 360) / 2` is applied unconditionally in
+#      the |h1' - h2'| > 180 case. The published formula subtracts 360 instead
+#      when h1' + h2' >= 360. Only reaches ΔE through dTheta → R_T, so the
+#      error is ~1e-4 ΔE at worst (≈3% of random Lab pairs are affected).
+#
+# Neither fires in production today: (1) needs both Lab triplets to be exact
+# hue complements, and inference always compares a simulated candidate against
+# a target, and (2) is far below the ~0.5 ΔE scale the pipeline reports.
+_KNOWN_DIVERGENT_CASES = [
+    # Exact hue complements on the b* axis — divergence grows with chroma.
+    ((50.0, 0.0, 20.0), (50.0, 0.0, -20.0)),
+    ((50.0, 0.0, 80.0), (50.0, 0.0, -80.0)),
+    # Sharma 2005 Table 1 row 14 (published 4.8045).
+    ((50.0000, -0.0010, 2.4900), (50.0000, 0.0010, -2.4900)),
+]
+
+
+def check_ciede2000_known_divergences() -> None:
+    """Report (do not assert) the documented JAX-vs-numpy ΔE₀₀ gaps.
+
+    If a run prints Δ≈0 for every case here, the JAX kernel has been fixed —
+    promote these into `check_ciede2000_matches_reference` and delete this.
+    """
+    print("  [ΔE_00] known JAX-vs-numpy divergences (see comment above; not asserted):")
+    for lab1, lab2 in _KNOWN_DIVERGENT_CASES:
+        ref = np_ciede2000(lab1, lab2)
+        got = float(ciede2000(jnp.array(lab1), jnp.array(lab2)))
+        print(f"            {lab1} vs {lab2}: numpy={ref:.4f} jax={got:.4f} "
+              f"Δ={abs(got - ref):.4f}")
 
 
 def check_grad_matches_finite_diff(pool, slot_indices, thicknesses_nm,

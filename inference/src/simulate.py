@@ -33,10 +33,13 @@ Both are tracked work; neither blocks the current build.
 
 Why a JAX reimplementation of ΔE00
 ----------------------------------
-`src.color_utils.ciede2000` does not exist yet. `colormath` is numpy-only.
-ΔE00 is differentiable almost everywhere (the chroma=0 axis and the
-hue-rotation centre at 275° are measure-zero kinks); we add small
-denominator epsilons so `jax.grad` never sees a 0/0.
+`src.color_utils.ciede2000` is the shared numpy reference, but it is
+math/numpy-only and so is `colormath`. ΔE00 is differentiable almost
+everywhere (the chroma=0 axis and the hue-rotation centre at 275° are
+measure-zero kinks); we add small denominator epsilons so `jax.grad` never
+sees a 0/0. `inference/scripts/sim_spike.py` ground-truths this kernel
+against `src.color_utils.ciede2000` — see the documented divergences there
+before touching the eps guards or the hue branches below.
 
 Lab path matches training
 -------------------------
