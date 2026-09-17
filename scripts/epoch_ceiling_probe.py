@@ -194,10 +194,25 @@ def print_grid(arms: List[Arm]) -> None:
               f"steps={steps}  passes={passes}  [{status}]")
     total = sum(a.flops for a in arms)
     print(f"\ntotal probe compute: {total:.4e} FLOPs")
-    # Production measured 460-717 examples/s on one L40s (4-6% utilisation).
+    # The production run measured 460-717 examples/s on one L40s (4-6%
+    # utilisation), so 460 is the conservative floor. These arms use much
+    # smaller models, which will be faster if the pipeline is FLOP-bound and
+    # the same speed if it is dataloader-bound -- so 460 stays a safe floor.
+    passes_per_arm = arms[0].passes
     for rate, label in ((460, "conservative"), (717, "optimistic")):
-        secs = sum(a.passes for a in arms) / rate
-        print(f"  at {rate} ex/s ({label}): {secs / 3600:.2f} GPU-hours")
+        per_arm = passes_per_arm / rate
+        print(f"  at {rate:>3} ex/s ({label:<12}): "
+              f"{per_arm / 60:>5.1f} min/arm, "
+              f"{len(arms) * per_arm / 3600:>5.2f} GPU-hours total")
+    train_s = passes_per_arm / 460
+    print(f"\nper-arm wall budget (conservative 460 ex/s):")
+    print(f"  training                {train_s / 60:>6.1f} min")
+    print(f"  DeltaE evals (~4)       {4 * 90 / 60:>6.1f} min   (512 ex at ~150ms each + JAX warmup)")
+    print(f"  CE val + ckpt + startup {3.0:>6.1f} min")
+    need = train_s / 60 + 6.0 + 3.0
+    print(f"  ---------------------------------")
+    print(f"  estimated need          {need:>6.1f} min")
+    print(f"  x1.5 safety budget      {1.5 * need:>6.1f} min  <-- set --time at or above this")
     if not ok:
         raise SystemExit("fixed-C check FAILED -- refusing to emit commands.")
 
@@ -456,6 +471,13 @@ def main() -> None:
                         "instead of sbatch.")
     p.add_argument("--analyze", action="store_true",
                    help="Read the finished arms and report the ceiling.")
+    # -- SLURM job-array support. The grid lives here, in one place; the
+    # SLURM wrapper just asks for arm $SLURM_ARRAY_TASK_ID and runs it.
+    p.add_argument("--n-arms", action="store_true",
+                   help="Print the arm count and exit (for --array=0-N).")
+    p.add_argument("--emit-arm", type=int, default=None,
+                   help="Print the training.py CLI flags for this arm index "
+                        "and exit. Used by slurms/epoch_ceiling_probe.sh.")
     args = p.parse_args()
 
     if args.analyze:
@@ -470,6 +492,25 @@ def main() -> None:
             sizes.append((int(d), int(sel)))
 
     arms = build_arms(sizes, args.depths, args.total_steps, args.batch_size, args.lr)
+
+    if args.n_arms:
+        print(len(arms))
+        return
+
+    if args.emit_arm is not None:
+        if not 0 <= args.emit_arm < len(arms):
+            raise SystemExit(f"--emit-arm {args.emit_arm} out of range "
+                             f"(0..{len(arms) - 1})")
+        if not args.data_dir:
+            raise SystemExit("--emit-arm requires --data-dir")
+        cmds = emit_commands(arms, args.data_dir, args.out_root, args.lr,
+                             args.limit_de_examples, args.limit_val_examples,
+                             args.save_every, use_slurm=False,
+                             num_workers=args.num_workers)
+        # Strip the leading "python scripts/training.py" -- the wrapper adds it.
+        print(" ".join(cmds[args.emit_arm][2:]))
+        return
+
     print_grid(arms)
 
     if args.dry_run:
