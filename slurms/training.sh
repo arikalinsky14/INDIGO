@@ -110,6 +110,12 @@ DE_EVERY="${DE_EVERY:-0}"                  # DeltaE cadence in steps. 0 = every
                                            # multiple of SAVE_EVERY on short
                                            # runs where the eval would
                                            # otherwise dominate wall time.
+DE_ON_EPOCH_END="${DE_ON_EPOCH_END:-1}"    # 1 (default) = also run a DeltaE
+                                           # eval at every epoch boundary.
+                                           # 0 = only at the cadence and the
+                                           # final save, so an 8-epoch run
+                                           # does not pay 8x the eval cost of
+                                           # a 1-epoch run.
 DE_SAMPLE="${DE_SAMPLE:-0}"                # 1 = temperature-sample the DeltaE
                                            # eval; 0 (default) = greedy, so the
                                            # metric is deterministic across
@@ -283,6 +289,11 @@ if [[ "${DE_SAMPLE}" == "1" ]]; then
   ARGS+=(--de-sample)
 else
   ARGS+=(--no-de-sample)
+fi
+if [[ "${DE_ON_EPOCH_END}" == "1" ]]; then
+  ARGS+=(--de-on-epoch-end)
+else
+  ARGS+=(--no-de-on-epoch-end)
 fi
 
 # PACKED_TF tri-state: "" = auto (python picks per head), "1" = force on,

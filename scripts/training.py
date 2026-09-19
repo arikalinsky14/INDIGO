@@ -414,6 +414,19 @@ def run_one_epoch(
                     lr=current_lr,
                 )
 
+        # Stop at the planned budget. This is a no-op for a fresh run (the
+        # loader yields exactly steps_per_epoch batches), but it is essential
+        # after a MID-EPOCH --resume: start_epoch is computed as
+        # global_step // steps_per_epoch, so the resumed epoch would
+        # otherwise run a full loader pass on top of the steps already done
+        # and overshoot total_steps. A run resumed at step 1500 of a
+        # 2400-step plan would end at 3900 -- 62% more compute than planned,
+        # with the cosine schedule running off its own end. Resuming exactly
+        # at an epoch boundary (what save_dir/"latest" holds) was always
+        # safe; this makes every other resume point safe too.
+        if global_step >= total_steps:
+            break
+
     return {
         "global_step": global_step,
         "avg_loss": epoch_loss / max(n_batches, 1),
@@ -465,6 +478,15 @@ def parse_args() -> argparse.Namespace:
                              "curves are not comparable to this one.")
     parser.add_argument("--de-temperature", type=float, default=1.0,
                         help="Temperature for --de-sample.")
+    parser.add_argument("--de-on-epoch-end", action=argparse.BooleanOptionalAction,
+                        default=True,
+                        help="Force a DeltaE eval at every epoch boundary "
+                             "(default on). Turn OFF for multi-epoch runs "
+                             "where only the end-of-run value is wanted: "
+                             "otherwise an 8-epoch run pays 8 DeltaE evals "
+                             "while a 1-epoch run pays one, which both wastes "
+                             "time and makes the two cost different amounts. "
+                             "The FINAL save always evaluates regardless.")
     parser.add_argument("--streaming", action=argparse.BooleanOptionalAction,
                         default=False,
                         help="Stream the dataset shard-by-shard (one parquet "
@@ -890,7 +912,8 @@ def main() -> None:
               f"acc={avg_acc:.3f}, final_lr={final_lr:.2e}")
 
         _save_and_log(global_step, avg_loss, final_lr,
-                      save_dir / "latest", epoch=epoch, force_de=True)
+                      save_dir / "latest", epoch=epoch,
+                      force_de=args.de_on_epoch_end)
 
     # Belt-and-suspenders: explicit save after the epoch loop exits, even if
     # args.epochs is somehow 0 or run_one_epoch returned early. Overwrites

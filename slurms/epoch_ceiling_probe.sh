@@ -11,14 +11,17 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 
-# One arm needs ~31 min at the conservative 460 ex/s measured on the
-# production run (22 min training + ~6 min of DeltaE evals + ~3 min of CE
-# val, checkpointing and startup). 01:30:00 is ~2.9x that, comfortably past
-# the 1.5x safety budget: over-requesting wall time on SLURM costs nothing
-# but scheduling priority, whereas a TIME_LIMIT kill throws away the whole
-# arm. Still well inside the 3h that --qos=short actually enforces
-# (--time is NOT honoured above that; see CLAUDE.md).
-#SBATCH --time=01:30:00
+# REVISED after the first submission: every arm hit the 90 min limit, so the
+# 460 ex/s sized from the production run (d_model=1024, bs=512) does not
+# transfer to these smaller models at bs=256 -- almost certainly because the
+# per-example Python collate, not the matmuls, sets the pace, so a smaller
+# model is NOT proportionally faster. 03:00:00 is the most --qos=short will
+# actually grant. Run
+#     python scripts/epoch_ceiling_probe.py --diagnose
+# against the partial runs to get the measured rate; if an arm still does not
+# fit in 3h, lower TOTAL_STEPS rather than raising --time, which that QoS
+# ignores above 3h.
+#SBATCH --time=03:00:00
 #SBATCH --qos=short
 #SBATCH --array=0-11
 #SBATCH --mail-user=ajk245@pitt.edu
@@ -179,14 +182,63 @@ ARM_ARGS=$(python scripts/epoch_ceiling_probe.py \
     --limit-de-examples "${LIMIT_DE_EXAMPLES}" \
     --limit-val-examples "${LIMIT_VAL_EXAMPLES}")
 
+# -------------------- Auto-resume --------------------
+# RESUME=0 forces a clean restart. Otherwise, pick up from the arm's own
+# checkpoint if there is a SAFE one.
+#
+# Only "latest/" is safe. training.py derives its restart epoch as
+# global_step // steps_per_epoch and then replays that epoch's loader from
+# the beginning, so a mid-epoch step_N resume would re-read the START of the
+# corpus rather than continuing where it stopped. For this probe that is
+# disqualifying: corpus diversity is the single variable being manipulated,
+# so an arm that re-reads its first examples is no longer measuring what its
+# siblings measure. "latest/" is only ever written at an epoch boundary,
+# where replaying the next epoch from the start is exactly correct.
+#
+# (A companion fix in scripts/training.py now stops the loop at total_steps,
+# so a resume can no longer overshoot the planned budget either.)
+RESUME="${RESUME:-1}"
+ARM_SAVE_DIR=$(echo "${ARM_ARGS}" | tr ' ' '\n' \
+    | grep -A1 -- '--save-dir' | tail -1 || true)
+if [[ -z "${ARM_SAVE_DIR}" ]]; then
+  echo "ERROR: could not parse --save-dir out of the emitted arm args." >&2
+  exit 1
+fi
+RESUME_ARGS=""
+if [[ "${RESUME}" == "1" && -f "${ARM_SAVE_DIR}/latest/model.pt" ]]; then
+  RESUMED_STEP=$(python -c "
+import json,sys
+try:
+    print(json.load(open('${ARM_SAVE_DIR}/latest/meta.json'))['step'])
+except Exception:
+    print(0)
+")
+  if (( RESUMED_STEP > 0 )); then
+    RESUME_ARGS="--resume ${ARM_SAVE_DIR}/latest"
+    echo "Resuming from ${ARM_SAVE_DIR}/latest (step ${RESUMED_STEP})."
+  fi
+elif [[ "${RESUME}" == "1" ]]; then
+  LATEST_STEP_DIR=$(ls -d "${ARM_SAVE_DIR}"/step_* 2>/dev/null \
+      | sed 's/.*step_//' | sort -n | tail -1 || true)
+  if [[ -n "${LATEST_STEP_DIR}" ]]; then
+    echo "NOTE: found ${ARM_SAVE_DIR}/step_${LATEST_STEP_DIR} but NOT latest/."
+    echo "      That is a mid-epoch checkpoint. Resuming from it would replay"
+    echo "      the corpus from the start, changing the data diversity this"
+    echo "      probe is measuring -- so this arm restarts from scratch."
+  else
+    echo "No prior checkpoint for this arm; starting fresh."
+  fi
+fi
+echo
+
 echo "Arm command:"
-echo "  python scripts/training.py ${ARM_ARGS}"
+echo "  python scripts/training.py ${ARM_ARGS} ${RESUME_ARGS}"
 echo
 echo "----------------------------------------------------------------------------"
 
 START_TS=$(date +%s)
 set +e
-python -u scripts/training.py ${ARM_ARGS}
+python -u scripts/training.py ${ARM_ARGS} ${RESUME_ARGS}
 EXIT_CODE=$?
 set -e
 END_TS=$(date +%s)

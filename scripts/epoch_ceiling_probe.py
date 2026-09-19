@@ -232,9 +232,11 @@ def emit_commands(arms: List[Arm], data_dir: str, out_root: str, lr: float,
     for a in arms:
         save_dir = f"{out_root}/{a.name}"
         n_heads = max(1, a.d_model // 64)
-        # DeltaE at the midpoint and the end only: the arms are short and a
-        # per-save DeltaE eval would dominate their wall time.
-        de_every = max(save_every, a.total_steps // 2)
+        # One DeltaE eval per arm, at the end. The final save always forces
+        # one, and --no-de-on-epoch-end suppresses the per-epoch ones -- so
+        # the e=8 arm pays the same eval cost as the e=1 arm instead of 8x,
+        # which both saves wall time and keeps the arms' costs symmetric.
+        de_every = a.total_steps
 
         if use_slurm:
             env = {
@@ -252,6 +254,7 @@ def emit_commands(arms: List[Arm], data_dir: str, out_root: str, lr: float,
                 "LIMIT_VAL_EXAMPLES": str(val_examples),
                 "LIMIT_DE_EXAMPLES": str(de_examples),
                 "DE_EVERY": str(de_every),
+                "DE_ON_EPOCH_END": "0",
                 "SAVE_EVERY": str(save_every),
                 "NUM_WORKERS": str(num_workers),
             }
@@ -274,6 +277,7 @@ def emit_commands(arms: List[Arm], data_dir: str, out_root: str, lr: float,
                 "--limit-val-examples", str(val_examples),
                 "--limit-de-examples", str(de_examples),
                 "--de-every", str(de_every),
+                "--no-de-on-epoch-end",
                 "--save-every", str(save_every),
                 "--num-workers", str(num_workers),
             ])
@@ -296,6 +300,88 @@ def _final_row(history: Path) -> Optional[dict]:
                 if best is None or row["step"] >= best["step"]:
                     best = row
     return best
+
+
+def diagnose(out_root: Path, total_steps: int, batch_size: int) -> None:
+    """Recover the REAL throughput from partial (even timed-out) runs.
+
+    Every history.jsonl row carries `step` and `wall_time_utc`, so a run that
+    died against its time limit still says exactly how fast it was going.
+    That is the number needed to re-size the probe -- guessing a second time
+    would just burn another allocation.
+    """
+    from datetime import datetime
+    dirs = sorted(p for p in out_root.glob("probe_d*") if p.is_dir())
+    if not dirs:
+        raise SystemExit(f"no probe_* directories under {out_root}")
+
+    print("=" * 96)
+    print("THROUGHPUT DIAGNOSIS (from partial runs)")
+    print("=" * 96)
+    print(f"  {'arm':<34} {'reached':>8} {'of':>7} {'%':>6} {'ex/s':>8} "
+          f"{'dE evals':>9} {'dE s':>8}")
+    rates = []
+    for d in dirs:
+        hist = d / "history.jsonl"
+        if not hist.exists():
+            print(f"  {d.name:<34} {'no history.jsonl':>40}")
+            continue
+        rows = []
+        for line in hist.read_text().splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+        if len(rows) < 2:
+            reached = rows[0]["step"] if rows else 0
+            print(f"  {d.name:<34} {reached:>8} {total_steps:>7} "
+                  f"{'--':>6} {'(need >=2 rows)':>18}")
+            continue
+        t0 = datetime.strptime(rows[0]["wall_time_utc"], "%Y-%m-%dT%H:%M:%SZ")
+        t1 = datetime.strptime(rows[-1]["wall_time_utc"], "%Y-%m-%dT%H:%M:%SZ")
+        span = (t1 - t0).total_seconds()
+        dsteps = rows[-1]["step"] - rows[0]["step"]
+        # Subtract the DeltaE evals, which are measured separately, to get a
+        # clean training rate.
+        de_s = sum(r.get("val_de_seconds") or 0.0 for r in rows[1:])
+        n_de = sum(1 for r in rows if r.get("val_de_seconds"))
+        train_s = max(span - de_s, 1e-9)
+        rate = dsteps * batch_size / train_s if dsteps > 0 else 0.0
+        if rate > 0:
+            rates.append(rate)
+        reached = rows[-1]["step"]
+        print(f"  {d.name:<34} {reached:>8} {total_steps:>7} "
+              f"{100.0 * reached / total_steps:>5.1f}% {rate:>8.1f} "
+              f"{n_de:>9} {de_s:>8.0f}")
+
+    if not rates:
+        print("\nNo arm produced two timestamped rows; cannot estimate a rate.")
+        return
+    import statistics
+    slow, med = min(rates), statistics.median(rates)
+    passes = total_steps * batch_size
+    print(f"\n  measured training throughput: slowest {slow:.1f} ex/s, "
+          f"median {med:.1f} ex/s")
+    print(f"  (the estimate this probe was sized with was 460 ex/s -- "
+          f"{460 / slow:.1f}x optimistic vs the slowest arm)")
+    print(f"\n  to finish {passes:,} passes at the SLOWEST observed rate:")
+    train_min = passes / slow / 60
+    de_min = 3 * 90 / 60
+    need = train_min + de_min + 3
+    print(f"    training {train_min:>7.1f} min + DeltaE ~{de_min:.0f} min "
+          f"+ overhead 3 min = {need:.0f} min")
+    print(f"    x1.5 safety budget: {1.5 * need:.0f} min "
+          f"({1.5 * need / 60:.2f} h)")
+    if 1.5 * need > 180:
+        print(f"\n  WARNING: that exceeds the 3h cap that --qos=short enforces.")
+        fits = int(180 / 1.5 * 60 * slow / batch_size)
+        fits -= fits % 8
+        print(f"  Options: (a) drop --qos=short for a longer QoS, or")
+        print(f"           (b) reduce TOTAL_STEPS to ~{fits} so one arm fits "
+              f"in 3h with the same 1.5x margin.")
+    print("=" * 96)
 
 
 def analyze(out_root: Path) -> None:
@@ -471,6 +557,9 @@ def main() -> None:
                         "instead of sbatch.")
     p.add_argument("--analyze", action="store_true",
                    help="Read the finished arms and report the ceiling.")
+    p.add_argument("--diagnose", action="store_true",
+                   help="Recover the real throughput from partial or "
+                        "timed-out runs, and re-size the probe from it.")
     # -- SLURM job-array support. The grid lives here, in one place; the
     # SLURM wrapper just asks for arm $SLURM_ARRAY_TASK_ID and runs it.
     p.add_argument("--n-arms", action="store_true",
@@ -479,6 +568,10 @@ def main() -> None:
                    help="Print the training.py CLI flags for this arm index "
                         "and exit. Used by slurms/epoch_ceiling_probe.sh.")
     args = p.parse_args()
+
+    if args.diagnose:
+        diagnose(Path(args.out_root), args.total_steps, args.batch_size)
+        return
 
     if args.analyze:
         analyze(Path(args.out_root))
