@@ -94,6 +94,15 @@ DATA_DIR="${DATA_DIR:-}"                   # Path to a parquet-shards directory;
                                            # <repo>/data/train
 SPLIT="${SPLIT:-train}"                    # Dataset split (train/validation)
 LIMIT_EXAMPLES="${LIMIT_EXAMPLES:-}"       # Limit to N examples (for testing)
+LIMIT_SHARD_ALIGNED="${LIMIT_SHARD_ALIGNED:-0}"   # 1 = draw LIMIT_EXAMPLES from
+                                           # whole shards rather than the first
+                                           # N of the global shuffle. Streaming
+                                           # reads a full ~140MB table per shard
+                                           # touched, so a scattered limit
+                                           # re-reads the whole corpus EVERY
+                                           # epoch. Set 1 whenever
+                                           # LIMIT_EXAMPLES is much smaller
+                                           # than the corpus.
 LIMIT_VAL_EXAMPLES="${LIMIT_VAL_EXAMPLES:-5000}"  # Examples per val-loss (CE) eval.
                                            # 5000 = the full 0.05% val split.
                                            # 0 disables CE val entirely.
@@ -281,6 +290,9 @@ else
   ARGS+=(--no-bf16)
 fi
 
+if [[ "${LIMIT_SHARD_ALIGNED}" == "1" ]]; then
+  ARGS+=(--limit-shard-aligned)
+fi
 ARGS+=(--limit-val-examples "${LIMIT_VAL_EXAMPLES}")
 ARGS+=(--limit-de-examples "${LIMIT_DE_EXAMPLES}")
 ARGS+=(--de-every "${DE_EVERY}")

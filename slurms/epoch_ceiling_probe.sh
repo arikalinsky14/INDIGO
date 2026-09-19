@@ -11,16 +11,31 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 
-# REVISED after the first submission: every arm hit the 90 min limit, so the
-# 460 ex/s sized from the production run (d_model=1024, bs=512) does not
-# transfer to these smaller models at bs=256 -- almost certainly because the
-# per-example Python collate, not the matmuls, sets the pace, so a smaller
-# model is NOT proportionally faster. 03:00:00 is the most --qos=short will
-# actually grant. Run
-#     python scripts/epoch_ceiling_probe.py --diagnose
-# against the partial runs to get the measured rate; if an arm still does not
-# fit in 3h, lower TOTAL_STEPS rather than raising --time, which that QoS
-# ignores above 3h.
+# REVISED TWICE. The first submission (90 min) timed out on every arm. Its
+# logs showed why, and it was not raw speed:
+#
+#   Step 100/2400: dt=20901.4ms/step (12 ex/s)    <- epoch start
+#   Step 200/2400: dt=47.7ms/step  (5362 ex/s)    <- steady state
+#   Step 400/2400: dt=20778.7ms/step (12 ex/s)    <- next epoch, stalls again
+#
+# Steady state is ~5350 ex/s, over 10x FASTER than the 460 these were sized
+# with. The whole cost was a stall at every epoch boundary: --limit-examples
+# took the first N of a global shuffle, scattering a small corpus across all
+# 2000 shards, and streaming reads a full ~140MB parquet table per shard it
+# touches. Each epoch therefore re-read the entire corpus (~280GB) to yield
+# 76,800 examples, and the 8-epoch arm paid that eight times.
+#
+# Fixed by --limit-shard-aligned (drawing the limit from whole shards: 16-125x
+# less I/O), caching the val split in memory instead of re-streaming it at
+# every save, and persistent_workers. Arms should now run in roughly 10-20
+# min. 03:00:00 is kept anyway -- it is the most --qos=short grants, costs
+# nothing but scheduling priority, and leaves ~10x headroom in case the
+# remaining startup cost is worse than modelled.
+#
+# Before committing all 12 arms, run the worst case alone to confirm the
+# epoch-start stall is gone:
+#     DATA_DIR=... sbatch --array=11 slurms/epoch_ceiling_probe.sh
+# and check that the step-400 log line reads ~47ms/step, not ~20000ms/step.
 #SBATCH --time=03:00:00
 #SBATCH --qos=short
 #SBATCH --array=0-11

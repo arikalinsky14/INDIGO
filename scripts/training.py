@@ -447,6 +447,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--limit-examples", type=int, default=None,
                         help="Limit to first N examples (for testing/debugging)")
+    parser.add_argument("--limit-shard-aligned",
+                        action=argparse.BooleanOptionalAction, default=False,
+                        help="Draw --limit-examples from whole shards instead "
+                             "of the first N of the global shuffle. Streaming "
+                             "reads a full ~140MB parquet table per shard it "
+                             "touches, so a scattered limit re-reads the ENTIRE "
+                             "corpus every epoch to yield a fraction of it "
+                             "(76,800 of 10M rows still touches all 2000 "
+                             "shards). Shard-aligned cuts that by 16-125x. "
+                             "Shards are independently seeded, so this stays a "
+                             "random sample.")
     parser.add_argument("--limit-val-examples", type=int, default=5000,
                         help="Cap on val examples per checkpoint eval "
                              "(default: 5000, the full 0.05%% val split). "
@@ -597,6 +608,7 @@ def main() -> None:
         split=args.split,
         verbose=args.verbose,
         limit_examples=args.limit_examples,
+        limit_shard_aligned=args.limit_shard_aligned,
         streaming=args.streaming,
     )
 
@@ -612,6 +624,10 @@ def main() -> None:
     loader_kw = {}
     if args.num_workers > 0:
         loader_kw["prefetch_factor"] = args.prefetch_factor
+    if args.num_workers > 0:
+        # Without this, every epoch boundary tears down and respawns all
+        # workers, re-paying dataset setup on each one.
+        loader_kw["persistent_workers"] = True
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -641,15 +657,22 @@ def main() -> None:
         val_loader_kw = {}
         if val_workers > 0:
             val_loader_kw["prefetch_factor"] = args.prefetch_factor
-        val_loader = DataLoader(
+        # Collate ONCE into memory and reuse. The val loader is iterated at
+        # every checkpoint save, and the validation split is the tail 0.05%
+        # of a global shuffle -- i.e. a couple of rows in every shard -- so
+        # streaming it re-reads the whole corpus on each save. A few thousand
+        # collated examples is tens of MB; re-reading hundreds of GB per save
+        # is not affordable.
+        val_loader = list(DataLoader(
             val_dataset,
             batch_size=args.batch_size,
             collate_fn=active_collate,
             num_workers=val_workers,
             pin_memory=True,
             **val_loader_kw,
-        )
-        print(f"[INFO] Val split: {len(val_dataset):,} examples "
+        ))
+        print(f"[INFO] Val split: {len(val_dataset):,} examples in "
+              f"{len(val_loader)} cached batch(es) "
               f"(evaluated on every checkpoint save)")
     else:
         print("[INFO] Val eval disabled (--limit-val-examples 0)")

@@ -251,6 +251,10 @@ def emit_commands(arms: List[Arm], data_dir: str, out_root: str, lr: float,
                 "BATCH_SIZE": str(a.batch_size),
                 "EPOCHS": str(a.epochs),
                 "LIMIT_EXAMPLES": str(a.corpus),
+                # Every arm limits to a small slice of the corpus, which is
+                # exactly the case where a scattered limit re-reads
+                # everything each epoch.
+                "LIMIT_SHARD_ALIGNED": "1",
                 "LIMIT_VAL_EXAMPLES": str(val_examples),
                 "LIMIT_DE_EXAMPLES": str(de_examples),
                 "DE_EVERY": str(de_every),
@@ -274,6 +278,7 @@ def emit_commands(arms: List[Arm], data_dir: str, out_root: str, lr: float,
                 "--batch-size", str(a.batch_size),
                 "--epochs", str(a.epochs),
                 "--limit-examples", str(a.corpus),
+                "--limit-shard-aligned",
                 "--limit-val-examples", str(val_examples),
                 "--limit-de-examples", str(de_examples),
                 "--de-every", str(de_every),
