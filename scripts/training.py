@@ -637,51 +637,50 @@ def main() -> None:
         **loader_kw,
     )
 
-    # ---- Validation dataset (small held-out slice from the same DATA_DIR).
-    # 5k examples at the default 99.95/0.05 split (see src/dataset.py). Used
-    # for the per-save-tick val-loss line in history.jsonl and for early
-    # divergence detection during long runs. Set --limit-val-examples 0 to
-    # skip. Val workers are capped at 2: this loader is iterated only every
-    # `save-every` steps, so a large worker pool sits idle 99% of the time.
-    val_loader = None
-    if args.limit_val_examples and args.limit_val_examples > 0:
+    # ---- Validation slice, read ONCE and shared by both consumers.
+    #
+    # CE val and DeltaE val both draw from the same held-out split. Reading it
+    # twice meant two scans of a slice that, being the tail 0.05% of a global
+    # shuffle, has rows in nearly every shard -- so each read touched the
+    # whole corpus. One read, sized for whichever consumer wants more, then
+    # sliced. A useful side effect: CE and DeltaE are now scored on the same
+    # underlying examples, so the two metrics are directly comparable.
+    #
+    # Both are held in memory because the val loader is iterated at EVERY
+    # checkpoint save; re-streaming it each time is not affordable.
+    want_val = max(args.limit_val_examples or 0, 0)
+    want_de = max(args.limit_de_examples or 0, 0) if OPTICAL_SIM_AVAILABLE else 0
+    n_val_needed = max(want_val, want_de)
+
+    val_examples = []
+    if n_val_needed > 0:
         val_dataset = FlexThinFilmDataset(
             data_dir,
             seed=args.seed,
             split="validation",
             verbose=False,
-            limit_examples=args.limit_val_examples,
+            limit_examples=n_val_needed,
+            limit_shard_aligned=args.limit_shard_aligned,
             streaming=args.streaming,
         )
-        val_workers = min(2, args.num_workers)
-        val_loader_kw = {}
-        if val_workers > 0:
-            val_loader_kw["prefetch_factor"] = args.prefetch_factor
-        # Collate ONCE into memory and reuse. The val loader is iterated at
-        # every checkpoint save, and the validation split is the tail 0.05%
-        # of a global shuffle -- i.e. a couple of rows in every shard -- so
-        # streaming it re-reads the whole corpus on each save. A few thousand
-        # collated examples is tens of MB; re-reading hundreds of GB per save
-        # is not affordable.
-        val_loader = list(DataLoader(
-            val_dataset,
-            batch_size=args.batch_size,
-            collate_fn=active_collate,
-            num_workers=val_workers,
-            pin_memory=True,
-            **val_loader_kw,
-        ))
-        print(f"[INFO] Val split: {len(val_dataset):,} examples in "
+        val_examples = list(val_dataset)
+        print(f"[INFO] Val slice: {len(val_examples):,} examples read once "
+              f"(CE wants {want_val:,}, DeltaE wants {want_de:,})", flush=True)
+
+    val_loader = None
+    if want_val > 0 and val_examples:
+        subset = val_examples[:want_val]
+        val_loader = [active_collate(subset[i:i + args.batch_size])
+                      for i in range(0, len(subset), args.batch_size)]
+        print(f"[INFO] Val split: {len(subset):,} examples in "
               f"{len(val_loader)} cached batch(es) "
               f"(evaluated on every checkpoint save)")
+    elif want_val > 0:
+        print("[INFO] Val eval requested but the split yielded no examples.")
     else:
         print("[INFO] Val eval disabled (--limit-val-examples 0)")
 
-    # ---- DeltaE validation slice. Held as a materialised list of
-    # TrainingExamples rather than a DataLoader: the DeltaE path decodes
-    # autoregressively one example at a time and needs each example's raw
-    # material pool, not a collated batch. Reading it once up front keeps
-    # every later eval off the parquet shards.
+    # ---- DeltaE slice: the same examples the CE val used, no second read.
     de_examples = None
     de_simulator = None
     if args.limit_de_examples and args.limit_de_examples > 0:
@@ -689,16 +688,11 @@ def main() -> None:
             print("[INFO] DeltaE eval requested but the optical simulator is "
                   "unavailable (jaxlayerlumos missing); skipping. val_de will "
                   "be absent from history.jsonl.", flush=True)
+        elif not val_examples:
+            print("[INFO] DeltaE eval requested but the validation split "
+                  "yielded no examples; skipping.", flush=True)
         else:
-            de_dataset = FlexThinFilmDataset(
-                data_dir,
-                seed=args.seed,
-                split="validation",
-                verbose=False,
-                limit_examples=args.limit_de_examples,
-                streaming=args.streaming,
-            )
-            de_examples = list(de_dataset)
+            de_examples = val_examples[:args.limit_de_examples]
             # Reused across evals so jaxlayerlumos' trace cache stays warm
             # (it re-traces per stack depth; see src/delta_e_eval.py).
             from src.optical_sim import OpticalSimulator

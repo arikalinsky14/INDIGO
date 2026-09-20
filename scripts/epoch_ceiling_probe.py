@@ -102,10 +102,13 @@ from src.scaling.flops import (
 # Model sizes to probe. Spans the range the sweep actually uses, so the
 # capacity-dependence of repeat tolerance is visible. n_heads follows
 # d_head = 64 (n_heads = d_model / 64), which is FLOP- and param-neutral.
-DEFAULT_SIZES: List[Tuple[int, int]] = [
-    (128, 2),    # ~0.77M params -- the sweep's small end
-    (256, 2),    # ~2.9M
-    (512, 4),    # ~17.5M -- near the Chinchilla-optimal N of the top rungs
+DEFAULT_SIZES: List[Tuple[int, int, Optional[float]]] = [
+    # (d_model, slot_encoder_layers, lr). lr=None falls back to --lr; set it
+    # per size from scripts/lr_tuning.py, because a single global LR tuned on
+    # the 69.6M production model leaves these far smaller models untrained.
+    (128, 2, None),    # ~0.77M params -- the sweep's small end
+    (256, 2, None),    # ~2.9M
+    (512, 4, None),    # ~17.5M -- near the Chinchilla-optimal N of the top rungs
 ]
 DEFAULT_DEPTHS: List[int] = [1, 2, 4, 8]
 
@@ -114,6 +117,7 @@ DEFAULT_DEPTHS: List[int] = [1, 2, 4, 8]
 class Arm:
     d_model: int
     slot_encoder_layers: int
+    lr: float
     epochs: int
     corpus: int
     total_steps: int
@@ -139,7 +143,7 @@ def build_config(d_model: int, sel: int, batch_size: int, lr: float) -> ModelCon
     )
 
 
-def build_arms(sizes: List[Tuple[int, int]], depths: List[int],
+def build_arms(sizes: List[Tuple[int, int, Optional[float]]], depths: List[int],
                total_steps: int, batch_size: int, lr: float) -> List[Arm]:
     lcm = 1
     for e in depths:
@@ -153,13 +157,18 @@ def build_arms(sizes: List[Tuple[int, int]], depths: List[int],
         )
 
     arms: List[Arm] = []
-    for d_model, sel in sizes:
-        cfg = build_config(d_model, sel, batch_size, lr)
+    for spec in sizes:
+        d_model, sel = spec[0], spec[1]
+        # LR is per SIZE, not global: 6e-5 was tuned for the 69.6M production
+        # model and is far too low for a 0.8M one. It stays FIXED across the
+        # depths of a given size, which is what isolates the repeat effect.
+        arm_lr = spec[2] if len(spec) > 2 and spec[2] else lr
+        cfg = build_config(d_model, sel, batch_size, arm_lr)
         N = n_params(cfg)
         for e in depths:
             corpus = batch_size * total_steps // e
             arms.append(Arm(
-                d_model=d_model, slot_encoder_layers=sel, epochs=e,
+                d_model=d_model, slot_encoder_layers=sel, lr=arm_lr, epochs=e,
                 corpus=corpus, total_steps=total_steps, batch_size=batch_size,
                 n_params=N,
                 flops=train_flops(cfg, total_steps * batch_size),
@@ -169,13 +178,13 @@ def build_arms(sizes: List[Tuple[int, int]], depths: List[int],
 
 
 def print_grid(arms: List[Arm]) -> None:
-    print(f"{'arm':<34} {'N':>11} {'corpus':>10} {'epochs':>7} "
+    print(f"{'arm':<34} {'N':>11} {'lr':>9} {'corpus':>10} {'epochs':>7} "
           f"{'steps':>7} {'passes':>10} {'C (FLOPs)':>12}")
-    print("-" * 96)
+    print("-" * 106)
     for a in arms:
-        print(f"{a.name:<34} {a.n_params:>11,} {a.corpus:>10,} {a.epochs:>7} "
-              f"{a.total_steps:>7} {a.passes:>10,} {a.flops:>12.4e}")
-    print("-" * 96)
+        print(f"{a.name:<34} {a.n_params:>11,} {a.lr:>9.2e} {a.corpus:>10,} "
+              f"{a.epochs:>7} {a.total_steps:>7} {a.passes:>10,} {a.flops:>12.4e}")
+    print("-" * 106)
 
     # The whole design rests on C being identical within a model size; assert it.
     print("\nfixed-C check (must be identical within each model size):")
@@ -247,7 +256,7 @@ def emit_commands(arms: List[Arm], data_dir: str, out_root: str, lr: float,
                 "N_HEADS": str(n_heads),
                 "SLOT_ENCODER_LAYERS": str(a.slot_encoder_layers),
                 "DECODER_LAYERS": "1",
-                "LR": str(lr),
+                "LR": str(a.lr),
                 "BATCH_SIZE": str(a.batch_size),
                 "EPOCHS": str(a.epochs),
                 "LIMIT_EXAMPLES": str(a.corpus),
@@ -274,7 +283,7 @@ def emit_commands(arms: List[Arm], data_dir: str, out_root: str, lr: float,
                 "--n-heads", str(n_heads),
                 "--slot-encoder-layers", str(a.slot_encoder_layers),
                 "--decoder-layers", "1",
-                "--lr", str(lr),
+                "--lr", str(a.lr),
                 "--batch-size", str(a.batch_size),
                 "--epochs", str(a.epochs),
                 "--limit-examples", str(a.corpus),
@@ -545,8 +554,12 @@ def main() -> None:
     p.add_argument("--depths", type=int, nargs="+", default=DEFAULT_DEPTHS,
                    help="Repeat depths (epochs) to probe.")
     p.add_argument("--sizes", type=str, nargs="+", default=None,
-                   help="Model sizes as d_model:slot_encoder_layers, "
-                        "e.g. 128:2 256:2 512:4")
+                   help="Model sizes as d_model:slot_encoder_layers[:lr], "
+                        "e.g. 128:2:1e-3 256:2:5e-4 512:4:2e-4. The optional "
+                        "third field sets a PER-SIZE learning rate (from "
+                        "scripts/lr_tuning.py); it falls back to --lr. LR is "
+                        "held fixed across the depths of a size, which is "
+                        "what isolates the repeat effect.")
     p.add_argument("--limit-de-examples", type=int, default=512,
                    help="Examples per DeltaE eval. Larger than the training "
                         "default because these are the probe's only outputs.")
@@ -586,8 +599,12 @@ def main() -> None:
     if args.sizes:
         sizes = []
         for spec in args.sizes:
-            d, sel = spec.split(":")
-            sizes.append((int(d), int(sel)))
+            parts = spec.split(":")
+            if len(parts) not in (2, 3):
+                raise SystemExit(f"--sizes entry {spec!r} must be "
+                                 f"d_model:slot_encoder_layers[:lr]")
+            sizes.append((int(parts[0]), int(parts[1]),
+                          float(parts[2]) if len(parts) == 3 else None))
 
     arms = build_arms(sizes, args.depths, args.total_steps, args.batch_size, args.lr)
 

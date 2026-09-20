@@ -40,6 +40,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
+from functools import lru_cache
+
 import numpy as np
 import pyarrow.parquet as pq
 import torch
@@ -119,7 +121,23 @@ def find_repo_root(start: Optional[Path] = None) -> Path:
     raise FileNotFoundError("Could not find repository root")
 
 
+# scan_files opens every shard to read its row count, which is a few thousand
+# metadata reads on a network filesystem. A single training run builds three
+# datasets (train, val, DeltaE), so without this the same scan runs three
+# times and dominates startup. Keyed by resolved path; a run never changes its
+# shards underneath itself. Call scan_files.cache_clear() if that ever stops
+# being true.
+@lru_cache(maxsize=16)
+def _scan_files_cached(resolved: str) -> Tuple[FileMeta, ...]:
+    return tuple(_scan_files_uncached(Path(resolved)))
+
+
 def scan_files(data_prompts_dir: Path) -> List[FileMeta]:
+    """Cached wrapper. See `_scan_files_uncached` for the real work."""
+    return list(_scan_files_cached(str(Path(data_prompts_dir).resolve())))
+
+
+def _scan_files_uncached(data_prompts_dir: Path) -> List[FileMeta]:
     """Enumerate `layers_N_angle_A_substrate_S/seed_X.parquet` files.
 
     Identical convention to the original CHROMA-Lite scan_files. The
