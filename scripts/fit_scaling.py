@@ -84,6 +84,7 @@ _repo_root = Path(__file__).resolve().parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
+from src.materials_vocab import VOCAB_SIZE
 from src.model import ModelConfig
 from src.scaling.flops import (
     n_params,
@@ -93,6 +94,17 @@ from src.scaling.flops import (
 
 CHROMA_BUCKETS = ("low", "mid", "high")
 POOLED = "pooled"
+
+# A run ending above this cross-entropy has diverged, not learned -- it is
+# worse than predicting uniformly at random over the vocabulary.
+#
+# This has to be screened on CE, because DeltaE cannot see it. A diverged
+# model still emits structures the simulator can colour, and the resulting
+# DeltaE lands squarely in the range an untrained model produces: in the LR
+# sweeps, a 0.77M and a 17.5M model that had both blown up (val_loss 1426 and
+# inf) reported the SAME val_de of 28.6454. Such a point dropped into an
+# IsoFLOP parabola would drag its minimum with a number that means nothing.
+DIVERGENCE_VAL_LOSS = 2.0 * math.log(VOCAB_SIZE)
 
 
 # ============================================================================
@@ -174,6 +186,13 @@ def load_runs(root: Path, selection: str, corpus: Optional[int]) -> Tuple[List[R
         passes = steps * config.batch_size
         if passes <= 0:
             skipped.append(f"{d.name}: step=0, nothing trained")
+            continue
+
+        vl = row.get("val_loss")
+        if vl is not None and (not math.isfinite(vl) or vl > DIVERGENCE_VAL_LOSS):
+            skipped.append(
+                f"{d.name}: DIVERGED (val_loss={vl:.4g} > "
+                f"{DIVERGENCE_VAL_LOSS:.1f}); its val_de is meaningless")
             continue
 
         by_chroma = row.get("val_de_by_chroma") or {}

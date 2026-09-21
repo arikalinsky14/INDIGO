@@ -55,11 +55,27 @@ from scripts.training import (
 )
 from src.dataset import FlexThinFilmDataset, find_repo_root
 from src.model import ModelConfig, build_model, compute_loss, compute_loss_packed
+from src.materials_vocab import VOCAB_SIZE
 from src.delta_e_eval import (
     evaluate_delta_e,
     primary_metric as delta_e_primary_metric,
     OPTICAL_SIM_AVAILABLE,
 )
+
+
+# A run whose cross-entropy ends above this has diverged, not learned: it is
+# worse than predicting uniformly at random over the vocabulary. Derived from
+# the vocab rather than hand-tuned, so it travels with the task.
+#
+# This guard exists because DeltaE CANNOT detect divergence on its own. A
+# diverged model still emits some structure, the simulator still colours it,
+# and the resulting DeltaE lands in the same range an untrained model
+# produces. Observed directly in the d_model=128 and d_model=512 LR sweeps:
+# at lr=3e-3 both diverged (val_loss 1426 and inf) yet BOTH reported
+# val_de=28.6454 and p95=56.850 -- identical to four decimals from models 23x
+# apart in size. Selecting on DeltaE alone picked a diverged model for
+# d_model=512.
+DIVERGENCE_VAL_LOSS = 2.0 * math.log(VOCAB_SIZE)
 
 
 @dataclass
@@ -84,8 +100,23 @@ class LRSearchResult:
     final_val_de_by_chroma: Optional[dict] = None
     de_result: Optional[dict] = None
 
+    @property
+    def diverged(self) -> bool:
+        """True when training blew up, whatever DeltaE happens to say."""
+        vl = self.best_val_loss
+        return (vl is None or not math.isfinite(vl)
+                or vl > DIVERGENCE_VAL_LOSS)
+
     def selection_metric(self, metric: str) -> float:
-        """Scalar to minimise. Falls back to CE only when DeltaE is absent."""
+        """Scalar to minimise. Diverged runs are never selectable.
+
+        The divergence check comes FIRST and applies to both metrics: a
+        blown-up run can post a perfectly ordinary-looking DeltaE (see
+        DIVERGENCE_VAL_LOSS), so screening on the objective alone would let
+        it win.
+        """
+        if self.diverged:
+            return float("inf")
         if metric == "delta_e":
             if self.final_val_de is None:
                 return float("inf")
@@ -302,8 +333,23 @@ def lr_tuning(
     # invalid at every LR), fall back to val_loss rather than returning an
     # arbitrary LR -- and say so, loudly, because a silent fallback to the
     # wrong metric is exactly the failure this plumbing exists to prevent.
+    n_div = sum(1 for r in results if r.diverged)
+    if n_div:
+        print(f"[WARN] {n_div} of {len(results)} LR(s) DIVERGED (val_loss above "
+              f"{DIVERGENCE_VAL_LOSS:.1f}, i.e. worse than uniform-random over "
+              f"the vocabulary) and are excluded from selection. A diverged run "
+              f"can still post an ordinary-looking DeltaE, so this screen is on "
+              f"cross-entropy, not on the objective.", flush=True)
+    if all(r.diverged for r in results):
+        print("[ERROR] EVERY LR diverged. The grid is entirely too high -- "
+              "lower --lr-max and re-run. Returning the smallest LR so the "
+              "caller has something, but it is NOT a tuned value.", flush=True)
+        fallback = min(results, key=lambda r: r.lr)
+        return fallback.lr, results
+
     effective_metric = selection_metric
-    if selection_metric == "delta_e" and all(r.final_val_de is None for r in results):
+    if selection_metric == "delta_e" and all(
+            r.final_val_de is None for r in results if not r.diverged):
         print("[WARN] DeltaE selection requested but no LR produced a scorable "
               "DeltaE (optical sim unavailable, or every generation invalid). "
               "FALLING BACK to val_loss selection. The chosen LR optimises "
@@ -526,8 +572,9 @@ def main() -> None:
         marker = " *" if r.lr == optimal_lr else ""
         de_s = "n/a" if r.final_val_de is None else f"{r.final_val_de:.4f}"
         p95_s = "n/a" if r.final_val_de_p95 is None else f"{r.final_val_de_p95:.3f}"
+        flag = "  DIVERGED (excluded)" if r.diverged else ""
         print(f"{r.lr:>12.2e} | {de_s:>13} | {p95_s:>8} | "
-              f"{r.best_val_loss:>14.4f} | {r.final_train_loss:>12.4f}{marker}")
+              f"{r.best_val_loss:>14.4f} | {r.final_train_loss:>12.4f}{marker}{flag}")
     print("-" * 74)
     print(f"\n* OPTIMAL LR for {args.epochs} epochs: {optimal_lr:.2e}")
     best_result = next(r for r in results if r.lr == optimal_lr)
