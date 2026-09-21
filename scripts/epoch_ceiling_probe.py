@@ -119,6 +119,7 @@ class Arm:
     slot_encoder_layers: int
     lr: float
     epochs: int
+    seed: int
     corpus: int
     total_steps: int
     batch_size: int
@@ -144,7 +145,8 @@ def build_config(d_model: int, sel: int, batch_size: int, lr: float) -> ModelCon
 
 
 def build_arms(sizes: List[Tuple[int, int, Optional[float]]], depths: List[int],
-               total_steps: int, batch_size: int, lr: float) -> List[Arm]:
+               total_steps: int, batch_size: int, lr: float,
+               seeds: Optional[List[int]] = None) -> List[Arm]:
     lcm = 1
     for e in depths:
         lcm = lcm * e // math.gcd(lcm, e)
@@ -167,24 +169,27 @@ def build_arms(sizes: List[Tuple[int, int, Optional[float]]], depths: List[int],
         N = n_params(cfg)
         for e in depths:
             corpus = batch_size * total_steps // e
-            arms.append(Arm(
-                d_model=d_model, slot_encoder_layers=sel, lr=arm_lr, epochs=e,
-                corpus=corpus, total_steps=total_steps, batch_size=batch_size,
-                n_params=N,
-                flops=train_flops(cfg, total_steps * batch_size),
-                name=f"probe_d{d_model}_se{sel}_ep{e}_corpus{corpus}",
-            ))
+            for seed in (seeds or [42]):
+                arms.append(Arm(
+                    d_model=d_model, slot_encoder_layers=sel, lr=arm_lr,
+                    epochs=e, seed=seed,
+                    corpus=corpus, total_steps=total_steps,
+                    batch_size=batch_size, n_params=N,
+                    flops=train_flops(cfg, total_steps * batch_size),
+                    name=(f"probe_d{d_model}_se{sel}_ep{e}"
+                          f"_corpus{corpus}_s{seed}"),
+                ))
     return arms
 
 
 def print_grid(arms: List[Arm]) -> None:
-    print(f"{'arm':<34} {'N':>11} {'lr':>9} {'corpus':>10} {'epochs':>7} "
-          f"{'steps':>7} {'passes':>10} {'C (FLOPs)':>12}")
-    print("-" * 106)
+    print(f"{'arm':<42} {'N':>11} {'lr':>9} {'corpus':>10} {'ep':>4} "
+          f"{'seed':>5} {'passes':>10} {'C (FLOPs)':>12}")
+    print("-" * 110)
     for a in arms:
-        print(f"{a.name:<34} {a.n_params:>11,} {a.lr:>9.2e} {a.corpus:>10,} "
-              f"{a.epochs:>7} {a.total_steps:>7} {a.passes:>10,} {a.flops:>12.4e}")
-    print("-" * 106)
+        print(f"{a.name:<42} {a.n_params:>11,} {a.lr:>9.2e} {a.corpus:>10,} "
+              f"{a.epochs:>4} {a.seed:>5} {a.passes:>10,} {a.flops:>12.4e}")
+    print("-" * 110)
 
     # The whole design rests on C being identical within a model size; assert it.
     print("\nfixed-C check (must be identical within each model size):")
@@ -270,6 +275,7 @@ def emit_commands(arms: List[Arm], data_dir: str, out_root: str, lr: float,
                 "DE_ON_EPOCH_END": "0",
                 "SAVE_EVERY": str(save_every),
                 "NUM_WORKERS": str(num_workers),
+                "SEED": str(a.seed),
             }
             cmds.append([f"{k}={v}" for k, v in env.items()]
                         + ["sbatch", "slurms/training.sh"])
@@ -294,6 +300,7 @@ def emit_commands(arms: List[Arm], data_dir: str, out_root: str, lr: float,
                 "--no-de-on-epoch-end",
                 "--save-every", str(save_every),
                 "--num-workers", str(num_workers),
+                "--seed", str(a.seed),
             ])
     return cmds
 
@@ -421,6 +428,8 @@ def analyze(out_root: Path) -> None:
             "sel": int(parts[2][2:]),
             "epochs": int(parts[3][2:]),
             "corpus": int(parts[4][6:]),
+            "seed": int(parts[5][1:]) if len(parts) > 5 and parts[5].startswith("s")
+                    else 42,
             "step": row["step"],
             "val_de": row["val_de_median"],
             "p75": row.get("val_de_p75"),
@@ -437,6 +446,30 @@ def analyze(out_root: Path) -> None:
     for r in rows:
         by_model.setdefault((r["d_model"], r["sel"]), []).append(r)
 
+    # Noise floor from seed repeats. Before seeding was fixed, two runs at
+    # identical config differed by 52% of the mean, so a ceiling declared
+    # without a variance estimate is not a measurement. Where a (size, depth)
+    # cell has multiple seeds, its spread IS the noise floor, and the ceiling
+    # tolerance is taken from it instead of an arbitrary percentage.
+    import statistics
+    spreads = []
+    for (dm, sel), group in by_model.items():
+        cells: Dict[int, List[float]] = {}
+        for r in group:
+            cells.setdefault(r["epochs"], []).append(r["val_de"])
+        for e, vals in cells.items():
+            if len(vals) > 1:
+                spreads.append(max(vals) - min(vals))
+    noise_floor = max(spreads) if spreads else None
+    if noise_floor is not None:
+        print(f"[noise] {len(spreads)} cell(s) have seed repeats; worst "
+              f"within-cell spread = {noise_floor:.3f} dE. Differences "
+              f"smaller than this are not resolvable.\n")
+    else:
+        print("[noise] NO SEED REPEATS in this run, so there is no variance "
+              "estimate and any ceiling below is provisional. Re-run with "
+              "--seeds 42 43 to get one.\n")
+
     print("=" * 100)
     print("EPOCH-CEILING PROBE")
     print("=" * 100)
@@ -445,11 +478,27 @@ def analyze(out_root: Path) -> None:
 
     ceilings = {}
     for (d_model, sel), group in sorted(by_model.items()):
-        group.sort(key=lambda r: r["epochs"])
+        # One entry per depth: mean over seeds, with the spread carried along.
+        cells: Dict[int, List[dict]] = {}
+        for r in group:
+            cells.setdefault(r["epochs"], []).append(r)
+        group = []
+        for e, reps in sorted(cells.items()):
+            merged = dict(reps[0])
+            merged["n_seeds"] = len(reps)
+            merged["val_de"] = statistics.fmean(r["val_de"] for r in reps)
+            merged["seed_spread"] = (max(r["val_de"] for r in reps)
+                                     - min(r["val_de"] for r in reps)
+                                     if len(reps) > 1 else None)
+            for k in ("p75", "p95"):
+                vals = [r[k] for r in reps if r.get(k) is not None]
+                merged[k] = statistics.fmean(vals) if vals else None
+            group.append(merged)
         base = next((r for r in group if r["epochs"] == 1), None)
         print(f"--- d_model={d_model} slot_encoder_layers={sel} ---")
         print(f"  {'epochs':>7} {'corpus':>10} {'val_de':>9} {'d_val_de':>9} "
-              f"{'p75':>8} {'d_p75':>8} {'p95':>8} {'CE gap':>8} {'d_gap':>8}")
+              f"{'p75':>8} {'d_p75':>8} {'p95':>8} {'CE gap':>8} {'d_gap':>8} "
+              f"{'seeds':>8}")
         base_gap = (base["val_loss"] - base["train_loss"]) if base and \
             base.get("val_loss") is not None and base.get("train_loss") is not None else None
         for r in group:
@@ -459,10 +508,13 @@ def analyze(out_root: Path) -> None:
             d_p75 = (f"{r['p75'] - base['p75']:+.3f}"
                      if base and r.get("p75") is not None and base.get("p75") is not None else "-")
             d_gap = f"{gap - base_gap:+.4f}" if gap is not None and base_gap is not None else "-"
+            sp = r.get("seed_spread")
+            sp_s = f"+-{sp / 2:.2f}" if sp is not None else f"n={r.get('n_seeds', 1)}"
             print(f"  {r['epochs']:>7} {r['corpus']:>10,} {r['val_de']:>9.3f} {d_de:>9} "
                   f"{(r['p75'] if r['p75'] is not None else float('nan')):>8.3f} {d_p75:>8} "
                   f"{(r['p95'] if r['p95'] is not None else float('nan')):>8.3f} "
-                  f"{(gap if gap is not None else float('nan')):>8.4f} {d_gap:>8}")
+                  f"{(gap if gap is not None else float('nan')):>8.4f} {d_gap:>8} "
+                  f"{sp_s:>8}")
 
         # Ceiling: largest e whose val_de AND p75 are still within tolerance
         # of e=1. Requires BOTH an e=1 baseline and at least one deeper arm --
@@ -477,7 +529,10 @@ def analyze(out_root: Path) -> None:
                   "val_de, so no repeat depth was actually tested. This is "
                   "not evidence that the ceiling is 1 epoch.\n")
         else:
-            tol = 0.02 * abs(base["val_de"]) if base["val_de"] else 0.0
+            # Tolerance = measured seed spread where available, else a 2%
+            # placeholder that is explicitly NOT a variance estimate.
+            tol = (noise_floor if noise_floor is not None
+                   else 0.02 * abs(base["val_de"]) if base["val_de"] else 0.0)
             ceiling = 1
             for r in others:
                 de_ok = (r["val_de"] - base["val_de"]) <= tol
@@ -487,8 +542,10 @@ def analyze(out_root: Path) -> None:
                     ceiling = max(ceiling, r["epochs"])
             ceilings[(d_model, sel)] = ceiling
             tested = sorted(r["epochs"] for r in others)
-            print(f"  -> ceiling (val_de and p75 within 2% of e=1): "
-                  f"{ceiling} epoch(s)   [depths tested: {tested}]\n")
+            basis = (f"measured seed spread {noise_floor:.3f}"
+                     if noise_floor is not None else "2% placeholder (NO seed data)")
+            print(f"  -> ceiling: {ceiling} epoch(s)   "
+                  f"[depths tested: {tested}; tolerance = {basis}]\n")
 
     # Per-chroma view: the tail is where repeats were expected to bite first.
     print("--- per-chroma val_de median by repeat depth ---")
@@ -566,6 +623,13 @@ def main() -> None:
     p.add_argument("--limit-val-examples", type=int, default=2000)
     p.add_argument("--save-every", type=int, default=600)
     p.add_argument("--num-workers", type=int, default=4)
+    p.add_argument("--seeds", type=int, nargs="+", default=[42],
+                   help="Seeds to repeat every (size, depth) cell at. More "
+                        "than one is what makes a measured ceiling "
+                        "believable: without a variance estimate there is no "
+                        "way to tell a real degradation from init noise, and "
+                        "that noise was measured at 52%% of the mean before "
+                        "seeding was fixed. Two seeds doubles the arm count.")
     p.add_argument("--dry-run", action="store_true",
                    help="Print the grid and the fixed-C check, then stop.")
     p.add_argument("--dispatch", action="store_true",
@@ -606,7 +670,8 @@ def main() -> None:
             sizes.append((int(parts[0]), int(parts[1]),
                           float(parts[2]) if len(parts) == 3 else None))
 
-    arms = build_arms(sizes, args.depths, args.total_steps, args.batch_size, args.lr)
+    arms = build_arms(sizes, args.depths, args.total_steps, args.batch_size,
+                      args.lr, args.seeds)
 
     if args.n_arms:
         print(len(arms))
