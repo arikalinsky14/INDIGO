@@ -27,6 +27,8 @@ Checkpoints: data/checkpoints/<config.tag()>/step_<N>/  and  .../latest/
 import argparse
 import contextlib
 import json
+import numpy as np
+import random
 import math
 import sys
 import time
@@ -248,6 +250,35 @@ def evaluate_validation(
     return total_loss / denom, total_correct / denom
 
 
+def set_seed(seed: int, deterministic: bool = False) -> None:
+    """Seed every RNG that affects a run.
+
+    Until this existed, `--seed` was passed ONLY to FlexThinFilmDataset, so
+    the data permutation was reproducible but the MODEL was not: weight init,
+    dropout masks and any sampling all drew from an unseeded global RNG. Two
+    runs at byte-identical configuration therefore trained different models.
+
+    Measured consequence, from two d_model=512 LR sweeps whose commands were
+    identical down to --seed 42: the lr=1e-4 trial returned val_de 41.30 in
+    one and 24.33 in the other -- a 52% spread. That is far LARGER than the
+    between-arm differences the epoch-ceiling probe and the IsoFLOP fits are
+    trying to resolve (2-8 dE units), so unseeded runs make those
+    measurements noise.
+
+    `deterministic=True` additionally pins cuDNN/cuBLAS algorithm choice.
+    That costs throughput and is not needed for run-to-run comparability at
+    the level this study cares about, so it is opt-in.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    if deterministic:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+
 def append_history(history_path: Path, entry: Dict[str, Any]) -> None:
     """Append one JSON line to <save_dir>/history.jsonl. Never raises — a
     history-write failure must not kill training."""
@@ -444,7 +475,15 @@ def parse_args() -> argparse.Namespace:
                              "(default: <repo>/data/train, matching the "
                              "OUTPUT_DIR default of slurms/generate_data.sh)")
     parser.add_argument("--split", type=str, default="train")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Seeds model init, dropout, sampling AND the "
+                             "data permutation. Two runs sharing a seed and "
+                             "config train the same model.")
+    parser.add_argument("--deterministic", action=argparse.BooleanOptionalAction,
+                        default=False,
+                        help="Also pin cuDNN/cuBLAS algorithm choice. Costs "
+                             "throughput; not needed for run-to-run "
+                             "comparability, so off by default.")
     parser.add_argument("--limit-examples", type=int, default=None,
                         help="Limit to first N examples (for testing/debugging)")
     parser.add_argument("--limit-shard-aligned",
@@ -598,6 +637,13 @@ def main() -> None:
         repo_root = find_repo_root()
     except FileNotFoundError:
         repo_root = Path(__file__).resolve().parent.parent
+
+    # Seed BEFORE anything builds a model or a dataset. Without this, only
+    # the data permutation was reproducible and every run trained a
+    # differently-initialised model.
+    set_seed(args.seed, deterministic=args.deterministic)
+    print(f"[INFO] Seed: {args.seed} (model init + data; "
+          f"deterministic kernels={args.deterministic})")
 
     data_dir = Path(args.data_dir) if args.data_dir else repo_root / "data" / "train"
     print(f"[INFO] Loading data from {data_dir}")

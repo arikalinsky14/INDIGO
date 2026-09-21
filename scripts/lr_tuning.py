@@ -52,6 +52,7 @@ from scripts.training import (
     collate_fn,
     collate_fn_packed,
     run_one_epoch,
+    set_seed,
 )
 from src.dataset import FlexThinFilmDataset, find_repo_root
 from src.model import ModelConfig, build_model, compute_loss, compute_loss_packed
@@ -166,7 +167,15 @@ def train_with_lr(
     de_examples: Optional[List] = None,
     de_limit: int = 0,
     de_simulator=None,
+    seed: int = 42,
 ) -> LRSearchResult:
+    # Re-seed before EVERY trial, not once for the sweep. Seeding once would
+    # give trial 1 one initialisation, trial 2 another, and so on -- so the
+    # LRs would be compared across different models and the comparison would
+    # be confounded by init. Re-seeding means every LR starts from the same
+    # weights and sees the same batch order, which is the only way the
+    # differences between them are attributable to the LR.
+    set_seed(seed)
     model = build_model(config).to(device)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
@@ -290,6 +299,7 @@ def lr_tuning(
     de_limit: int = 0,
     de_simulator=None,
     selection_metric: str = "delta_e",
+    seed: int = 42,
 ) -> Tuple[float, List[LRSearchResult]]:
     lrs = np.logspace(np.log10(lr_min), np.log10(lr_max), n_lrs)
     print(f"\n{'=' * 70}")
@@ -319,7 +329,7 @@ def lr_tuning(
             log_every=log_every, verbose=verbose,
             packed_tf=packed_tf, bf16=bf16,
             de_examples=de_examples, de_limit=de_limit,
-            de_simulator=de_simulator,
+            de_simulator=de_simulator, seed=seed,
         )
         results.append(result)
         de_str = ("" if result.final_val_de is None
@@ -560,6 +570,7 @@ def main() -> None:
         de_examples=de_examples, de_limit=de_limit,
         de_simulator=de_simulator,
         selection_metric=args.selection_metric,
+        seed=args.seed,
     )
 
     print("\n" + "=" * 70)
