@@ -38,6 +38,11 @@
 # and check that the step-400 log line reads ~47ms/step, not ~20000ms/step.
 #SBATCH --time=03:00:00
 #SBATCH --qos=short
+# 12 cells (3 sizes x 4 depths) x 1 seed. Seed repeats multiply this, so
+# override on the command line: --array=0-23 for two seeds. Confirm the count
+# with MODE=dry-run sbatch slurms/epoch_ceiling_analyze.sh -- a mismatch
+# silently drops arms, and losing the e=1 baseline makes the ceiling
+# uncomputable.
 #SBATCH --array=0-11
 #SBATCH --mail-user=ajk245@pitt.edu
 #SBATCH --mail-type=END,FAIL,TIME_LIMIT
@@ -128,6 +133,15 @@ BATCH_SIZE="${BATCH_SIZE:-256}"
 LR="${LR:-6e-5}"
 DEPTHS="${DEPTHS:-1 2 4 8}"
 SIZES="${SIZES:-128:2 256:2 512:4}"
+SEEDS="${SEEDS:-42}"                       # Seeds to repeat every (size, depth)
+                                           # cell at, e.g. "42 43". More than
+                                           # one is what makes a measured
+                                           # ceiling believable: without a
+                                           # variance estimate there is no way
+                                           # to separate a real degradation
+                                           # from initialisation noise.
+                                           # Multiplies the arm count, so
+                                           # update --array to match.
 LIMIT_DE_EXAMPLES="${LIMIT_DE_EXAMPLES:-512}"
 LIMIT_VAL_EXAMPLES="${LIMIT_VAL_EXAMPLES:-2000}"
 
@@ -151,6 +165,7 @@ echo "OUT_ROOT:    ${OUT_ROOT}"
 echo "TOTAL_STEPS: ${TOTAL_STEPS}  BATCH_SIZE: ${BATCH_SIZE}  LR: ${LR}"
 echo "SIZES:       ${SIZES}"
 echo "DEPTHS:      ${DEPTHS}"
+echo "SEEDS:       ${SEEDS}"
 echo
 
 python --version
@@ -175,7 +190,7 @@ echo
 # e=1 baseline cannot produce a ceiling at all.
 N_ARMS=$(python scripts/epoch_ceiling_probe.py --n-arms \
     --total-steps "${TOTAL_STEPS}" --batch-size "${BATCH_SIZE}" \
-    --depths ${DEPTHS} --sizes ${SIZES})
+    --depths ${DEPTHS} --sizes ${SIZES} --seeds ${SEEDS})
 echo "Grid has ${N_ARMS} arms; this is arm ${ARM_ID}."
 if (( ARM_ID >= N_ARMS )); then
   echo "ERROR: arm ${ARM_ID} does not exist (grid has ${N_ARMS}: valid 0-$((N_ARMS-1)))." >&2
@@ -195,7 +210,8 @@ ARM_ARGS=$(python scripts/epoch_ceiling_probe.py \
     --depths ${DEPTHS} \
     --sizes ${SIZES} \
     --limit-de-examples "${LIMIT_DE_EXAMPLES}" \
-    --limit-val-examples "${LIMIT_VAL_EXAMPLES}")
+    --limit-val-examples "${LIMIT_VAL_EXAMPLES}" \
+    --seeds ${SEEDS})
 
 # -------------------- Auto-resume --------------------
 # RESUME=0 forces a clean restart. Otherwise, pick up from the arm's own
@@ -265,6 +281,6 @@ echo "Exit code: ${EXIT_CODE}"
 if [[ ${EXIT_CODE} -eq 0 ]]; then
   echo
   echo "When every arm is done, read the ceiling with:"
-  echo "  python scripts/epoch_ceiling_probe.py --analyze --out-root ${OUT_ROOT}"
+  echo "  MODE=analyze OUT_ROOT=${OUT_ROOT} sbatch slurms/epoch_ceiling_analyze.sh"
 fi
 exit ${EXIT_CODE}

@@ -208,25 +208,49 @@ def print_grid(arms: List[Arm]) -> None:
               f"steps={steps}  passes={passes}  [{status}]")
     total = sum(a.flops for a in arms)
     print(f"\ntotal probe compute: {total:.4e} FLOPs")
-    # The production run measured 460-717 examples/s on one L40s (4-6%
-    # utilisation), so 460 is the conservative floor. These arms use much
-    # smaller models, which will be faster if the pipeline is FLOP-bound and
-    # the same speed if it is dataloader-bound -- so 460 stays a safe floor.
-    passes_per_arm = arms[0].passes
-    for rate, label in ((460, "conservative"), (717, "optimistic")):
-        per_arm = passes_per_arm / rate
-        print(f"  at {rate:>3} ex/s ({label:<12}): "
-              f"{per_arm / 60:>5.1f} min/arm, "
-              f"{len(arms) * per_arm / 3600:>5.2f} GPU-hours total")
-    train_s = passes_per_arm / 460
-    print(f"\nper-arm wall budget (conservative 460 ex/s):")
-    print(f"  training                {train_s / 60:>6.1f} min")
-    print(f"  DeltaE evals (~4)       {4 * 90 / 60:>6.1f} min   (512 ex at ~150ms each + JAX warmup)")
-    print(f"  CE val + ckpt + startup {3.0:>6.1f} min")
-    need = train_s / 60 + 6.0 + 3.0
-    print(f"  ---------------------------------")
-    print(f"  estimated need          {need:>6.1f} min")
-    print(f"  x1.5 safety budget      {1.5 * need:>6.1f} min  <-- set --time at or above this")
+    # Wall-time model built from what the probe runs ACTUALLY measured, not
+    # from the production run. The 460 ex/s originally used here came from
+    # prod (d_model=1024, bs=512) and was ~11x pessimistic: with
+    # --limit-shard-aligned the probe arms held 47-49 ms/step at bs=256,
+    # i.e. ~5200 ex/s.
+    #
+    # Three terms, because they scale differently:
+    #   training     steps x 49ms            -- the cheap part
+    #   shard reads  (passes / rows_per_shard) x 1.75s
+    #                Each epoch re-reads the shards its corpus lives on.
+    #                n_shards(e) x e = passes/rows_per_shard, so this is the
+    #                SAME for every depth -- which is what keeps the arms'
+    #                costs symmetric. 1.75s/shard is measured: arm 11's
+    #                epoch starts ran ~28s over steady state for 16 shards.
+    #   startup      one cached scan_files + one validation-split read
+    MS_PER_STEP = 49.0
+    SEC_PER_SHARD_READ = 1.75
+    ROWS_PER_SHARD = 5000
+    STARTUP_MIN = 8.0
+    DE_EVAL_MIN = 1.0
+
+    train_min = arms[0].total_steps * MS_PER_STEP / 1000 / 60
+    shard_reads = arms[0].passes / ROWS_PER_SHARD
+    shard_min = shard_reads * SEC_PER_SHARD_READ / 60
+    need = train_min + shard_min + STARTUP_MIN + DE_EVAL_MIN
+
+    print(f"\nper-arm wall budget (from measured rates, not extrapolated):")
+    print(f"  training ({arms[0].total_steps} steps at {MS_PER_STEP:.0f}ms) "
+          f"{train_min:>8.1f} min")
+    print(f"  shard reads ({shard_reads:.0f} at {SEC_PER_SHARD_READ}s)      "
+          f"{shard_min:>8.1f} min   (equal across depths by construction)")
+    print(f"  startup (scan + val read)        {STARTUP_MIN:>8.1f} min")
+    print(f"  DeltaE eval (1 per arm)          {DE_EVAL_MIN:>8.1f} min")
+    print(f"  ------------------------------------------")
+    print(f"  estimated need                   {need:>8.1f} min")
+    print(f"  x1.5 safety budget               {1.5 * need:>8.1f} min")
+    print(f"\n  {len(arms)} arms -> {len(arms) * need / 60:.1f} GPU-hours "
+          f"(wall time is per-arm; arms run in parallel as the scheduler allows)")
+    if 1.5 * need > 180:
+        print(f"\n  WARNING: exceeds the 3h --qos=short enforces. Lower "
+              f"TOTAL_STEPS (keep it divisible by the LCM of the depths).")
+    print(f"\ntotal probe compute: {sum(a.flops for a in arms):.4e} FLOPs")
+
     if not ok:
         raise SystemExit("fixed-C check FAILED -- refusing to emit commands.")
 
