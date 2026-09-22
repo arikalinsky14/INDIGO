@@ -490,7 +490,8 @@ def analyze(out_root: Path, expected_corpus: Optional[Dict[int, int]] = None
               "here, their results will be averaged together and the output "
               "will be meaningless. Pass --total-steps/--batch-size/--depths.")
     rows = []
-    skipped: List[str] = []
+    skipped: List[str] = []      # ran, but produced nothing usable
+    excluded: List[str] = []     # belongs to a different grid -- not a failure
     for d in dirs:
         hist = d / "history.jsonl"
         if not hist.exists():
@@ -511,12 +512,12 @@ def analyze(out_root: Path, expected_corpus: Optional[Dict[int, int]] = None
         if expected_corpus is not None:
             want = expected_corpus.get(d_epochs)
             if want is None:
-                skipped.append(f"{d.name}: depth {d_epochs} not in this grid")
+                excluded.append(f"{d.name}: depth {d_epochs} not in this grid")
                 continue
             if d_corpus != want:
-                skipped.append(
-                    f"{d.name}: corpus {d_corpus:,} != {want:,} expected for "
-                    f"e={d_epochs} -- FROM A DIFFERENT RUN, excluded")
+                excluded.append(
+                    f"{d.name}: corpus {d_corpus:,} != {want:,} "
+                    f"(expected for e={d_epochs})")
                 continue
         rows.append({
             "d_model": int(parts[1][1:]),
@@ -557,12 +558,13 @@ def analyze(out_root: Path, expected_corpus: Optional[Dict[int, int]] = None
     # much the raw values do.
     import statistics
 
-    def paired_deltas(group: List[dict], baseline_epochs: int
-                      ) -> Dict[int, List[float]]:
+    def paired_deltas(group: List[dict], baseline_epochs: int,
+                      key: str = "val_de") -> Dict[int, List[float]]:
         """Per depth, one delta-vs-baseline per seed."""
         by_seed: Dict[int, Dict[int, float]] = {}
         for r in group:
-            by_seed.setdefault(r["seed"], {})[r["epochs"]] = r["val_de"]
+            if r.get(key) is not None:
+                by_seed.setdefault(r["seed"], {})[r["epochs"]] = r[key]
         out: Dict[int, List[float]] = {}
         for seed, depths in by_seed.items():
             if baseline_epochs not in depths:
@@ -573,15 +575,27 @@ def analyze(out_root: Path, expected_corpus: Optional[Dict[int, int]] = None
                     out.setdefault(e, []).append(v - base)
         return out
 
-    disagreements = []
-    for (dm, sel), group in by_model.items():
-        avail = sorted({r["epochs"] for r in group})
-        if not avail:
-            continue
-        for e, deltas in paired_deltas(group, min(avail)).items():
-            if len(deltas) > 1:
-                disagreements.append(max(deltas) - min(deltas))
-    noise_floor = max(disagreements) if disagreements else None
+    def floor_for(key: str) -> Tuple[Optional[float], int]:
+        """(worst paired cross-seed disagreement, number of comparisons)."""
+        out = []
+        for (dm, sel), grp in by_model.items():
+            avail = sorted({r["epochs"] for r in grp})
+            if not avail:
+                continue
+            for e, deltas in paired_deltas(grp, min(avail), key).items():
+                if len(deltas) > 1:
+                    out.append(max(deltas) - min(deltas))
+        return (max(out) if out else None), len(out)
+
+    noise_floor, n_comparisons = floor_for("val_de")
+    # p75 needs its OWN measured floor. It previously kept a hardcoded 2%
+    # gate while val_de moved onto the measured one, and that mismatch
+    # decided the ceiling on its own: with the real data every val_de effect
+    # sat inside the 5.125 dE floor, yet p75 deltas of 1.2-2.5 were compared
+    # against a 0.43-0.51 gate and failed, producing ceilings of 4/2/1 and a
+    # binding ceiling of 1 epoch. That is the most restrictive answer
+    # possible, from a threshold that was never a variance estimate.
+    noise_floor_p75, _ = floor_for("p75")
 
     raw_spreads = []
     for (dm, sel), group in by_model.items():
@@ -593,11 +607,13 @@ def analyze(out_root: Path, expected_corpus: Optional[Dict[int, int]] = None
     if noise_floor is not None:
         print(f"[noise] paired: worst cross-seed disagreement in a "
               f"depth-vs-baseline delta = {noise_floor:.3f} dE "
-              f"({len(disagreements)} comparisons).")
+              f"({n_comparisons} comparisons).")
         if raw_spreads:
             print(f"        unpaired, for contrast: worst raw within-cell "
-                  f"spread = {max(raw_spreads):.3f} dE. Pairing is what makes "
-                  f"the depth effect visible at all.")
+                  f"spread = {max(raw_spreads):.3f} dE.")
+        if noise_floor_p75 is not None:
+            print(f"        p75 floor (same paired method): "
+                  f"{noise_floor_p75:.3f} dE.")
         print("        Depth differences smaller than the paired figure are "
               "not resolvable.\n")
     else:
@@ -671,16 +687,30 @@ def analyze(out_root: Path, expected_corpus: Optional[Dict[int, int]] = None
             ceiling = 1
             for r in others:
                 de_ok = (r["val_de"] - base["val_de"]) <= tol
+                tol_p75 = (noise_floor_p75 if noise_floor_p75 is not None
+                           else 0.02 * abs(base.get("p75") or 0.0))
                 p75_ok = (base.get("p75") is None or r.get("p75") is None or
-                          (r["p75"] - base["p75"]) <= 0.02 * abs(base["p75"]))
+                          (r["p75"] - base["p75"]) <= tol_p75)
                 if de_ok and p75_ok:
                     ceiling = max(ceiling, r["epochs"])
             ceilings[(d_model, sel)] = ceiling
             tested = sorted(r["epochs"] for r in others)
-            basis = (f"measured seed spread {noise_floor:.3f}"
-                     if noise_floor is not None else "2% placeholder (NO seed data)")
-            print(f"  -> ceiling: {ceiling} epoch(s)   "
-                  f"[depths tested: {tested}; tolerance = {basis}]\n")
+            basis = (f"measured floors val_de {noise_floor:.3f} / "
+                     f"p75 {noise_floor_p75:.3f}"
+                     if noise_floor is not None and noise_floor_p75 is not None
+                     else "2% placeholder (NO seed data)")
+            biggest = max((r["val_de"] - base["val_de"]) for r in others)
+            if noise_floor is not None and biggest <= noise_floor:
+                print(f"  -> NO DEGRADATION DETECTED up to {max(tested)} "
+                      f"epoch(s). The largest val_de change ({biggest:+.3f}) "
+                      f"is inside the {noise_floor:.3f} noise floor, so this "
+                      f"is a NON-DETECTION, not a verified safe depth: any "
+                      f"effect smaller than the floor would be invisible "
+                      f"here.\n     [depths tested: {tested}; "
+                      f"tolerance = {basis}]\n")
+            else:
+                print(f"  -> ceiling: {ceiling} epoch(s)   "
+                      f"[depths tested: {tested}; tolerance = {basis}]\n")
 
     # Per-chroma view: the tail is where repeats were expected to bite first.
     print("--- per-chroma val_de median by repeat depth ---")
@@ -695,15 +725,22 @@ def analyze(out_root: Path, expected_corpus: Optional[Dict[int, int]] = None
             print(f"  {d_model:>8} {r['epochs']:>7} {vals[0]:>9} {vals[1]:>9} {vals[2]:>9}")
 
     print(f"\n{'=' * 100}")
+    if excluded:
+        print(f"{len(excluded)} of {len(dirs)} directories belong to a "
+              f"DIFFERENT grid and were excluded (this is correct, not a "
+              f"failure -- they are earlier probe runs sharing this OUT_ROOT):")
+        for name in excluded:
+            print(f"   - {name}")
+        print()
     if skipped:
-        print(f"{len(skipped)} of {len(dirs)} arms produced no usable val_de:")
+        print(f"{len(skipped)} of {len(dirs)} arms RAN but produced no usable "
+              f"val_de:")
         for name in skipped:
             print(f"   - {name}")
-        print("\nArms with no scored val_de usually mean the probe is mis-sized:"
-              "\ntoo few steps, so the model still emits EOS immediately and"
-              "\ngenerates nothing to simulate. Raise --total-steps (or --lr)"
-              "\nuntil every arm generates valid structures before trusting any"
-              "\nceiling from this run.\n")
+        print("\nThat usually means the probe is mis-sized: too few steps, so"
+              "\nthe model still emits EOS immediately and generates nothing to"
+              "\nsimulate. Raise --total-steps (or --lr) until every arm"
+              "\ngenerates valid structures before trusting any ceiling.\n")
     if not ceilings:
         print("NO CEILING COULD BE MEASURED.")
         print("No model size had both an e=1 baseline and at least one deeper")
