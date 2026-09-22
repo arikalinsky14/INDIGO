@@ -293,6 +293,10 @@ def emit_commands(arms: List[Arm], data_dir: str, out_root: str, lr: float,
                 # exactly the case where a scattered limit re-reads
                 # everything each epoch.
                 "LIMIT_SHARD_ALIGNED": "1",
+                # Explicit rather than inherited: the non-streaming path
+                # materialises a whole epoch in memory and OOMs the
+                # large-corpus arms.
+                "STREAMING": "1",
                 "LIMIT_VAL_EXAMPLES": str(val_examples),
                 "LIMIT_DE_EXAMPLES": str(de_examples),
                 "DE_EVERY": str(de_every),
@@ -318,6 +322,15 @@ def emit_commands(arms: List[Arm], data_dir: str, out_root: str, lr: float,
                 "--epochs", str(a.epochs),
                 "--limit-examples", str(a.corpus),
                 "--limit-shard-aligned",
+                # REQUIRED. training.py defaults --streaming to False, and
+                # the non-streaming path materialises the whole epoch in
+                # memory (~40KB/example). At the e=1 corpus of 2.46M that is
+                # ~98GB against a 64G allocation, which OOM-killed all six
+                # e=1 arms in run 3 -- and e=1 is the baseline every ceiling
+                # is measured against. The SLURM env path inherits
+                # STREAMING=1 from slurms/training.sh, but these are direct
+                # training.py CLI args and inherit nothing.
+                "--streaming",
                 "--limit-val-examples", str(val_examples),
                 "--limit-de-examples", str(de_examples),
                 "--de-every", str(de_every),
@@ -326,6 +339,21 @@ def emit_commands(arms: List[Arm], data_dir: str, out_root: str, lr: float,
                 "--num-workers", str(num_workers),
                 "--seed", str(a.seed),
             ])
+    # Guard the two failure modes that cost a full submission each: a missing
+    # --streaming OOMs the large-corpus arms, and a missing
+    # --limit-shard-aligned re-reads the whole corpus every epoch.
+    for cmd in cmds:
+        joined = " ".join(cmd)
+        if use_slurm:
+            need = ("STREAMING=1", "LIMIT_SHARD_ALIGNED=1")
+        else:
+            need = ("--streaming", "--limit-shard-aligned")
+        for token in need:
+            if token not in joined:
+                raise SystemExit(
+                    f"internal error: emitted arm command is missing {token!r}. "
+                    f"Refusing to submit -- this silently OOMs or thrashes I/O.\n"
+                    f"  {joined}")
     return cmds
 
 
@@ -470,25 +498,65 @@ def analyze(out_root: Path) -> None:
     for r in rows:
         by_model.setdefault((r["d_model"], r["sel"]), []).append(r)
 
-    # Noise floor from seed repeats. Before seeding was fixed, two runs at
-    # identical config differed by 52% of the mean, so a ceiling declared
-    # without a variance estimate is not a measurement. Where a (size, depth)
-    # cell has multiple seeds, its spread IS the noise floor, and the ceiling
-    # tolerance is taken from it instead of an arbitrary percentage.
+    # Noise floor, computed PAIRED.
+    #
+    # The seed sets model init, and init turns out to be a large SYSTEMATIC
+    # offset rather than symmetric noise: in run 3, seed 43 was worse than
+    # seed 42 in 9 of 9 cells, by up to 5.04 dE. Comparing raw per-cell means
+    # therefore buries the depth effect under an offset that affects every
+    # depth of a seed equally.
+    #
+    # Pairing removes it. Within one seed, depth deltas are far more
+    # reproducible than the raw values: d128's ep8-ep2 delta came out -0.393
+    # and -0.458 on the two seeds, against a 2.2 dE raw offset between them.
+    # So the ceiling is decided on the mean PAIRED delta, and the resolution
+    # limit is how much the paired deltas DISAGREE across seeds -- not how
+    # much the raw values do.
     import statistics
-    spreads = []
+
+    def paired_deltas(group: List[dict], baseline_epochs: int
+                      ) -> Dict[int, List[float]]:
+        """Per depth, one delta-vs-baseline per seed."""
+        by_seed: Dict[int, Dict[int, float]] = {}
+        for r in group:
+            by_seed.setdefault(r["seed"], {})[r["epochs"]] = r["val_de"]
+        out: Dict[int, List[float]] = {}
+        for seed, depths in by_seed.items():
+            if baseline_epochs not in depths:
+                continue
+            base = depths[baseline_epochs]
+            for e, v in depths.items():
+                if e != baseline_epochs:
+                    out.setdefault(e, []).append(v - base)
+        return out
+
+    disagreements = []
+    for (dm, sel), group in by_model.items():
+        avail = sorted({r["epochs"] for r in group})
+        if not avail:
+            continue
+        for e, deltas in paired_deltas(group, min(avail)).items():
+            if len(deltas) > 1:
+                disagreements.append(max(deltas) - min(deltas))
+    noise_floor = max(disagreements) if disagreements else None
+
+    raw_spreads = []
     for (dm, sel), group in by_model.items():
         cells: Dict[int, List[float]] = {}
         for r in group:
             cells.setdefault(r["epochs"], []).append(r["val_de"])
-        for e, vals in cells.items():
-            if len(vals) > 1:
-                spreads.append(max(vals) - min(vals))
-    noise_floor = max(spreads) if spreads else None
+        raw_spreads += [max(v) - min(v) for v in cells.values() if len(v) > 1]
+
     if noise_floor is not None:
-        print(f"[noise] {len(spreads)} cell(s) have seed repeats; worst "
-              f"within-cell spread = {noise_floor:.3f} dE. Differences "
-              f"smaller than this are not resolvable.\n")
+        print(f"[noise] paired: worst cross-seed disagreement in a "
+              f"depth-vs-baseline delta = {noise_floor:.3f} dE "
+              f"({len(disagreements)} comparisons).")
+        if raw_spreads:
+            print(f"        unpaired, for contrast: worst raw within-cell "
+                  f"spread = {max(raw_spreads):.3f} dE. Pairing is what makes "
+                  f"the depth effect visible at all.")
+        print("        Depth differences smaller than the paired figure are "
+              "not resolvable.\n")
     else:
         print("[noise] NO SEED REPEATS in this run, so there is no variance "
               "estimate and any ceiling below is provisional. Re-run with "
