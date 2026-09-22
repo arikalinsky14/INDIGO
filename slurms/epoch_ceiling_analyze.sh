@@ -94,7 +94,14 @@ case "${MODE}" in
     echo "TOTAL_STEPS / BATCH_SIZE / DEPTHS / SIZES / SEEDS as above."
     ;;
   analyze)
-    python -u scripts/epoch_ceiling_probe.py --analyze --out-root "${OUT_ROOT}"
+    # TOTAL_STEPS/BATCH_SIZE/DEPTHS must match the submission: they select
+    # WHICH runs under OUT_ROOT are analysed. Successive probe runs share the
+    # directory and their corpora overlap, so without this the analysis
+    # averages different experiments together.
+    python -u scripts/epoch_ceiling_probe.py --analyze \
+        --out-root "${OUT_ROOT}" \
+        --total-steps "${TOTAL_STEPS}" --batch-size "${BATCH_SIZE}" \
+        --depths ${DEPTHS}
     ;;
   diagnose)
     python -u scripts/epoch_ceiling_probe.py --diagnose \

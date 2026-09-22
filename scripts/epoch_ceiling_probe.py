@@ -457,11 +457,38 @@ def diagnose(out_root: Path, total_steps: int, batch_size: int) -> None:
     print("=" * 96)
 
 
-def analyze(out_root: Path) -> None:
+def analyze(out_root: Path, expected_corpus: Optional[Dict[int, int]] = None
+             ) -> None:
+    """Report the epoch ceiling.
+
+    `expected_corpus` maps depth -> corpus for the grid being analysed. Any
+    directory whose corpus does not match is EXCLUDED and named.
+
+    This filter is not optional bookkeeping. Successive probe runs write into
+    the same OUT_ROOT, and their corpora overlap -- a 2400-step run's e=1
+    corpus (614,400) is a 9600-step run's e=4 corpus. Without the filter,
+    `analyze` globbed every probe_* directory and averaged runs together. It
+    did exactly that once: it mixed a 2400-step run whose models never
+    trained (val_de 24-32) with a 9600-step run whose models did (val_de
+    8-15), reported the resulting 21.6 dE gap as the seed noise floor, and
+    declared a binding ceiling of 1 epoch off the back of it. Every number in
+    that report was an artifact.
+
+    Older directories predating seeds also carry no _sNN suffix, so they were
+    silently assigned seed 42 and averaged into the real seed-42 cell.
+    """
     dirs = sorted(p for p in out_root.glob("probe_d*") if p.is_dir())
     if not dirs:
         raise SystemExit(f"no probe_* directories under {out_root}")
 
+    if expected_corpus:
+        print("[grid] analysing only runs matching: " +
+              ", ".join(f"e{e}={c:,}" for e, c in sorted(expected_corpus.items())))
+    else:
+        print("[grid] WARNING: no grid given, so every probe_* directory under "
+              "this root is included. If more than one probe run has written "
+              "here, their results will be averaged together and the output "
+              "will be meaningless. Pass --total-steps/--batch-size/--depths.")
     rows = []
     skipped: List[str] = []
     for d in dirs:
@@ -475,6 +502,22 @@ def analyze(out_root: Path) -> None:
                            f"generation invalid)")
             continue
         parts = d.name.split("_")
+        try:
+            d_epochs = int(parts[3][2:])
+            d_corpus = int(parts[4][6:])
+        except (IndexError, ValueError):
+            skipped.append(f"{d.name}: unparseable name")
+            continue
+        if expected_corpus is not None:
+            want = expected_corpus.get(d_epochs)
+            if want is None:
+                skipped.append(f"{d.name}: depth {d_epochs} not in this grid")
+                continue
+            if d_corpus != want:
+                skipped.append(
+                    f"{d.name}: corpus {d_corpus:,} != {want:,} expected for "
+                    f"e={d_epochs} -- FROM A DIFFERENT RUN, excluded")
+                continue
         rows.append({
             "d_model": int(parts[1][1:]),
             "sel": int(parts[2][2:]),
@@ -748,7 +791,9 @@ def main() -> None:
         return
 
     if args.analyze:
-        analyze(Path(args.out_root))
+        expected = {e: args.batch_size * args.total_steps // e
+                    for e in args.depths}
+        analyze(Path(args.out_root), expected)
         return
 
     sizes = DEFAULT_SIZES
