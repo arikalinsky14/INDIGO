@@ -12,17 +12,34 @@
 #SBATCH --mem=64G
 
 # The grid is SIZED against this limit rather than merely hoping to fit it:
-# src/scaling/configs.py rejects any config whose estimated wall exceeds 85%
-# of the 3h that --qos=short enforces (--time above that is ignored). The
-# default ladder's longest config is ~2.2h. A config that cannot finish is
-# worse than one not attempted, because it silently removes a point from its
-# IsoFLOP parabola and biases the fitted minimum.
+# src/scaling/configs.py rejects any config whose estimated wall exceeds 80%
+# of the 3h that --qos=short enforces (--time above that is ignored), against
+# a throughput refit on sweep v1's own 20 elapsed times. The default ladder's
+# longest config is ~2.2h. A config that cannot finish is worse than one not
+# attempted, because it silently removes a point from its IsoFLOP parabola and
+# biases the fitted minimum.
+#
+# THIS 3h CAP IS NOW THE STUDY'S BINDING CONSTRAINT, and not because the top
+# rung takes too long. At fixed C a smaller model needs MORE passes, so the
+# wall clock sets a FLOOR on N, and that floor grows like C while the optimum
+# N* grows only like sqrt(C). Past ~4e15 every size that fits 3h already sits
+# above N*, the parabola goes one-sided, and the rung cannot locate its own
+# minimum. That caps the ladder at 1e14-4e15, i.e. 1.6 decades of lever arm
+# for alpha, well short of production's ~1e17.
+#
+# A longer QoS is worth far more here than any code change:
+#    3h -> top usable budget 4e15   (1.6 decades)
+#   12h -> top usable budget 2.5e16 (2.4 decades)
+#   24h -> top usable budget 1.2e17 (3.1 decades, reaches production scale)
+# To use one: set QOS/TIME below and pass MAX_WALL_HOURS to match, which is
+# what re-sizes the grid. Check what this account can get with
+#   sbatch --test-only --qos=long --time=12:00:00 slurms/scaling_sweep.sh
 #SBATCH --time=03:00:00
 #SBATCH --qos=short
-# 4 budgets x 5 sizes. Confirm with MODE=dry-run on slurms/scaling_fit.sh,
-# or scripts/scaling_sweep.py --n-configs, and update this to 0-(N-1) if you
-# change BUDGETS or BRACKET.
-#SBATCH --array=0-19
+# 4 budgets x 6 sizes + 1 repeat-seed arm per budget. Confirm with
+# MODE=dry-run on slurms/scaling_fit.sh, or scripts/scaling_sweep.py
+# --n-configs, and update this to 0-(N-1) if you change BUDGETS/SPAN/POINTS.
+#SBATCH --array=0-27
 #SBATCH --mail-user=ajk245@pitt.edu
 #SBATCH --mail-type=END,FAIL,TIME_LIMIT
 
@@ -41,13 +58,20 @@ set -euo pipefail
 # Env knobs (only DATA_DIR is required):
 #   DATA_DIR    REQUIRED. Pretrain parquet shards.
 #   OUT_ROOT    default: data/checkpoints/scaling_sweep
-#   BUDGETS     default: "1e14 3.7e14 1.4e15 5e15". The top rung is set by
-#               the 3h QoS, not by the epoch ceiling: the low-N corner of a
-#               rung needs the most data, and beyond ~5.7e15 it no longer
-#               fits. Raising it needs a longer QoS.
-#   BRACKET     default: "0.6 0.8 1.0 1.3 1.7" (multiples of the prior N*)
+#   BUDGETS     default: "1e14 4e14 1.4e15 4e15". See the QoS note above for
+#               why the top rung stops at 4e15.
+#   SPAN        default: 10  (ratio of largest to smallest N within a budget).
+#               v1 used 2.8x and every parabola came back monotone or
+#               concave; curvature needs roughly an order of magnitude.
+#   POINTS      default: 6   (sizes per budget)
+#   REPEAT_SEED default: 43. Re-runs each rung's middle size under a second
+#               init. Those four pairs are the only error bar on the fit;
+#               v1 had no repeats, so a 1.04-unit spread at its top rung
+#               could not be told apart from eval noise.
+#   MAX_WALL_HOURS  unset. Set it (with QOS/TIME above) to re-size the grid
+#               for a longer QoS.
 #   BATCH_SIZE  default: 256
-#   SEED        default: 42
+#   SEED        default: 42  (baseline arms; repeat arms override it)
 #
 # Usage:
 #   # 1. inspect the grid, feasibility and cost
@@ -72,10 +96,17 @@ mkdir -p job-outputs
 
 DATA_DIR="${DATA_DIR:-}"
 OUT_ROOT="${OUT_ROOT:-data/checkpoints/scaling_sweep}"
-BUDGETS="${BUDGETS:-1e14 3.7e14 1.4e15 5e15}"
-BRACKET="${BRACKET:-0.6 0.8 1.0 1.3 1.7}"
+BUDGETS="${BUDGETS:-1e14 4e14 1.4e15 4e15}"
+SPAN="${SPAN:-10}"
+POINTS="${POINTS:-6}"
+REPEAT_SEED="${REPEAT_SEED:-43}"
+MAX_WALL_HOURS="${MAX_WALL_HOURS:-}"
 BATCH_SIZE="${BATCH_SIZE:-256}"
 SEED="${SEED:-42}"
+
+GRID_ARGS="--budgets ${BUDGETS} --span ${SPAN} --points ${POINTS} --batch-size ${BATCH_SIZE}"
+[[ -n "${REPEAT_SEED}" ]] && GRID_ARGS="${GRID_ARGS} --repeat-seed ${REPEAT_SEED}"
+[[ -n "${MAX_WALL_HOURS}" ]] && GRID_ARGS="${GRID_ARGS} --max-wall-hours ${MAX_WALL_HOURS}"
 LIMIT_DE_EXAMPLES="${LIMIT_DE_EXAMPLES:-2048}"
 LIMIT_VAL_EXAMPLES="${LIMIT_VAL_EXAMPLES:-2000}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
@@ -95,7 +126,7 @@ echo "Started:   $(date)"
 echo "DATA_DIR:  ${DATA_DIR}"
 echo "OUT_ROOT:  ${OUT_ROOT}"
 echo "BUDGETS:   ${BUDGETS}"
-echo "BRACKET:   ${BRACKET}"
+echo "GRID_ARGS: ${GRID_ARGS}"
 echo "SEED:      ${SEED}"
 echo
 
@@ -115,8 +146,7 @@ if not OPTICAL_SIM_AVAILABLE:
 "
 echo
 
-N_CONFIGS=$(python scripts/scaling_sweep.py --n-configs \
-    --budgets ${BUDGETS} --bracket ${BRACKET} --batch-size "${BATCH_SIZE}")
+N_CONFIGS=$(python scripts/scaling_sweep.py --n-configs ${GRID_ARGS})
 echo "Grid has ${N_CONFIGS} configs; this is config ${CFG_ID}."
 if (( CFG_ID >= N_CONFIGS )); then
   echo "ERROR: config ${CFG_ID} does not exist (valid 0-$((N_CONFIGS-1)))." >&2
@@ -126,8 +156,7 @@ fi
 echo
 
 CFG_ARGS=$(python scripts/scaling_sweep.py --emit-config "${CFG_ID}" \
-    --data-dir "${DATA_DIR}" --out-root "${OUT_ROOT}" \
-    --budgets ${BUDGETS} --bracket ${BRACKET} --batch-size "${BATCH_SIZE}" \
+    --data-dir "${DATA_DIR}" --out-root "${OUT_ROOT}" ${GRID_ARGS} \
     --seed "${SEED}" --limit-de-examples "${LIMIT_DE_EXAMPLES}" \
     --limit-val-examples "${LIMIT_VAL_EXAMPLES}" --num-workers "${NUM_WORKERS}")
 

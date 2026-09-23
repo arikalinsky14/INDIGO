@@ -43,22 +43,33 @@ if str(_repo_root) not in sys.path:
 from src.scaling.configs import (
     CORPUS_EXAMPLES,
     DEFAULT_BATCH_SIZE,
-    DEFAULT_BRACKET,
+    DEFAULT_POINTS,
+    DEFAULT_SPAN,
     DE_EXAMPLES,
+    WALL_MARGIN,
     SweepConfig,
     build_grid,
     describe,
 )
 
-DEFAULT_BUDGETS = [1e14, 3.7e14, 1.4e15, 5e15]
+# Top rung is set by where a rung can still STRADDLE the prior N*. Under
+# --qos=short the wall-clock floor rises faster in C than N* does (floor ~ C,
+# N* ~ sqrt(C)), so past ~4e15 every feasible size sits above the optimum and
+# the parabola is one-sided. A longer QoS moves this a long way: 12h reaches
+# 2.5e16 and 24h reaches production scale. See slurms/scaling_sweep.sh.
+DEFAULT_BUDGETS = [1e14, 4e14, 1.4e15, 4e15]
 
 
 def emit_command(cfg: SweepConfig, data_dir: str, out_root: str,
                  seed: int, de_examples: int, val_examples: int,
                  num_workers: int, save_every: int,
                  use_slurm: bool) -> List[str]:
+    # cfg.seed overrides the sweep-wide seed: a repeat arm is the SAME
+    # (budget, N, D) point under a different init, which is what gives the
+    # fit an error bar rather than a second grid point.
+    seed = cfg.seed if cfg.seed is not None else seed
     save_dir = f"{out_root}/{cfg.name}_s{seed}"
-    n_heads = max(1, cfg.d_model // 64)
+    n_heads = cfg.n_heads
     # DeltaE at the end only. The fit reads the final value, and an eval per
     # save tick would be a large fraction of the shorter configs.
     #
@@ -126,7 +137,14 @@ def main() -> None:
     p.add_argument("--out-root", type=str,
                    default="data/checkpoints/scaling_sweep")
     p.add_argument("--budgets", type=float, nargs="+", default=DEFAULT_BUDGETS)
-    p.add_argument("--bracket", type=float, nargs="+", default=list(DEFAULT_BRACKET))
+    p.add_argument("--span", type=float, default=DEFAULT_SPAN,
+                   help="ratio of largest to smallest N within a budget")
+    p.add_argument("--points", type=int, default=DEFAULT_POINTS,
+                   help="sizes per budget")
+    p.add_argument("--repeat-seed", type=int, default=None,
+                   help="re-run each rung's middle size under this second seed")
+    p.add_argument("--max-wall-hours", type=float, default=None,
+                   help="override the 3h --qos=short cap when a longer QoS is available")
     p.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     p.add_argument("--corpus", type=int, default=CORPUS_EXAMPLES)
     p.add_argument("--seed", type=int, default=42)
@@ -141,7 +159,11 @@ def main() -> None:
     p.add_argument("--dispatch", action="store_true")
     args = p.parse_args()
 
-    grid = build_grid(args.budgets, args.bracket, args.batch_size, args.corpus)
+    cap = (args.max_wall_hours * 3600 * WALL_MARGIN
+           if args.max_wall_hours else None)
+    grid = build_grid(args.budgets, span=args.span, points=args.points,
+                      batch_size=args.batch_size, corpus=args.corpus,
+                      wall_cap_sec=cap, repeat_seed=args.repeat_seed)
 
     if args.n_configs:
         print(len(grid))

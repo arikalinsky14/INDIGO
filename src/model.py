@@ -602,11 +602,18 @@ def compute_loss(
     # In the fanned-out collate every row IS one scored token, so n_tokens
     # equals the batch size here. See `compute_loss_packed` for the packed
     # case, where the two differ.
+    # EOS split. Plain accuracy on this task is dominated by the EOS token:
+    # one of every ~5.5 scored tokens is EOS, so predicting only EOS scores
+    # ~0.18 and a real 0.18 is indistinguishable from having learned nothing.
+    # Reporting the non-EOS count separately is what makes them separable.
+    non_eos = target != EOS_TOKEN
     return {
         "loss": loss,
         "accuracy": accuracy,
         "n_tokens": torch.tensor(target.numel(), device=logits.device),
         "n_correct": correct.sum(),
+        "n_tokens_non_eos": non_eos.sum(),
+        "n_correct_non_eos": (correct & non_eos).sum(),
     }
 
 
@@ -654,11 +661,15 @@ def compute_loss_packed(
     # size, or they compute an example-weighted average of per-token means
     # (biased whenever tokens-per-example varies, which it does: structures
     # are 2-10 layers).
+    # See compute_loss for why EOS is split out.
+    non_eos = valid & (target != EOS_TOKEN)
     return {
         "loss": loss,
         "accuracy": accuracy,
         "n_tokens": n_tokens,
         "n_correct": n_correct,
+        "n_tokens_non_eos": non_eos.sum(),
+        "n_correct_non_eos": ((pred == target) & non_eos).sum(),
     }
 
 

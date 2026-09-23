@@ -214,8 +214,22 @@ def evaluate_validation(
     device,
     loss_fn,
     bf16: bool,
-) -> Tuple[float, float]:
-    """Compute val loss + accuracy. Restores the model's train() state on exit."""
+) -> Tuple[float, float, float]:
+    """Compute val loss, accuracy and non-EOS accuracy.
+
+    The third return value exists because plain token accuracy on this task is
+    almost uninformative, in a way that has twice been mistaken for a training
+    failure. A token is a (slot, thickness) PAIR out of 3201, and one token per
+    structure is EOS. Structures average 4.5 layers, so EOS is 1/5.5 = 0.182 of
+    all scored tokens -- and a model that learns only "emit EOS in the right
+    place", which is easy and largely positional, already scores ~0.18.
+
+    Every arm of both the epoch-ceiling probe and scaling sweep v1 reported
+    val_acc in 0.173-0.176 regardless of model size or compute, which looks
+    exactly like "nothing learned" and is not: val_loss and val_de moved
+    properly across the same runs. Splitting EOS out makes the distinction
+    visible instead of requiring someone to rediscover the base rate.
+    """
     was_training = model.training
     model.eval()
     amp_ctx = (
@@ -226,12 +240,17 @@ def evaluate_validation(
     total_loss = 0.0
     total_correct = 0
     total_tokens = 0
+    non_eos_correct = 0
+    non_eos_tokens = 0
     try:
         with torch.no_grad():
             for batch in val_loader:
                 batch_on_device = {k: v.to(device) for k, v in batch.items()}
                 with amp_ctx:
                     losses = loss_fn(model, batch_on_device)
+                if "n_correct_non_eos" in losses:
+                    non_eos_correct += int(losses["n_correct_non_eos"].item())
+                    non_eos_tokens += int(losses["n_tokens_non_eos"].item())
                 # Weight by scored TOKENS, not by batch size. `loss` and
                 # `accuracy` are per-token means, so example-weighting them
                 # gives a biased estimator whenever tokens-per-example varies
@@ -247,7 +266,9 @@ def evaluate_validation(
         if was_training:
             model.train()
     denom = max(total_tokens, 1)
-    return total_loss / denom, total_correct / denom
+    non_eos = (non_eos_correct / non_eos_tokens
+               if non_eos_tokens else float("nan"))
+    return total_loss / denom, total_correct / denom, non_eos
 
 
 def set_seed(seed: int, deterministic: bool = False) -> None:
@@ -865,8 +886,9 @@ def main() -> None:
                       force_de: bool = False) -> None:
         val_loss = float("nan")
         val_acc = float("nan")
+        val_acc_non_eos = float("nan")
         if val_loader is not None:
-            val_loss, val_acc = evaluate_validation(
+            val_loss, val_acc, val_acc_non_eos = evaluate_validation(
                 model, val_loader, device, loss_fn, bf16=args.bf16,
             )
 
@@ -896,6 +918,10 @@ def main() -> None:
             "train_loss": train_loss,
             "val_loss": val_loss,
             "val_acc": val_acc,
+            # Token accuracy excluding EOS. val_acc alone sits on the ~0.18
+            # EOS base rate for any model that has merely learned where
+            # structures end, which reads as "nothing learned" when it is not.
+            "val_acc_non_eos": val_acc_non_eos,
             "lr": lr,
             "wall_time_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
@@ -927,7 +953,8 @@ def main() -> None:
         append_history(history_path, entry)
 
         if val_loader is not None:
-            line = f"[Val] step={step} val_loss={val_loss:.4f} val_acc={val_acc:.3f}"
+            line = (f"[Val] step={step} val_loss={val_loss:.4f} "
+                    f"val_acc={val_acc:.3f} acc_noEOS={val_acc_non_eos:.4f}")
             if de_result is not None and de_result.get("n_scored"):
                 by_c = de_result.get("by_chroma", {})
                 buckets = " ".join(

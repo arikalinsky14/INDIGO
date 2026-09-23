@@ -38,7 +38,7 @@ set -euo pipefail
 #                  N*(C_i), then a power law across budgets -> alpha, beta.
 #                  Pooled and per-chroma-bucket.
 #
-# BUDGETS/BRACKET/BATCH_SIZE must MATCH the sweep submission in dry-run mode,
+# BUDGETS/SPAN/POINTS/REPEAT_SEED must MATCH the sweep submission in dry-run mode,
 # or the grid this prints will not be the grid that ran. In fit mode they are
 # unused: the fit reads N and C back out of each run's own config.json and
 # history.jsonl, so it cannot silently inherit a stale grid.
@@ -60,9 +60,16 @@ mkdir -p job-outputs
 
 MODE="${MODE:-fit}"
 OUT_ROOT="${OUT_ROOT:-data/checkpoints/scaling_sweep}"
-BUDGETS="${BUDGETS:-1e14 3.7e14 1.4e15 5e15}"
-BRACKET="${BRACKET:-0.6 0.8 1.0 1.3 1.7}"
+BUDGETS="${BUDGETS:-1e14 4e14 1.4e15 4e15}"
+SPAN="${SPAN:-10}"
+POINTS="${POINTS:-6}"
+REPEAT_SEED="${REPEAT_SEED:-43}"
+MAX_WALL_HOURS="${MAX_WALL_HOURS:-}"
 BATCH_SIZE="${BATCH_SIZE:-256}"
+
+GRID_ARGS="--budgets ${BUDGETS} --span ${SPAN} --points ${POINTS} --batch-size ${BATCH_SIZE}"
+[[ -n "${REPEAT_SEED}" ]] && GRID_ARGS="${GRID_ARGS} --repeat-seed ${REPEAT_SEED}"
+[[ -n "${MAX_WALL_HOURS}" ]] && GRID_ARGS="${GRID_ARGS} --max-wall-hours ${MAX_WALL_HOURS}"
 
 # The fit reads whichever val_de the run recorded. "final" is the honest
 # default for a scaling law: "best" would select the minimum over a noisy
@@ -89,13 +96,11 @@ echo
 
 case "${MODE}" in
   dry-run)
-    python -u scripts/scaling_sweep.py --dry-run \
-        --budgets ${BUDGETS} --bracket ${BRACKET} \
-        --batch-size "${BATCH_SIZE}" --out-root "${OUT_ROOT}"
+    python -u scripts/scaling_sweep.py --dry-run ${GRID_ARGS} \
+        --out-root "${OUT_ROOT}"
     echo
     echo "----------------------------------------------------------------------------"
-    N_CONFIGS=$(python scripts/scaling_sweep.py --n-configs \
-        --budgets ${BUDGETS} --bracket ${BRACKET} --batch-size "${BATCH_SIZE}")
+    N_CONFIGS=$(python scripts/scaling_sweep.py --n-configs ${GRID_ARGS})
     echo "Set slurms/scaling_sweep.sh to: #SBATCH --array=0-$((N_CONFIGS-1))"
     ;;
 
