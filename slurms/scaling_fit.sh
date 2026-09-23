@@ -12,7 +12,7 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=8G
 
-#SBATCH --time=00:20:00
+#SBATCH --time=00:30:00
 #SBATCH --qos=short
 #SBATCH --mail-user=ajk245@pitt.edu
 #SBATCH --mail-type=FAIL,TIME_LIMIT
@@ -37,6 +37,12 @@ set -euo pipefail
 #                  the two-step IsoFLOP fit: per-budget parabola in log N ->
 #                  N*(C_i), then a power law across budgets -> alpha, beta.
 #                  Pooled and per-chroma-bucket.
+#   MODE=ladder    Analyse the FIXED-N data ladder under LADDER_ROOT: val_de
+#                  vs D at constant N, local slopes, and a saturation
+#                  verdict. A separate mode because fit_scaling.py must not
+#                  see these runs -- each ladder point is its own budget, so
+#                  it would read them as one-point budgets and refuse.
+#   MODE=all       fit, then ladder. What to run once every job is done.
 #
 # BUDGETS/SPAN/POINTS/REPEAT_SEED must MATCH the sweep submission in dry-run mode,
 # or the grid this prints will not be the grid that ran. In fit mode they are
@@ -45,8 +51,16 @@ set -euo pipefail
 #
 # Usage:
 #   MODE=dry-run sbatch slurms/scaling_fit.sh
-#   MODE=fit sbatch slurms/scaling_fit.sh
-#   MODE=fit OUT_ROOT=data/checkpoints/scaling_sweep sbatch slurms/scaling_fit.sh
+#   MODE=fit OUT_ROOT=data/checkpoints/scaling_sweep_12h sbatch slurms/scaling_fit.sh
+#
+#   # once every sweep AND ladder job is done -- fit plus ladder in one go:
+#   MODE=all OUT_ROOT=data/checkpoints/scaling_sweep_12h \
+#       LADDER_ROOT=data/checkpoints/data_ladder_n1M \
+#       sbatch slurms/scaling_fit.sh
+#
+#   # the ladder's saturation verdict needs a noise figure; take it from the
+#   # repeat-seed pairs the fit reports, then re-run ladder mode alone:
+#   MODE=ladder NOISE_DE=0.4 sbatch slurms/scaling_fit.sh
 # ============================================================================
 
 module purge
@@ -77,6 +91,15 @@ GRID_ARGS="--budgets ${BUDGETS} --span ${SPAN} --points ${POINTS} --batch-size $
 # therefore tilting alpha.
 METRIC_SELECTION="${METRIC_SELECTION:-final}"
 OUTPUT="${OUTPUT:-analyses/scaling/results/isoflop_fit.json}"
+LADDER_ROOT="${LADDER_ROOT:-data/checkpoints/data_ladder_n1M}"
+LADDER_OUTPUT="${LADDER_OUTPUT:-analyses/scaling/results/data_ladder.json}"
+# Paired run-to-run val_de spread, for the ladder's saturation verdict. Left
+# EMPTY on purpose: it should come from the IsoFLOP sweep's --repeat-seed
+# arms, which measure it directly. Without it the ladder reports slopes and
+# declines to call saturation, which is the honest default -- inventing a
+# noise figure is how the epoch-ceiling probe first reported a ceiling that
+# did not exist.
+NOISE_DE="${NOISE_DE:-}"
 
 # Lets the report express each run's D as a fraction of an epoch. Purely
 # presentational -- the fit itself uses absolute example-passes -- but it is
@@ -94,36 +117,63 @@ echo "MODE:      ${MODE}"
 echo "OUT_ROOT:  ${OUT_ROOT}"
 echo
 
+run_fit() {
+  if [[ ! -d "${OUT_ROOT}" ]]; then
+    echo "ERROR: OUT_ROOT '${OUT_ROOT}' does not exist -- nothing to fit." >&2
+    echo "       Run the sweep first: sbatch slurms/scaling_sweep.sh" >&2
+    return 1
+  fi
+  mkdir -p "$(dirname "${OUTPUT}")"
+  python -u scripts/fit_scaling.py \
+      --runs-root "${OUT_ROOT}" \
+      --metric-selection "${METRIC_SELECTION}" \
+      --corpus-examples "${CORPUS_EXAMPLES}" \
+      --output "${OUTPUT}" \
+      --plot
+  echo
+  echo "Wrote ${OUTPUT}"
+  echo "Plot:  ${OUTPUT%.json}.png"
+}
+
+run_ladder() {
+  if [[ ! -d "${LADDER_ROOT}" ]]; then
+    echo "NOTE: LADDER_ROOT '${LADDER_ROOT}' does not exist; skipping the data"
+    echo "      ladder. Run it with DATA_LADDER=1 on the sweep first."
+    return 0
+  fi
+  mkdir -p "$(dirname "${LADDER_OUTPUT}")"
+  local args=(--runs-root "${LADDER_ROOT}" --output "${LADDER_OUTPUT}")
+  if [[ -n "${NOISE_DE}" ]]; then
+    args+=(--noise-de "${NOISE_DE}")
+  fi
+  python -u scripts/analyse_data_ladder.py "${args[@]}"
+  echo
+  echo "Wrote ${LADDER_OUTPUT}"
+}
+
+run_dry_run() {
+  python -u scripts/scaling_sweep.py --dry-run ${GRID_ARGS} \
+      --out-root "${OUT_ROOT}"
+  echo
+  echo "----------------------------------------------------------------------------"
+  local n
+  n=$(python scripts/scaling_sweep.py --n-configs ${GRID_ARGS})
+  echo "Set slurms/scaling_sweep.sh to: #SBATCH --array=0-$((n-1))"
+}
+
 case "${MODE}" in
-  dry-run)
-    python -u scripts/scaling_sweep.py --dry-run ${GRID_ARGS} \
-        --out-root "${OUT_ROOT}"
+  dry-run) run_dry_run ;;
+  fit)     run_fit ;;
+  ladder)  run_ladder ;;
+  all)
+    run_fit
     echo
-    echo "----------------------------------------------------------------------------"
-    N_CONFIGS=$(python scripts/scaling_sweep.py --n-configs ${GRID_ARGS})
-    echo "Set slurms/scaling_sweep.sh to: #SBATCH --array=0-$((N_CONFIGS-1))"
+    echo "============================================================================"
+    run_ladder
     ;;
-
-  fit)
-    if [[ ! -d "${OUT_ROOT}" ]]; then
-      echo "ERROR: OUT_ROOT '${OUT_ROOT}' does not exist -- nothing to fit." >&2
-      echo "       Run the sweep first: sbatch slurms/scaling_sweep.sh" >&2
-      exit 1
-    fi
-    mkdir -p "$(dirname "${OUTPUT}")"
-    python -u scripts/fit_scaling.py \
-        --runs-root "${OUT_ROOT}" \
-        --metric-selection "${METRIC_SELECTION}" \
-        --corpus-examples "${CORPUS_EXAMPLES}" \
-        --output "${OUTPUT}" \
-        --plot
-    echo
-    echo "Wrote ${OUTPUT}"
-    echo "Plot:  ${OUTPUT%.json}.png"
-    ;;
-
   *)
-    echo "ERROR: unknown MODE='${MODE}' (expected dry-run or fit)" >&2
+    echo "ERROR: unknown MODE='${MODE}'" >&2
+    echo "       expected one of: dry-run, fit, ladder, all" >&2
     exit 1
     ;;
 esac

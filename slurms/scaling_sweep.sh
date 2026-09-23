@@ -218,6 +218,52 @@ CFG_ARGS=$(python scripts/scaling_sweep.py --emit-config "${CFG_ID}" \
     --seed "${SEED}" --limit-de-examples "${LIMIT_DE_EXAMPLES}" \
     --limit-val-examples "${LIMIT_VAL_EXAMPLES}" --num-workers "${NUM_WORKERS}")
 
+# Example-passes for this config, for the wall check below. Derived from the
+# emitted command so it cannot disagree with what will actually be trained.
+CFG_PASSES=$(python - "${CFG_ARGS}" <<'PYEOF'
+import sys
+a = sys.argv[1].split()
+def val(flag):
+    return int(a[a.index(flag) + 1]) if flag in a else 0
+print(val("--limit-examples") * val("--epochs"))
+PYEOF
+)
+
+# Fail NOW if this config cannot finish in the time limit we were actually
+# given, rather than discovering it at the kill. Twice on Sept 23 a config
+# sized for a 12h cap was submitted under the script's default 3h
+# (--qos=short), which silently costs the full 3h and produces no val_de. The
+# grid planner checks feasibility against MAX_WALL_HOURS, but nothing checked
+# that the SLURM allocation matched it.
+if [[ -n "${SLURM_JOB_END_TIME:-}" ]]; then
+  REMAIN=$(( SLURM_JOB_END_TIME - $(date +%s) ))
+  # Passes go in via the environment, never interpolated into the Python, so a
+  # shell quoting slip cannot turn into a silently-zero estimate that disables
+  # the check.
+  EST=$(CFG_PASSES="${CFG_PASSES:-0}" python - <<'PYEOF' 2>/dev/null || echo 0
+import os, sys
+sys.path.insert(0, ".")
+n = int(os.environ.get("CFG_PASSES", "0") or 0)
+if n <= 0:
+    print(0)
+else:
+    from src.scaling.configs import estimate_wall_sec
+    print(int(estimate_wall_sec(n)))
+PYEOF
+)
+  if [[ "${EST}" -gt 0 && "${REMAIN}" -gt 0 && "${EST}" -gt "${REMAIN}" ]]; then
+    echo "ERROR: config ${CFG_ID} needs ~$(( EST / 60 )) min but this job has" >&2
+    echo "       only $(( REMAIN / 60 )) min left (--time / QoS cap)." >&2
+    echo "       It would hit TIME_LIMIT and produce no val_de, which deletes" >&2
+    echo "       a point from its IsoFLOP parabola." >&2
+    echo "       Resubmit with a matching --time (and --qos=long if over 3h)," >&2
+    echo "       or lower MAX_WALL_HOURS so the grid is sized for this cap." >&2
+    exit 1
+  fi
+  echo "Wall check: config needs ~$(( EST / 60 )) min, job has $(( REMAIN / 60 )) min. OK."
+  echo
+fi
+
 # Resume only from an epoch boundary. training.py replays a resumed epoch's
 # loader from the start, so a mid-epoch resume would change WHICH examples the
 # config sees -- and for an IsoFLOP point the (N, D) pair is the measurement.
