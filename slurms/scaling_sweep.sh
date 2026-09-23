@@ -94,11 +94,46 @@ set -euo pipefail
 #   # 3. fit the curves
 #   MODE=fit sbatch slurms/scaling_fit.sh
 #
-#   # 12h QoS variant (2.4 decades instead of 1.6), 42 configs:
+# STAGED SUBMISSION (preferred when SU budget matters)
+# -----------------------------------------------------
+# Each rung is an INDEPENDENT parabola and the power law simply gains a point
+# per rung, so rungs can be submitted in waves into the SAME OUT_ROOT and
+# re-fitted after each. Nothing is wasted if you stop early. The fit needs 3
+# rungs minimum (fit_scaling.py refuses below that), which wave 1 supplies.
+#
+# Every wave MUST pass the same BUDGETS/SPAN/POINTS/REPEAT_SEED, because the
+# array index is a position in that grid. Change any of them and the indices
+# shift, so a later wave would train a different config into an earlier one's
+# save dir.
+#
+#   export SW='BUDGETS=1e14 3.02e14 9.1e14 2.75e15 8.29e15 2.5e16'
+#   COMMON="DATA_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/train \
+#           MAX_WALL_HOURS=12 OUT_ROOT=data/checkpoints/scaling_sweep_12h"
+#
+#   # wave 1 -- 21 cfgs, 22 GPU-h, 1.0 decade, NO 12h exposure at all
+#   env $COMMON BUDGETS="..." sbatch --array=0-20%8 slurms/scaling_sweep.sh
+#   # wave 2 -- +7 cfgs, +15 GPU-h -> 1.4 decades
+#   env $COMMON BUDGETS="..." sbatch --qos=long --time=06:00:00 \
+#       --array=21-27%6 slurms/scaling_sweep.sh
+#   # wave 3 -- +7 cfgs, +24 GPU-h -> 1.9 decades
+#   env $COMMON BUDGETS="..." sbatch --qos=long --time=09:00:00 \
+#       --array=28-34%6 slurms/scaling_sweep.sh
+#   # wave 4 -- +7 cfgs, +29 GPU-h -> 2.4 decades
+#   env $COMMON BUDGETS="..." sbatch --qos=long --time=12:00:00 \
+#       --array=35-41%6 slurms/scaling_sweep.sh
+#
+# The %N suffix throttles simultaneous tasks. Use it. Sweep v1 ran all 20 at
+# once against the same parquet shards on shared /ix1 and measured 246-2856
+# ex/s, a 12x spread with a median of 2155 -- these models are input-bound,
+# not GPU-bound, so concurrent jobs were competing for the same reads. The
+# wall model is calibrated on that contended throughput, so throttling should
+# make configs finish EARLY rather than late, which costs fewer SUs.
+#
+#   # all six rungs at once (90 GPU-h) if SU budget is not a concern:
 #   DATA_DIR=... MAX_WALL_HOURS=12 \
 #       BUDGETS="1e14 3.02e14 9.1e14 2.75e15 8.29e15 2.5e16" \
 #       OUT_ROOT=data/checkpoints/scaling_sweep_12h \
-#       sbatch --qos=long --time=12:00:00 --array=0-41 slurms/scaling_sweep.sh
+#       sbatch --qos=long --time=12:00:00 --array=0-41%8 slurms/scaling_sweep.sh
 #
 #   # fixed-N data ladder (6 runs, separate out-root, NOT for fit_scaling):
 #   DATA_DIR=... DATA_LADDER=1 MAX_WALL_HOURS=12 \
