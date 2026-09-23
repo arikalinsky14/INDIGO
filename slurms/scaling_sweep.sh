@@ -69,7 +69,17 @@ set -euo pipefail
 #               v1 had no repeats, so a 1.04-unit spread at its top rung
 #               could not be told apart from eval noise.
 #   MAX_WALL_HOURS  unset. Set it (with QOS/TIME above) to re-size the grid
-#               for a longer QoS.
+#               for a longer QoS. Confirmed available on this account:
+#               sbatch --test-only --qos=long --time=12:00:00 was accepted.
+#   DATA_LADDER unset. Set to 1 to run the FIXED-N data ladder instead of the
+#               IsoFLOP grid: one shape (d128/se3, 0.97M params, the v1
+#               standout at val_de 9.56), D swept log-spaced. Answers whether
+#               a ~1M model saturates or keeps improving -- which the IsoFLOP
+#               grid cannot, because at fixed C a smaller model needs more
+#               passes, so the wall clock floors N. Use a SEPARATE OUT_ROOT:
+#               these are not IsoFLOP rungs and fit_scaling.py must not see
+#               them. At 3h the ladder spans only 9x and never reaches one
+#               epoch; at 12h it spans 43x and reaches 4.3 epochs.
 #   BATCH_SIZE  default: 256
 #   SEED        default: 42  (baseline arms; repeat arms override it)
 #
@@ -83,6 +93,17 @@ set -euo pipefail
 #
 #   # 3. fit the curves
 #   MODE=fit sbatch slurms/scaling_fit.sh
+#
+#   # 12h QoS variant (2.4 decades instead of 1.6), 42 configs:
+#   DATA_DIR=... MAX_WALL_HOURS=12 \
+#       BUDGETS="1e14 3.02e14 9.1e14 2.75e15 8.29e15 2.5e16" \
+#       OUT_ROOT=data/checkpoints/scaling_sweep_12h \
+#       sbatch --qos=long --time=12:00:00 --array=0-41 slurms/scaling_sweep.sh
+#
+#   # fixed-N data ladder (6 runs, separate out-root, NOT for fit_scaling):
+#   DATA_DIR=... DATA_LADDER=1 MAX_WALL_HOURS=12 \
+#       OUT_ROOT=data/checkpoints/data_ladder_n1M \
+#       sbatch --qos=long --time=12:00:00 --array=0-5 slurms/scaling_sweep.sh
 # ============================================================================
 
 module purge
@@ -101,12 +122,14 @@ SPAN="${SPAN:-10}"
 POINTS="${POINTS:-6}"
 REPEAT_SEED="${REPEAT_SEED:-43}"
 MAX_WALL_HOURS="${MAX_WALL_HOURS:-}"
+DATA_LADDER="${DATA_LADDER:-}"
 BATCH_SIZE="${BATCH_SIZE:-256}"
 SEED="${SEED:-42}"
 
 GRID_ARGS="--budgets ${BUDGETS} --span ${SPAN} --points ${POINTS} --batch-size ${BATCH_SIZE}"
 [[ -n "${REPEAT_SEED}" ]] && GRID_ARGS="${GRID_ARGS} --repeat-seed ${REPEAT_SEED}"
 [[ -n "${MAX_WALL_HOURS}" ]] && GRID_ARGS="${GRID_ARGS} --max-wall-hours ${MAX_WALL_HOURS}"
+[[ -n "${DATA_LADDER}" ]] && GRID_ARGS="${GRID_ARGS} --data-ladder"
 LIMIT_DE_EXAMPLES="${LIMIT_DE_EXAMPLES:-2048}"
 LIMIT_VAL_EXAMPLES="${LIMIT_VAL_EXAMPLES:-2000}"
 NUM_WORKERS="${NUM_WORKERS:-4}"

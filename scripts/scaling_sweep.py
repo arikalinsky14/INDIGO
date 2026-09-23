@@ -47,6 +47,8 @@ from src.scaling.configs import (
     DEFAULT_SPAN,
     DE_EXAMPLES,
     WALL_MARGIN,
+    build_data_ladder,
+    describe_data_ladder,
     SweepConfig,
     build_grid,
     describe,
@@ -145,6 +147,12 @@ def main() -> None:
                    help="re-run each rung's middle size under this second seed")
     p.add_argument("--max-wall-hours", type=float, default=None,
                    help="override the 3h --qos=short cap when a longer QoS is available")
+    p.add_argument("--data-ladder", action="store_true",
+                   help="replace the IsoFLOP grid with the fixed-N data ladder "
+                        "(one shape, D swept). Use a SEPARATE --out-root: it is "
+                        "not an IsoFLOP rung and fit_scaling.py must not see it.")
+    p.add_argument("--ladder-d-model", type=int, default=128)
+    p.add_argument("--ladder-layers", type=int, default=3)
     p.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     p.add_argument("--corpus", type=int, default=CORPUS_EXAMPLES)
     p.add_argument("--seed", type=int, default=42)
@@ -161,9 +169,15 @@ def main() -> None:
 
     cap = (args.max_wall_hours * 3600 * WALL_MARGIN
            if args.max_wall_hours else None)
-    grid = build_grid(args.budgets, span=args.span, points=args.points,
-                      batch_size=args.batch_size, corpus=args.corpus,
-                      wall_cap_sec=cap, repeat_seed=args.repeat_seed)
+    if args.data_ladder:
+        grid = build_data_ladder(d_model=args.ladder_d_model,
+                                 slot_encoder_layers=args.ladder_layers,
+                                 points=args.points, batch_size=args.batch_size,
+                                 corpus=args.corpus, wall_cap_sec=cap)
+    else:
+        grid = build_grid(args.budgets, span=args.span, points=args.points,
+                          batch_size=args.batch_size, corpus=args.corpus,
+                          wall_cap_sec=cap, repeat_seed=args.repeat_seed)
 
     if args.n_configs:
         print(len(grid))
@@ -188,12 +202,15 @@ def main() -> None:
         print(" ".join(build_commands(grid, **local_kw)[args.emit_config][2:]))
         return
 
-    print(describe(grid, args.corpus))
-    infeasible = [c for c in grid if not c.fits_qos_short]
+    if args.data_ladder:
+        print(describe_data_ladder(grid, args.corpus))
+    else:
+        print(describe(grid, args.corpus, wall_cap_sec=cap))
+    infeasible = [c for c in grid if not c.fits_wall(cap)]
     if infeasible:
         print(f"\nREFUSING to dispatch: {len(infeasible)} config(s) cannot "
-              f"finish inside --qos=short. Lower the top budget or narrow the "
-              f"bracket.")
+              f"finish inside the wall cap. Lower the top budget, reduce "
+              f"--span, or raise --max-wall-hours to match a longer QoS.")
         if args.dispatch:
             raise SystemExit(1)
     if args.dry_run:

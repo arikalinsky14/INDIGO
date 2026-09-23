@@ -275,7 +275,18 @@ class SweepConfig:
 
     @property
     def fits_qos_short(self) -> bool:
-        return self.est_wall_sec <= QOS_SHORT_SEC * WALL_MARGIN
+        return self.fits_wall(QOS_SHORT_SEC * WALL_MARGIN)
+
+    def fits_wall(self, cap_sec: Optional[float] = None) -> bool:
+        """Does this config finish inside `cap_sec`? Defaults to --qos=short.
+
+        Separate from fits_qos_short so a longer QoS does not have to be
+        smuggled past a hardcoded 3h check: the dispatcher refuses on the cap
+        it was actually given.
+        """
+        if cap_sec is None:
+            cap_sec = QOS_SHORT_SEC * WALL_MARGIN
+        return self.est_wall_sec <= cap_sec
 
     @property
     def within_epoch_ceiling(self) -> bool:
@@ -426,6 +437,113 @@ def build_grid(
     return grid
 
 
+def build_data_ladder(
+    d_model: int = 128,
+    slot_encoder_layers: int = 3,
+    points: int = 6,
+    min_passes: int = 1_000_000,
+    max_passes: Optional[int] = None,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    corpus: int = CORPUS_EXAMPLES,
+    lr_law: Optional[Tuple[float, float]] = None,
+    wall_cap_sec: Optional[float] = None,
+) -> List[SweepConfig]:
+    """One model shape, D swept log-spaced: does a SMALL model keep improving?
+
+    This is not an IsoFLOP rung and must not be fitted as one -- every point
+    is its own budget, so a parabola in log N does not exist here. It answers
+    a different question, the one sweep v1 raised by accident: its best run
+    was d128/se3 at 0.97M params reaching val_de 9.56, within ~1 dE of the
+    production checkpoint at 18-72x the parameters and ~19-70x the compute.
+    Whether that is a saturation point or still climbing decides whether the
+    model or the data is the binding constraint on this task.
+
+    The IsoFLOP grid cannot answer it, because at fixed C a smaller model
+    needs MORE passes and so the wall clock sets a floor on N: under
+    --qos=short a 0.97M model tops out at 8.8M passes, which is less than one
+    epoch of the corpus. The default here is that shape, so the ladder starts
+    from the exact configuration that produced the result.
+    """
+    law = lr_law or fit_lr_law()
+    cap = wall_cap_sec if wall_cap_sec is not None else QOS_SHORT_SEC * WALL_MARGIN
+    cfg0 = ModelConfig(head_mode="cross_attn", d_model=d_model,
+                       n_heads=n_heads_for(d_model),
+                       slot_encoder_layers=slot_encoder_layers,
+                       decoder_layers=1, batch_size=batch_size)
+    per_ex = train_flops_per_example(cfg0)
+    n = n_params(cfg0)
+
+    if max_passes is None:
+        # Largest D whose wall still fits, then held under the repeat depth
+        # the epoch-ceiling probe actually examined.
+        budget_sec = cap - STARTUP_SEC - DE_EXAMPLES * SEC_PER_DE_EXAMPLE
+        max_passes = int(budget_sec * EXAMPLES_PER_SEC)
+    max_passes = min(max_passes, int(EPOCH_CEILING * corpus))
+    if max_passes <= min_passes:
+        return []
+
+    out: List[SweepConfig] = []
+    seen = set()
+    for k in range(points):
+        frac = k / (points - 1) if points > 1 else 1.0
+        passes = int(min_passes * (max_passes / min_passes) ** frac)
+        steps = max(1, passes // batch_size)
+
+        # Unlike build_grid, hold EPOCHS at the minimum and round STEPS to a
+        # multiple of it, rather than holding steps exact and raising epochs
+        # until one divides. build_grid's rule keeps C on its rung to the
+        # example, which an IsoFLOP point needs. Here it would defeat the
+        # experiment: at 42.5M passes it lands on 8 epochs over a 5.3M subset,
+        # when the question is what MORE DATA does. Minimum epochs over the
+        # largest subset that fits gives 5 passes over 8.5M instead, and the
+        # cost is a sub-0.5% shift in D, which no conclusion here turns on.
+        epochs = max(1, math.ceil(steps * batch_size / corpus))
+        steps = max(epochs, round(steps / epochs) * epochs)
+        passes = steps * batch_size
+        if steps in seen:
+            continue
+        seen.add(steps)
+        out.append(SweepConfig(
+            budget=per_ex * passes, target_n=float(n), n_params=n,
+            d_model=d_model, slot_encoder_layers=slot_encoder_layers,
+            n_heads=n_heads_for(d_model), lr=lr_for(n, law),
+            batch_size=batch_size, passes=passes, steps=steps, epochs=epochs,
+            limit_examples=(steps // epochs) * batch_size,
+            epochs_over_corpus=passes / corpus,
+            est_wall_sec=estimate_wall_sec(passes), nominal_multiple=1.0,
+        ))
+    return out
+
+
+def describe_data_ladder(ladder: Sequence[SweepConfig],
+                         corpus: int = CORPUS_EXAMPLES) -> str:
+    if not ladder:
+        return "data ladder is empty: max_passes <= min_passes at this wall cap."
+    c0 = ladder[0]
+    lines = [
+        f"FIXED-N DATA LADDER  d_model={c0.d_model} "
+        f"slot_encoder_layers={c0.slot_encoder_layers}  "
+        f"N={c0.n_params:,}  lr={c0.lr:.3e}",
+        "",
+        "Not an IsoFLOP rung. One shape, more data, to see whether a ~1M-param",
+        "model saturates or keeps improving. Fit nothing in log N from this.",
+        "",
+        f"{'D (passes)':>13} {'steps':>9} {'epochs':>7} {'implied C':>11} {'wall':>7}",
+        "-" * 54,
+    ]
+    for c in ladder:
+        lines.append(f"{c.passes:>13,} {c.steps:>9,} {c.epochs_over_corpus:>7.2f} "
+                     f"{c.budget:>11.2e} {c.est_wall_sec / 3600:>6.2f}h")
+    lines += [
+        "-" * 54,
+        f"{len(ladder)} runs, {sum(c.est_wall_sec for c in ladder) / 3600:.1f} "
+        f"GPU-hours, {ladder[-1].passes / ladder[0].passes:.0f}x data span, "
+        f"deepest {ladder[-1].epochs_over_corpus:.2f} epochs "
+        f"(probe examined up to {EPOCH_CEILING:.0f})",
+    ]
+    return "\n".join(lines)
+
+
 def max_feasible_budget(span: float = DEFAULT_SPAN,
                         batch_size: int = DEFAULT_BATCH_SIZE,
                         wall_cap_sec: Optional[float] = None) -> float:
@@ -452,7 +570,8 @@ def max_feasible_budget(span: float = DEFAULT_SPAN,
     return lo
 
 
-def describe(grid: Sequence[SweepConfig], corpus: int = CORPUS_EXAMPLES) -> str:
+def describe(grid: Sequence[SweepConfig], corpus: int = CORPUS_EXAMPLES,
+             wall_cap_sec: Optional[float] = None) -> str:
     a, b = fit_lr_law()
     lines = [
         f"LR law: lr(N) = {math.exp(a):.3e} * N^{b:.4f}   "
@@ -466,8 +585,8 @@ def describe(grid: Sequence[SweepConfig], corpus: int = CORPUS_EXAMPLES) -> str:
     infeasible = []
     for c in grid:
         flag = ""
-        if not c.fits_qos_short:
-            flag += "  OVER-3h"
+        if not c.fits_wall(wall_cap_sec):
+            flag += "  OVER-WALL"
             infeasible.append(c)
         if not c.within_epoch_ceiling:
             flag += "  OVER-EPOCH-CEILING"
