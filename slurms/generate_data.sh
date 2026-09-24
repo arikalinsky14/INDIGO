@@ -55,6 +55,13 @@ set -euo pipefail
 #    then, for 200 shards starting at 2000:
 #      TOTAL_ROWS=1000000 START_SHARD_ID=2000 sbatch slurms/generate_data.sh
 #
+# 1c. The same extension as a PARALLEL ARRAY (preferred for large ones).
+#    30 tasks x 200 shards = 6000 shards = 30M rows, ids 2000-7999, at most
+#    10 running at once:
+#      ARRAY_START_SHARD=2000 SHARDS_PER_TASK=200 \
+#          sbatch --qos=long --time=06:00:00 --array=0-29%10 \
+#          slurms/generate_data.sh
+#
 # 2. Tier-B test set (held-out real materials, 50k rows, disjoint shard IDs):
 #    TOTAL_ROWS=50000 START_SHARD_ID=2000000 \
 #        OUTPUT_DIR=data/test/tier_b USE_HELD_OUT_REALS=1 \
@@ -109,6 +116,7 @@ nproc
 # ============================================================================
 
 # Volume.
+TOTAL_ROWS_EXPLICIT="${TOTAL_ROWS:-}"            # set = caller passed one
 TOTAL_ROWS="${TOTAL_ROWS:-10000000}"             # Total rows across all shards
 ROWS_PER_SHARD="${ROWS_PER_SHARD:-5000}"        # Rows per shard
 START_SHARD_ID="${START_SHARD_ID:-0}"           # First shard id (use disjoint
@@ -163,6 +171,34 @@ OUTPUT_DIR="${OUTPUT_DIR:-data/train}"
 # Parallelism.
 PARALLEL_WORKERS="${PARALLEL_WORKERS:-${SLURM_CPUS_PER_TASK:-32}}"
 
+# ----------------------------------------------------------------------------
+# ARRAY MODE
+# ----------------------------------------------------------------------------
+# With --array, each task takes its own disjoint slice of shard ids, so the
+# whole extension runs in parallel under one job id that can be throttled with
+# %N and cancelled in one go. Ranges are disjoint by construction, so tasks
+# never contend for a shard, and --skip-existing keeps the whole thing
+# idempotent if a task is killed and resubmitted.
+#
+#   SHARDS_PER_TASK    shards each array task generates (default 200)
+#   ARRAY_START_SHARD  shard id the array begins at (default START_SHARD_ID)
+#
+# Task k covers ids [ARRAY_START_SHARD + k*SHARDS_PER_TASK, +SHARDS_PER_TASK).
+# TOTAL_ROWS is derived, so setting it alongside --array has no effect and is
+# called out rather than silently ignored.
+if [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+  SHARDS_PER_TASK="${SHARDS_PER_TASK:-200}"
+  ARRAY_START_SHARD="${ARRAY_START_SHARD:-${START_SHARD_ID}}"
+  if [[ -n "${TOTAL_ROWS_EXPLICIT:-}" ]]; then
+    echo "NOTE: TOTAL_ROWS is ignored in array mode; each task generates"
+    echo "      SHARDS_PER_TASK=${SHARDS_PER_TASK} shards."
+  fi
+  START_SHARD_ID=$(( ARRAY_START_SHARD + SLURM_ARRAY_TASK_ID * SHARDS_PER_TASK ))
+  TOTAL_ROWS=$(( SHARDS_PER_TASK * ROWS_PER_SHARD ))
+  echo "Array task ${SLURM_ARRAY_TASK_ID}: shards ${START_SHARD_ID}..$(( START_SHARD_ID + SHARDS_PER_TASK - 1 ))"
+  echo
+fi
+
 # Compute shard range.
 N_SHARDS=$(( (TOTAL_ROWS + ROWS_PER_SHARD - 1) / ROWS_PER_SHARD ))
 END_SHARD_ID=$(( START_SHARD_ID + N_SHARDS - 1 ))
@@ -206,7 +242,13 @@ echo
 # Write a top-level run manifest before forking workers. Each shard also gets
 # its own .manifest.json sidecar from compile_datasets.py.
 mkdir -p "${OUTPUT_DIR}"
-RUN_MANIFEST="${OUTPUT_DIR}/run_manifest.json"
+# Name the manifest by the shard range it describes. A fixed
+# run_manifest.json is overwritten by every run, which is exactly how the
+# provenance of data/train shards 0-1799 was lost: the surviving file
+# described only the last 200-shard chunk. It also races when array tasks run
+# concurrently. Nothing reads this file -- it is provenance -- so naming it by
+# range is free.
+RUN_MANIFEST="${OUTPUT_DIR}/run_manifest_shards_${START_SHARD_ID}_${END_SHARD_ID}.json"
 cat > "${RUN_MANIFEST}" <<EOF
 {
   "created_utc": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
