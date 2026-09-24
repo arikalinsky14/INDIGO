@@ -112,11 +112,31 @@ WALL_MARGIN = 0.80
 
 CORPUS_EXAMPLES = 9_997_312
 
-# Epoch ceiling. The probe found NO DETECTABLE degradation up to 8 passes at
-# any size tested, against a ~4.9 dE noise floor. That is a non-detection, not
-# a verified safe depth: a smaller effect would have been invisible. 8 is used
-# because it is what was actually examined.
-EPOCH_CEILING = 8.0
+# Epoch ceiling. REVISED DOWN from 8.0 to 1.0 on Sept 24.
+#
+# The epoch-ceiling probe reported no detectable degradation up to 8 passes,
+# but against a ~4.9 dE paired noise floor -- a non-detection with limited
+# power, as it was labelled at the time. The fixed-N data ladder then measured
+# the effect directly at one shape (0.97M params) with a ~0.5 dE noise floor,
+# and it is real:
+#
+#     0.45 epochs  val_de 10.82   <- minimum
+#     0.95 epochs  val_de 11.43   (+0.61, ~1.2 sigma, not resolvable)
+#     2.01 epochs  val_de 12.50   (+1.68, ~3.3 sigma)
+#     4.26 epochs  val_de 12.99   (+2.17, ~4.3 sigma)
+#
+# Corroborated independently by val_loss in the same runs, which bottoms near
+# one epoch and rises after (6.053 at step 34k -> 6.14 at step 160k in the
+# 5-epoch run), so this is not a DeltaE-only artifact.
+#
+# 1.0 is the deepest depth at which degradation is NOT resolvable, so it is
+# what the evidence supports. CAVEAT: every ladder point shared one LR
+# (the law is a function of N alone) and one cosine schedule, so an LR or
+# schedule effect at long horizons is not excluded -- CLAUDE.md records
+# "cosine death" on the finetune line, and production's own DeltaE optimum sat
+# at ~0.51 epochs. Testing that needs a constant-LR or re-tuned-LR arm at the
+# deep end; until then 1.0 is the conservative reading.
+EPOCH_CEILING = 1.0
 
 # Measured LR optima (scripts/lr_tuning.py, selected on DeltaE, diverged
 # trials excluded). d512's value is the one that survived the divergence
@@ -340,6 +360,8 @@ def feasible_n_window(
         passes = budget / train_flops_per_example(cfg)
         if passes < batch_size:
             continue                      # fewer than one step
+        if passes > EPOCH_CEILING * CORPUS_EXAMPLES:
+            continue                      # past the measured repeat-depth limit
         if estimate_wall_sec(int(passes)) <= cap:
             if lo is None:
                 lo = n

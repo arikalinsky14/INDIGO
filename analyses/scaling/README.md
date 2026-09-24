@@ -376,6 +376,92 @@ env $COMMON BUDGETS="$BUD" sbatch --qos=long --time=12:00:00 --array=35-41%6 slu
 
 ---
 
+## Wave-1 results (Sept 23-24) and what they changed
+
+**The geometry fix worked.** All 12 parabolas now open upward with R^2
+0.77-0.98, against v1's three-of-four refusals. N\* is inside the sampled
+range at 11 of 12. Real IsoFLOP curves exist.
+
+Pooled alpha = **+0.71, 95% interval [+0.52, +0.98]**, over three rungs and
+one decade. Notably above Chinchilla's 0.5, but only marginally excluding it.
+
+Three corrections came out of reading it:
+
+1. **The reported CI was wrong by ~150x.** `fit_power_law`'s bootstrap
+   resamples the (log C, log N\*) points and propagates none of the val_de
+   uncertainty each N\* was derived from, so it printed +-0.003. Measured
+   seed sigma from the repeat pairs is 2.83 / 0.65 / 0.51 dE by rung, which
+   gives +-0.23. Fixed: `montecarlo_exponent()` now perturbs every run's
+   val_de and refits, and that interval is what the chroma test uses.
+
+2. **The chroma-conditioned frontier is NOT established.** The job printed
+   "spread EXCEEDS the widest CI", but that was the broken CI. Spread
+   low-vs-mid is 0.082 against +-0.23 intervals. Exactly the power limit this
+   README predicted; read it as such, not as evidence of independence.
+
+3. **alpha is fragile to non-learning points.** Dropping the one point worse
+   than random (C=1e14, d128/se4, val_de 30.86 against ~28.6 for a model
+   emitting nothing usable) moves alpha 0.735 -> 0.908; dropping everything
+   over 20 refuses. Those points sit at the high-N end of the lowest rung
+   where a config gets too few steps to learn at all, which a parabola cannot
+   distinguish from "past N\*".
+
+### The data ladder overturned the epoch ceiling
+
+Not saturation. **Degradation.**
+
+| epochs | val_de | vs minimum |
+|---|---|---|
+| 0.45 | **10.82** | minimum |
+| 0.95 | 11.43 | +0.61 (~1.2 sigma) |
+| 2.01 | 12.50 | +1.68 (~3.3 sigma) |
+| 4.26 | 12.99 | +2.17 (~4.3 sigma) |
+
+Corroborated twice independently: val_loss in the same runs bottoms near one
+epoch and rises after (6.053 at step 34k to 6.14 at step 160k), so it is not
+a dE-only artifact; and **production itself** trained 3 epochs but its
+dE-optimal checkpoint was step 13000 of ~58,600, i.e. **0.67 epochs**.
+
+`EPOCH_CEILING` therefore went from 8.0 to **1.0**, and `build_grid` now
+enforces it instead of merely flagging it. The probe's non-detection was a
+power failure: a ~4.9 dE floor cannot see a 2.2 dE effect.
+
+**This makes the corpus, not the QoS, the binding constraint.** The top
+budget that can still straddle N\* collapses to **1.92e15 at any QoS** --
+1.3 decades. A longer wall clock no longer buys anything, because the limit
+is now how many unique examples exist. Reaching production's ~1e17 with
+points below N\* would need roughly 13 epochs, so about a 10-100x larger
+corpus. That is a data-generation question, not a scheduling one.
+
+**Waves 2-4 as designed are invalid** (2.75e15, 8.29e15 and 2.5e16 all sit
+above 1.92e15, with 2, 3 and 5 of 7 configs past one epoch). Do not submit
+them.
+
+### The open confound, and the cheap experiment that settles it
+
+Every ladder point shared one LR (the law is a function of N alone) and one
+cosine schedule. So "more passes hurt" and "this LR schedule degrades over
+long horizons" are not yet separated. CLAUDE.md records cosine death on the
+finetune line, and production's optimum at 0.67 epochs is equally consistent
+with either. Two deep-end runs with constant or re-tuned LR (~15 GPU-hours)
+decide it, and the answer moves the epoch ceiling and with it the whole
+reachable budget range.
+
+### Two other findings
+
+- **head_dim is a confound against v1.** v1's standout, d128/se3 at val_de
+  9.565, ran `--n-heads 2` (head_dim 64). The ladder's d128/se3 ran
+  `--n-heads 4` (head_dim 32) and got 10.820 at comparable D. Same
+  parameters and FLOPs, different model. The 9.565 has not been reproduced.
+- **`acc_noEOS` is 0.001-0.005 everywhere.** These models essentially never
+  get an exact (slot, thickness) pair right, yet reach val_de ~11 against
+  ~28.6 for a model emitting nothing usable. Being one thickness bin off
+  costs little in dE, so approximate correctness is what is being learned.
+  The metric is working; it is just showing that exact-token accuracy is the
+  wrong lens on this task.
+
+---
+
 ## Known limitations
 
 1. **Lever arm.** Under `qos=short` the ladder reaches 4e15, which is 1.6

@@ -359,13 +359,114 @@ def fit_power_law(budgets: Sequence[float], values: Sequence[float],
     return pl
 
 
+def measure_seed_noise(groups: Dict[float, List[Run]], bucket: str
+                       ) -> Dict[float, Optional[float]]:
+    """Per-budget per-point sigma in val_de, from repeat-seed pairs.
+
+    A repeat arm is the SAME (N, D, C) under a different init, so the two
+    runs differ only by seed and eval draw. For two independent draws
+    Var(delta) = 2*sigma^2, hence sigma = |delta| / sqrt(2).
+
+    Budgets with no repeat arm inherit the nearest budget's sigma in log C,
+    which is better than dropping them: seed noise falls steeply with compute
+    (measured 2.83 / 0.65 / 0.51 dE at 1e14 / 3e14 / 9.1e14), so a rung with
+    no pair of its own is still far better served by its neighbour's figure
+    than by pretending it has none.
+    """
+    out: Dict[float, Optional[float]] = {}
+    for budget, runs in groups.items():
+        by_cfg: Dict[tuple, List[float]] = {}
+        for r in runs:
+            de = r.val_de.get(bucket)
+            if de is None:
+                continue
+            key = (r.config.d_model, r.config.slot_encoder_layers, r.passes)
+            by_cfg.setdefault(key, []).append(de)
+        deltas = [abs(v[0] - v[1]) for v in by_cfg.values() if len(v) >= 2]
+        out[budget] = (float(np.mean(deltas)) / math.sqrt(2.0)
+                       if deltas else None)
+    known = {b: s for b, s in out.items() if s is not None}
+    if known:
+        for b, s in out.items():
+            if s is None:
+                near = min(known, key=lambda k: abs(math.log(k) - math.log(b)))
+                out[b] = known[near]
+    return out
+
+
+def montecarlo_exponent(groups: Dict[float, List[Run]], bucket: str,
+                        sigma: Dict[float, Optional[float]],
+                        min_points: int, min_budgets: int,
+                        allow_extrapolated: bool,
+                        n_draws: int = 4000, seed: int = 0) -> dict:
+    """alpha interval that propagates val_de noise into the parabola fits.
+
+    fit_power_law's bootstrap resamples the (log C, log N*) points. With three
+    rungs that is nearly degenerate, and it carries NO uncertainty from the
+    val_de values each N* was derived from -- so it reported +-0.003 on the
+    Sept 23 wave-1 fit when the real figure, measured below, is about +-0.23.
+    An interval wrong by two orders of magnitude is worse than none, because
+    the chroma-frontier comparison is a test of one spread against it.
+
+    Each draw perturbs every run's val_de by its rung's sigma, refits every
+    parabola, and refits the power law. Draws where any rung refuses (a <= 0,
+    or N* outside the sampled range) are counted, not silently dropped: a high
+    refusal rate means the exponent is not robustly identified at all, which
+    is itself the finding.
+    """
+    if not sigma or all(v is None for v in sigma.values()):
+        return {"status": "no repeat-seed pairs, so no noise estimate"}
+    rng = np.random.default_rng(seed)
+    alphas: List[float] = []
+    refused = 0
+    for _ in range(n_draws):
+        ns, cs = [], []
+        ok = True
+        for budget, runs in sorted(groups.items()):
+            s = sigma.get(budget) or 0.0
+            shifted = []
+            for r in runs:
+                de = r.val_de.get(bucket)
+                if de is None:
+                    continue
+                shifted.append(Run(
+                    path=r.path, config=r.config, n_params=r.n_params,
+                    steps=r.steps, passes=r.passes, flops=r.flops,
+                    val_de={bucket: de + rng.normal(0.0, s)},
+                    val_loss=r.val_loss, epoch_estimate=r.epoch_estimate))
+            f = fit_isoflop(budget, shifted, bucket, min_points)
+            if not f.usable or (f.extrapolated and not allow_extrapolated):
+                ok = False
+                break
+            ns.append(math.log(f.n_star))
+            cs.append(math.log(f.budget))
+        if not ok or len(ns) < min_budgets:
+            refused += 1
+            continue
+        alphas.append(float(np.polyfit(cs, ns, 1)[0]))
+    if len(alphas) < 50:
+        return {"status": f"{refused}/{n_draws} draws refused; alpha is not "
+                          f"robustly identified under the measured noise",
+                "refused_fraction": refused / n_draws}
+    alphas.sort()
+    return {
+        "status": "ok",
+        "median": float(np.median(alphas)),
+        "ci_low": float(np.percentile(alphas, 2.5)),
+        "ci_high": float(np.percentile(alphas, 97.5)),
+        "refused_fraction": refused / n_draws,
+        "sigma_by_budget": {f"{b:.3e}": sigma.get(b) for b in sorted(groups)},
+    }
+
+
 # ============================================================================
 # Reporting
 # ============================================================================
 
 
 def report(fits: Dict[str, List[IsoFlopFit]],
-           laws_n: Dict[str, PowerLaw], laws_d: Dict[str, PowerLaw]) -> None:
+           laws_n: Dict[str, PowerLaw], laws_d: Dict[str, PowerLaw],
+           mc: Optional[Dict[str, dict]] = None) -> None:
     for bucket in [POOLED, *CHROMA_BUCKETS]:
         blist = fits.get(bucket, [])
         if not blist:
@@ -420,6 +521,36 @@ def report(fits: Dict[str, List[IsoFlopFit]],
     pooled = laws_n.get(POOLED)
     bucket_laws = {b: laws_n[b] for b in CHROMA_BUCKETS
                    if b in laws_n and laws_n[b].exponent is not None}
+    # ---- noise-propagated intervals -------------------------------------
+    if mc:
+        print(f"\n{'-' * 84}")
+        print("alpha with val_de NOISE PROPAGATED (the interval to quote)")
+        print("Each draw perturbs every run's val_de by its rung's measured")
+        print("seed sigma, refits every parabola, and refits the power law.")
+        print("The bootstrap CI above resamples the (log C, log N*) points only")
+        print("and carries none of that, so it is far too tight to test anything.")
+        any_sigma = next((m.get("sigma_by_budget") for m in mc.values()
+                          if m.get("sigma_by_budget")), None)
+        if any_sigma:
+            print("  per-rung sigma from repeat-seed pairs: "
+                  + ", ".join(f"C={k}: {v:.2f} dE"
+                              for k, v in any_sigma.items() if v is not None))
+        print(f"\n    {'bucket':>7} {'alpha':>8} {'95% interval':>22} "
+              f"{'width':>7} {'refused':>8}")
+        for b in [POOLED, *CHROMA_BUCKETS]:
+            m = mc.get(b) or {}
+            if m.get("status") != "ok":
+                print(f"    {b:>7} {'--':>8} {'--':>22} {'--':>7} "
+                      f"{m.get('refused_fraction', float('nan')):>7.0%}"
+                      f"   {m.get('status', 'not run')}")
+                continue
+            interval = f"[{m['ci_low']:+.3f}, {m['ci_high']:+.3f}]"
+            print(f"    {b:>7} {m['median']:>+8.3f} {interval:>22} "
+                  f"{m['ci_high'] - m['ci_low']:>7.3f} "
+                  f"{m['refused_fraction']:>7.0%}")
+        print("\n  A high refused fraction means the exponent is not robustly")
+        print("  identified under the noise the runs actually exhibit.")
+
     print(f"\n{'=' * 84}\nCHROMA-CONDITIONED FRONTIER\n{'=' * 84}")
     if len(bucket_laws) < 2:
         print("  Not enough buckets with a usable exponent to compare.")
@@ -429,19 +560,33 @@ def report(fits: Dict[str, List[IsoFlopFit]],
         print("  alpha by bucket: " +
               ", ".join(f"{b}={p.exponent:+.4f}" for b, p in bucket_laws.items()))
         print(f"  spread: {spread:.4f}")
-        widest = max((p.ci_high - p.ci_low) for p in bucket_laws.values()
-                     if p.ci_low is not None) if any(
-            p.ci_low is not None for p in bucket_laws.values()) else None
-        if widest is not None:
-            print(f"  widest single-bucket 95% CI: {widest:.4f}")
+
+        # The test MUST use the noise-propagated width. Using the
+        # resample-only CI declared a chroma-dependent frontier on the Sept 23
+        # wave-1 data purely because that CI was ~150x too tight.
+        widths = [mc[b]["ci_high"] - mc[b]["ci_low"] for b in bucket_laws
+                  if mc and (mc.get(b) or {}).get("status") == "ok"] if mc else []
+        if widths:
+            widest = max(widths)
+            print(f"  widest noise-propagated 95% interval: {widest:.4f}")
             if spread > widest:
-                print("  -> spread EXCEEDS the widest CI: the buckets plausibly "
-                      "have different exponents.")
+                print("  -> spread EXCEEDS it: the buckets plausibly have "
+                      "different exponents.")
             else:
-                print("  -> spread is WITHIN the widest CI: these data do not "
-                      "separate the buckets. Do not claim a chroma-dependent\n"
-                      "     frontier on this evidence; more rungs or more "
-                      "examples per bucket are needed.")
+                print("  -> spread is WITHIN it: these data DO NOT separate the "
+                      "buckets.")
+                print("     Do not claim a chroma-dependent frontier on this "
+                      "evidence. More rungs,")
+                print("     more examples per bucket, or more seeds are needed. "
+                      "A null here is a")
+                print("     power limit, not evidence that the frontier is "
+                      "chroma-independent.")
+        else:
+            print("  No noise-propagated interval available (no repeat-seed "
+                  "pairs), so no test.")
+            print("  Add --repeat-seed arms before comparing buckets; the "
+                  "resample-only CI is")
+            print("  far too tight to support a comparison.")
         if pooled and pooled.exponent is not None:
             print(f"  (pooled alpha for reference: {pooled.exponent:+.4f})")
 
@@ -471,6 +616,9 @@ def main() -> None:
                         "(repeats are a known threat to the fit).")
     p.add_argument("--output", type=str, default=None)
     p.add_argument("--plot", action="store_true")
+    p.add_argument("--n-noise-draws", type=int, default=4000,
+                   help="Monte Carlo draws for the noise-propagated alpha "
+                        "interval; 0 disables it")
     args = p.parse_args()
 
     root = Path(args.runs_root)
@@ -517,7 +665,19 @@ def main() -> None:
                                        [f.d_star for f in d_ok], bucket,
                                        min_budgets=args.min_budgets)
 
-    report(fits, laws_n, laws_d)
+    # Noise-propagated intervals. These are the ones to quote; the bootstrap
+    # inside fit_power_law resamples budget points only.
+    mc: Dict[str, dict] = {}
+    for bucket in [POOLED, *CHROMA_BUCKETS]:
+        sigma = measure_seed_noise(groups, bucket)
+        mc[bucket] = montecarlo_exponent(
+            groups, bucket, sigma,
+            min_points=args.min_sizes_per_budget,
+            min_budgets=args.min_budgets,
+            allow_extrapolated=args.allow_extrapolated,
+            n_draws=args.n_noise_draws)
+
+    report(fits, laws_n, laws_d, mc)
 
     out = Path(args.output) if args.output else root / "scaling_fit.json"
     payload = {
@@ -541,6 +701,9 @@ def main() -> None:
             b: {
                 "N_star": vars(laws_n[b]),
                 "D_star": vars(laws_d[b]),
+                # The interval to quote. N_star.ci_* resamples budget points
+                # only and propagates no val_de uncertainty.
+                "N_star_noise_propagated": mc.get(b),
             } for b in laws_n
         },
         "runs": [{
