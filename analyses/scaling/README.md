@@ -385,6 +385,12 @@ range at 11 of 12. Real IsoFLOP curves exist.
 Pooled alpha = **+0.71, 95% interval [+0.52, +0.98]**, over three rungs and
 one decade. Notably above Chinchilla's 0.5, but only marginally excluding it.
 
+The **low-chroma bucket is the best-determined exponent in the study**:
+alpha = **+0.714, [+0.564, +0.788]**, with **0% of noise draws refused**.
+Low-chroma DeltaE is the least noisy signal, so its parabolas survive
+perturbation where the others do not (mid refuses 38% of draws, high 60%).
+If one number is quoted from wave 1, it should be that one, not the pooled.
+
 Three corrections came out of reading it:
 
 1. **The reported CI was wrong by ~150x.** `fit_power_law`'s bootstrap
@@ -437,15 +443,48 @@ corpus. That is a data-generation question, not a scheduling one.
 above 1.92e15, with 2, 3 and 5 of 7 configs past one epoch). Do not submit
 them.
 
-### The open confound, and the cheap experiment that settles it
+### The confound is closed: it is repetition, not the schedule
 
-Every ladder point shared one LR (the law is a function of N alone) and one
-cosine schedule. So "more passes hurt" and "this LR schedule degrades over
-long horizons" are not yet separated. CLAUDE.md records cosine death on the
-finetune line, and production's optimum at 0.67 epochs is equally consistent
-with either. Two deep-end runs with constant or re-tuned LR (~15 GPU-hours)
-decide it, and the answer moves the epoch ceiling and with it the whole
-reachable budget range.
+DeltaE trajectories recovered from the ladder's own saved checkpoints
+(`scripts/de_trajectory.py`, ~1 GPU-hour, no retraining) settle it. Three
+checks, all against the cosine-death hypothesis:
+
+1. **Both runs peak at 35-38% of their own training**, while the cosine LR is
+   still high. Cosine death peaks late, in the decay tail. This is the
+   opposite shape.
+2. **Degradation is monotone from 2.1 to 4.2 epochs while the LR is
+   decaying.** A decaying LR steadily making things worse is not the schedule
+   failing.
+3. **At matched pass counts, finishing with a fully decayed LR is not
+   systematically better than passing through mid-flight at high LR** (gaps
+   of +1.1, +0.2, -0.3, -0.0 dE on identical data, about 2 sigma either way).
+   If decay were doing the work, finished would win every time.
+
+The 5-epoch run against a 0.51 dE seed sigma:
+
+| epochs | val_de | vs best |
+|---|---|---|
+| 0.56 | 11.726 | 1.8 sigma (plateau) |
+| 1.08 | 11.603 | 1.6 sigma (plateau) |
+| **1.59** | **10.792** | best |
+| 2.10 | 12.249 | 2.9 sigma, significant |
+| 3.64 | 13.000 | 4.3 sigma |
+| 4.15 | 12.974 | 4.3 sigma |
+
+So the optimum is a broad plateau from roughly 0.5 to 1.6 epochs, and
+`EPOCH_CEILING` is **1.5**, between the deepest depth not significantly worse
+than the best (1.59) and the first that is (2.10). The corpus really is the
+binding constraint, and more data is the lever:
+
+| corpus | generation GPU-h | top budget @12h | decades |
+|---|---|---|---|
+| 10M (current) | -- | 3.52e15 | 1.5 |
+| 20M | ~96 | 1.52e16 | 2.2 |
+| **40M** | **~192** | **2.87e16** | **2.5** |
+| 100M | ~480 | 2.87e16 | 2.5 |
+
+4x the corpus reaches production's own budget. Beyond ~40M the wall clock
+takes over again and more data buys nothing, so 40M is the target.
 
 ### Two other findings
 

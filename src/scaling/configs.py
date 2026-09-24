@@ -112,31 +112,39 @@ WALL_MARGIN = 0.80
 
 CORPUS_EXAMPLES = 9_997_312
 
-# Epoch ceiling. REVISED DOWN from 8.0 to 1.0 on Sept 24.
+# Epoch ceiling. 8.0 -> 1.0 (Sept 24, endpoints) -> 1.5 (Sept 24, trajectories).
 #
-# The epoch-ceiling probe reported no detectable degradation up to 8 passes,
-# but against a ~4.9 dE paired noise floor -- a non-detection with limited
-# power, as it was labelled at the time. The fixed-N data ladder then measured
-# the effect directly at one shape (0.97M params) with a ~0.5 dE noise floor,
-# and it is real:
+# The probe's "no degradation to 8 epochs" was a power failure: a ~4.9 dE
+# paired noise floor cannot see a 2 dE effect. The data ladder then measured
+# it directly, and DeltaE trajectories recovered from the ladder's own saved
+# checkpoints (scripts/de_trajectory.py) settled both the size and the cause.
 #
-#     0.45 epochs  val_de 10.82   <- minimum
-#     0.95 epochs  val_de 11.43   (+0.61, ~1.2 sigma, not resolvable)
-#     2.01 epochs  val_de 12.50   (+1.68, ~3.3 sigma)
-#     4.26 epochs  val_de 12.99   (+2.17, ~4.3 sigma)
+# Run B (5 epochs over 8.5M), val_de against a 0.51 dE seed sigma:
 #
-# Corroborated independently by val_loss in the same runs, which bottoms near
-# one epoch and rises after (6.053 at step 34k -> 6.14 at step 160k in the
-# 5-epoch run), so this is not a DeltaE-only artifact.
+#     0.56 ep  11.726     1.8 sigma from best  -- plateau
+#     1.08 ep  11.603     1.6 sigma            -- plateau
+#     1.59 ep  10.792     best
+#     2.10 ep  12.249     2.9 sigma            -- significantly worse
+#     3.64 ep  13.000     4.3 sigma
+#     4.15 ep  12.974     4.3 sigma
 #
-# 1.0 is the deepest depth at which degradation is NOT resolvable, so it is
-# what the evidence supports. CAVEAT: every ladder point shared one LR
-# (the law is a function of N alone) and one cosine schedule, so an LR or
-# schedule effect at long horizons is not excluded -- CLAUDE.md records
-# "cosine death" on the finetune line, and production's own DeltaE optimum sat
-# at ~0.51 epochs. Testing that needs a constant-LR or re-tuned-LR arm at the
-# deep end; until then 1.0 is the conservative reading.
-EPOCH_CEILING = 1.0
+# The cause is repetition, not the LR schedule. Three checks, all against the
+# cosine-death hypothesis CLAUDE.md records on the finetune line:
+#
+#   1. Both runs peak at 35-38% of their own training, while the cosine LR is
+#      still high. Cosine death peaks LATE, in the decay tail.
+#   2. Degradation runs monotonically from 2.1 to 4.2 epochs WHILE the LR is
+#      decaying. A decaying LR steadily making things worse is not the
+#      schedule failing; it is the data running out.
+#   3. At matched pass counts, a run that FINISHED there with a fully decayed
+#      LR is not systematically better than one passing through mid-flight at
+#      high LR (gaps of +1.1, +0.2, -0.3, -0.0 dE, i.e. ~2 sigma either way on
+#      identical data). If decay were doing the work, finished would win every
+#      time.
+#
+# 1.5 sits between the deepest depth not significantly worse than the best
+# (1.59) and the first that is (2.10).
+EPOCH_CEILING = 1.5
 
 # Measured LR optima (scripts/lr_tuning.py, selected on DeltaE, diverged
 # trials excluded). d512's value is the one that survived the divergence

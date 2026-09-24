@@ -121,7 +121,15 @@ def main() -> None:
     ckpts = find_checkpoints(run_dir)
     if not ckpts:
         raise SystemExit(f"no step_* checkpoints with model.pt under {run_dir}")
-    ckpts = ckpts[::max(1, args.every_nth)]
+    # Always keep the LAST checkpoint. Plain [::n] slicing drops it whenever
+    # the count is not a multiple of n, and it silently did: the 39-checkpoint
+    # run reported its "final" as step 62,000 of 78,494, so the trajectory
+    # stopped short of the endpoint the ladder actually recorded.
+    if args.every_nth > 1:
+        thinned = ckpts[::args.every_nth]
+        if thinned[-1] is not ckpts[-1]:
+            thinned.append(ckpts[-1])
+        ckpts = thinned
 
     corpus = args.corpus_examples
     if corpus is None:
