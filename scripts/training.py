@@ -191,12 +191,32 @@ def collate_fn_packed(examples: List[TrainingExample]) -> Dict[str, torch.Tensor
 
 
 def get_lr_schedule(
-    step: int, total_steps: int, base_lr: float, warmup_fraction: float = 0.02
+    step: int, total_steps: int, base_lr: float, warmup_fraction: float = 0.02,
+    schedule: str = "cosine",
 ) -> float:
-    """Linear warmup followed by cosine decay to zero."""
+    """Linear warmup, then cosine decay to zero or a held constant.
+
+    `constant` exists to separate two explanations of the same observation.
+    The fixed-N data ladder found val_de RISING with more passes (10.82 at
+    0.45 epochs, then 11.43, 12.50, 12.99 at 0.95, 2.01, 4.26). Every point
+    ran one cosine cycle over its own horizon at one base LR, so "repeated
+    data hurts" and "a long cosine horizon decays badly" fit equally well.
+    CLAUDE.md records the latter as cosine death on the finetune line, where
+    constant LR held val_de near its peak and cosine peaked then degraded.
+
+    Warmup is unchanged in either mode, so correction #2 (warmup as a FLOP
+    fraction) still holds. Default stays cosine: every result so far was
+    produced with it, and a silent schedule change would make new runs
+    incomparable to them.
+    """
     warmup_steps = int(total_steps * warmup_fraction)
     if step < warmup_steps:
         return base_lr * (step + 1) / max(warmup_steps, 1)
+    if schedule == "constant":
+        return base_lr
+    if schedule != "cosine":
+        raise ValueError(f"unknown lr schedule {schedule!r}; "
+                         f"expected 'cosine' or 'constant'")
     decay_steps = total_steps - warmup_steps
     decay_progress = (step - warmup_steps) / max(decay_steps, 1)
     decay_progress = min(decay_progress, 1.0)
@@ -368,6 +388,7 @@ def run_one_epoch(
     total_steps: int,
     base_lr: float,
     warmup_fraction: float,
+    lr_schedule: str,
     grad_clip: float,
     log_every: int,
     verbose: bool,
@@ -413,7 +434,8 @@ def run_one_epoch(
     samples_since_log = 0
 
     for batch in loader:
-        current_lr = get_lr_schedule(global_step, total_steps, base_lr, warmup_fraction)
+        current_lr = get_lr_schedule(global_step, total_steps, base_lr,
+                                     warmup_fraction, lr_schedule)
         set_lr(optimizer, current_lr)
 
         optimizer.zero_grad()
@@ -609,6 +631,11 @@ def parse_args() -> argparse.Namespace:
                              "consumer the bottleneck.")
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--warmup-fraction", type=float, default=0.02)
+    parser.add_argument("--lr-schedule", type=str, default="cosine",
+                        choices=["cosine", "constant"],
+                        help="post-warmup LR. 'constant' separates a data-"
+                             "repetition effect from long-horizon cosine decay; "
+                             "see get_lr_schedule.")
 
     # Performance knobs
     parser.add_argument("--bf16", action=argparse.BooleanOptionalAction,
@@ -982,6 +1009,7 @@ def main() -> None:
             total_steps=total_steps,
             base_lr=args.lr,
             warmup_fraction=args.warmup_fraction,
+            lr_schedule=args.lr_schedule,
             grad_clip=args.grad_clip,
             log_every=args.log_every,
             verbose=args.verbose,
