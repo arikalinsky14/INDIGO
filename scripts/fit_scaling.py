@@ -735,16 +735,25 @@ def _plot(fits, laws_n, root: Path, path: Path) -> None:
         if not f.n_values:
             continue
         ns = np.array(f.n_values, dtype=float)
-        ax.plot(ns, f.de_values, "o", label=f"C={f.budget:.1e}")
+        # Reuse the points' own colour for this rung's curve and N* marker.
+        # Letting each ax.plot draw the next colour in the cycle put every
+        # rung's parabola in a DIFFERENT colour from its own points, which
+        # made the figure unreadable: the C=1e14 dots came out blue with an
+        # orange curve.
+        line, = ax.plot(ns, f.de_values, "o", label=f"C={f.budget:.1e}")
+        colour = line.get_color()
         if f.coeffs:
             grid = np.geomspace(ns.min(), ns.max(), 100)
-            ax.plot(grid, np.polyval(list(f.coeffs), np.log(grid)), "-", alpha=0.5)
+            ax.plot(grid, np.polyval(list(f.coeffs), np.log(grid)), "-",
+                    color=colour, alpha=0.6)
         if f.usable:
-            ax.axvline(f.n_star, ls=":", alpha=0.4)
+            ax.axvline(f.n_star, ls=":", color=colour, alpha=0.5)
+            ax.plot([f.n_star], [f.de_at_min], "*", color=colour,
+                    markersize=13, markeredgecolor="0.2", markeredgewidth=0.6)
     ax.set_xscale("log")
     ax.set_xlabel("N (parameters)")
     ax.set_ylabel(r"val $\Delta E_{00}$ (median)")
-    ax.set_title("Step 1: IsoFLOP curves")
+    ax.set_title(r"Step 1: IsoFLOP curves  (star = fitted $N^*$ per budget)")
     ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
 
