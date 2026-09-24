@@ -79,6 +79,13 @@ set -euo pipefail
 #
 # ============================================================================
 
+# NOTE: sbatch COPIES this script at submission time, but the Python it calls
+# is read at job start from the submit directory. So `git pull` must happen
+# BEFORE any submit that relies on a new feature of THIS FILE (array mode was
+# added Sept 24, and an array submitted just before the pull ran the old copy,
+# ignored ARRAY_START_SHARD, and re-skipped shards 0-1999 for 30 tasks).
+# Conversely, editing create_dataset/*.py changes what ALREADY-QUEUED tasks do.
+
 module purge
 module load python/pytorch_251_311_cu124
 
@@ -170,6 +177,20 @@ OUTPUT_DIR="${OUTPUT_DIR:-data/train}"
 
 # Parallelism.
 PARALLEL_WORKERS="${PARALLEL_WORKERS:-${SLURM_CPUS_PER_TASK:-32}}"
+
+# Array env vars without --array: the slice would silently collapse to the
+# plain-mode defaults (START_SHARD_ID=0, TOTAL_ROWS=10000000), i.e. a re-run
+# of shards 0-1999. --skip-existing means that destroys nothing, but it burns
+# hours of Python startups skipping an existing corpus. Fail instead.
+if [[ -z "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+  if [[ -n "${ARRAY_START_SHARD:-}" || -n "${SHARDS_PER_TASK:-}" ]]; then
+    echo "ERROR: ARRAY_START_SHARD/SHARDS_PER_TASK are set but this is not an" >&2
+    echo "       array job -- you probably forgot --array=0-N%M on sbatch." >&2
+    echo "       Without it these variables are ignored and the job falls back" >&2
+    echo "       to START_SHARD_ID=${START_SHARD_ID} TOTAL_ROWS=${TOTAL_ROWS}." >&2
+    exit 1
+  fi
+fi
 
 # ----------------------------------------------------------------------------
 # ARRAY MODE
