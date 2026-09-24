@@ -39,8 +39,21 @@ set -euo pipefail
 # Examples
 # --------
 #
-# 1. Production training set (2M rows, default settings):
+# 1. Production training set, default settings (now including
+#    high_chroma_prob=0.2, which is what data/train actually is):
 #    sbatch slurms/generate_data.sh
+#
+# 1b. EXTENDING an existing corpus. Start past the last shard id and keep
+#    every other parameter identical; --skip-existing makes it idempotent,
+#    so a re-run resumes rather than duplicating. Check what you are
+#    extending FIRST -- run_manifest.json is overwritten by each run and
+#    therefore describes only the LAST chunk, so the per-shard sidecars are
+#    the real provenance:
+#      ls data/train/angle_00_substrate_CSi/ | tail -1
+#      python -c "import json;print(json.load(open(
+#        'data/train/angle_00_substrate_CSi/shard_01999.manifest.json')))"
+#    then, for 200 shards starting at 2000:
+#      TOTAL_ROWS=1000000 START_SHARD_ID=2000 sbatch slurms/generate_data.sh
 #
 # 2. Tier-B test set (held-out real materials, 50k rows, disjoint shard IDs):
 #    TOTAL_ROWS=50000 START_SHARD_ID=2000000 \
@@ -108,12 +121,25 @@ LAYER_MAX="${LAYER_MAX:-10}"
 GREYSCALE_THRESHOLD="${GREYSCALE_THRESHOLD:-8.0}"
 GREYSCALE_KEEP_PROB="${GREYSCALE_KEEP_PROB:-0.2}"
 
-# High-chroma-search path — default 0 keeps existing behaviour identical.
-# Target production value HIGH_CHROMA_PROB=0.2 (~20% of dataset), per
-# create_dataset/src/high_chroma_search.py docstring + spec §3.
-# Per-row cost at defaults is ~60× the random-path cost; a full 2M-row
-# run at prob=0.2 adds ~10-14 h on 32 workers over the current baseline.
-HIGH_CHROMA_PROB="${HIGH_CHROMA_PROB:-0.0}"
+# High-chroma-search path. Default is 0.2, the PRODUCTION value, verified
+# against the per-shard sidecars of data/train (shard_NNNNN.manifest.json).
+#
+# It used to default to 0.0 "to keep existing behaviour identical", which was
+# true when this script was written and became a trap once the production
+# corpus was built at 0.2: extending that corpus with the defaults would have
+# appended 30M rows from a DIFFERENT distribution than its first 10M, silently,
+# and confounded every scaling result computed on it. The default now matches
+# what the corpus actually is, so the dangerous case requires an explicit
+# override rather than an omission.
+#
+# Cost: the search path is ~60x the random path per row, so a 2M-row run at
+# prob=0.2 adds ~10-14 h on 32 workers. That is why data/train was generated
+# in 200-shard chunks -- roughly what fits the 3h --qos=short cap. Size new
+# chunks the same way, or use a longer QoS.
+#
+# Set HIGH_CHROMA_PROB=0.0 explicitly for a random-only dataset; it is no
+# longer what you get by forgetting.
+HIGH_CHROMA_PROB="${HIGH_CHROMA_PROB:-0.2}"
 HIGH_CHROMA_CANDIDATE_COUNT="${HIGH_CHROMA_CANDIDATE_COUNT:-24}"
 HIGH_CHROMA_REFINE_ITERS="${HIGH_CHROMA_REFINE_ITERS:-12}"
 HIGH_CHROMA_OPTIMIZER="${HIGH_CHROMA_OPTIMIZER:-dog}"
