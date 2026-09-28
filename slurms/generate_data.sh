@@ -33,8 +33,29 @@ set -euo pipefail
 # one shard at a time. Re-running this script resumes from wherever the
 # previous run stopped.
 #
-# Throughput (rough): a 5000-row shard takes ~5 min on one CPU core. With
-# 32 workers, 2000 shards (10M rows) takes ~5 hours wall time.
+# Throughput. MEASURED by slurms/verify_datagen.sh (job 24169077, Sept 24):
+#
+#     random path  0.135 s/row      search path  8.106 s/row
+#     at HIGH_CHROMA_PROB=0.2 the average is 1.729 s/row
+#     -> 2.40 CORE-HOURS per 5000-row shard
+#     -> 10M rows on 32 workers = 150 h (6.3 days)
+#
+# The "~5 min per shard, ~5 hours for 10M" figure this comment used to give
+# was for the RANDOM path only, i.e. HIGH_CHROMA_PROB=0. At the production
+# 0.2 it is ~30x that, because the search path costs 60x per row and takes a
+# fifth of the rows. Sizing --time from the old number killed all 30 tasks of
+# the first extension array at their 6h limit, each ~64 shards into 200.
+#
+# Size --time from 2.40 core-hours per shard:
+#
+#     SHARDS_PER_TASK / 32 workers * 2.40 h  =  hours needed
+#     200 shards -> 15.0 h    (use --time=24:00:00, the CRC maximum)
+#     100 shards ->  7.5 h    (use --time=12:00:00)
+#
+# A task killed at its limit leaves up to 32 TRUNCATED parquets, one per
+# in-flight worker, which --skip-existing then skips forever. Run
+#   sbatch slurms/check_corpus.sh      (then --delete-bad)
+# after any run that hit TIME_LIMIT, before resubmitting.
 #
 # Examples
 # --------

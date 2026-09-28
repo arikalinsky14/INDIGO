@@ -59,6 +59,12 @@ def main() -> None:
     p.add_argument("--expect-rows-per-shard", type=int, default=5000)
     p.add_argument("--skip-footers", action="store_true",
                    help="skip the per-file row-count read (sidecar check only)")
+    p.add_argument("--delete-bad", action="store_true",
+                   help="delete every flagged shard (parquet AND sidecar) so a "
+                        "resubmit regenerates it; --skip-existing would "
+                        "otherwise skip a truncated shard forever")
+    p.add_argument("--dry-run", action="store_true",
+                   help="with --delete-bad, list what would be deleted")
     args = p.parse_args()
 
     root = Path(args.data_dir)
@@ -165,7 +171,29 @@ def main() -> None:
         print("  written, and --skip-existing will then skip it forever. Leave")
         print("  margin, and re-run this script afterwards.")
 
-    sys.exit(1 if (no_sidecar or bad) else 0)
+    # ---- cleanup ---------------------------------------------------------
+    doomed = sorted({s for s in no_sidecar} | {s for s, _ in bad})
+    if doomed and args.delete_bad:
+        print(f"\n{'DRY RUN: would delete' if args.dry_run else 'DELETING'} "
+              f"{len(doomed)} flagged shard(s) and their sidecars")
+        freed = 0
+        for f in doomed:
+            side = f.with_suffix(".manifest.json")
+            freed += f.stat().st_size if f.exists() else 0
+            if not args.dry_run:
+                f.unlink(missing_ok=True)
+                side.unlink(missing_ok=True)
+        verb = "would free" if args.dry_run else "freed"
+        print(f"  {verb} {human(freed)}")
+        if not args.dry_run:
+            print("  Resubmit the array; --skip-existing regenerates exactly these ids.")
+    elif doomed:
+        print(f"\n{len(doomed)} flagged shard(s). Re-run with --delete-bad to "
+              f"remove them (and\ntheir sidecars) so a resubmit regenerates "
+              f"them; --skip-existing will otherwise\nskip a truncated shard "
+              f"forever.")
+
+    sys.exit(1 if doomed else 0)
 
 
 if __name__ == "__main__":
