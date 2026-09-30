@@ -96,7 +96,7 @@ def emit_command(cfg: SweepConfig, data_dir: str, out_root: str,
             "LIMIT_DE_EXAMPLES": str(de_examples),
             "DE_EVERY": str(de_every), "DE_ON_EPOCH_END": "0",
             "SAVE_EVERY": str(save_every), "NUM_WORKERS": str(num_workers),
-            "SEED": str(seed),
+            "SEED": str(seed), "BETA2": f"{cfg.beta2:g}",
         }
         return [f"{k}={v}" for k, v in env.items()] + ["sbatch", "slurms/training.sh"]
 
@@ -107,6 +107,7 @@ def emit_command(cfg: SweepConfig, data_dir: str, out_root: str,
         "--n-heads", str(n_heads),
         "--slot-encoder-layers", str(cfg.slot_encoder_layers),
         "--decoder-layers", "1", "--lr", f"{cfg.lr:.6e}",
+        "--beta2", f"{cfg.beta2:g}",
         "--batch-size", str(cfg.batch_size), "--epochs", str(cfg.epochs),
         "--limit-examples", str(cfg.limit_examples),
         "--limit-shard-aligned", "--streaming",

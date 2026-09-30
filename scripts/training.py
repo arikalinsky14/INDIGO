@@ -619,6 +619,12 @@ def parse_args() -> argparse.Namespace:
     # Training hyperparameters
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=4.42e-5)
+    parser.add_argument("--beta1", type=float, default=0.9,
+        help="AdamW beta1")
+    parser.add_argument("--beta2", type=float, default=0.999,
+        help="AdamW beta2. Swept rather than assumed since Porian "
+             "et al. 2024 find it matters at small batch size; "
+             "src/scaling/configs.py supplies the tuned value.")
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=4)
@@ -826,7 +832,9 @@ def main() -> None:
     if args.bf16:
         print(f"[INFO] bf16 autocast: on")
 
-    optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = AdamW(model.parameters(), lr=args.lr,
+                      betas=(args.beta1, args.beta2),
+                      weight_decay=args.weight_decay)
 
     if args.save_dir:
         save_dir = Path(args.save_dir)

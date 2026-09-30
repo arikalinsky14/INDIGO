@@ -41,8 +41,13 @@ or a faster data path; neither is a code change here.
 
 from __future__ import annotations
 
+import json
 import math
+import os
+from collections import Counter
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -229,6 +234,85 @@ def lr_for(n: float, law: Optional[Tuple[float, float]] = None) -> float:
     return float(math.exp(a) * n ** b)
 
 
+# ---------------------------------------------------------------------------
+# Tuned hyperparameter laws (Porian et al. 2024 protocol)
+# ---------------------------------------------------------------------------
+# MEASURED_LR above is what the sweep ran on. Under the bracketing test in
+# src/scaling/porian.py none of its three points qualifies: two came from a
+# three-point grid whose only interior point is the second and second-to-last
+# at once, and the third landed on its grid's lower bound. Batch size and
+# AdamW beta2 were never tuned at all.
+#
+# slurms/lr_grid.sh runs the grid properly and scripts/fit_lr_law.py fits
+# lr(N), bs(N) and, where the dataset-size axis was swept, lr(N, D). When that
+# fit exists on disk it is used; until then everything falls back to the old
+# law, unchanged, so nothing about the existing sweep moves silently. Point
+# TUNED_LAWS_PATH at the fit, or set it to a path that does not exist to force
+# the fallback.
+TUNED_LAWS_PATH = os.environ.get(
+    "TUNED_LAWS_PATH", "analyses/scaling/results/lr_law_fit.json")
+
+
+@lru_cache(maxsize=1)
+def tuned_laws() -> Optional[dict]:
+    """The fitted hyperparameter laws, or None when they have not been run."""
+    path = Path(TUNED_LAWS_PATH)
+    if not path.is_file():
+        return None
+    try:
+        with open(path) as fh:
+            fit = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    out = {}
+    for key in ("lr_vs_n", "bs_vs_n"):
+        law = fit.get(key)
+        if isinstance(law, dict) and "exponent" in law:
+            out[key] = (float(law["coef"]), float(law["exponent"]))
+    two_d = fit.get("lr_vs_n_and_d")
+    if isinstance(two_d, dict) and two_d.get("status") == "ok":
+        out["lr_vs_n_and_d"] = (float(two_d["coef"]), float(two_d["n_exponent"]),
+                                float(two_d["d_exponent"]))
+    b2 = [c.get("beta2_star") for c in fit.get("configs", [])
+          if c.get("usable") and c.get("beta2_star") is not None]
+    if b2:
+        out["beta2"] = float(Counter(b2).most_common(1)[0][0])
+    return out or None
+
+
+def tuned_lr_for(n: float, d: Optional[float] = None) -> Optional[float]:
+    """Tuned learning rate, preferring the two-dimensional law when we have it
+    and the dataset size is known. None when no tuned law exists yet."""
+    laws = tuned_laws()
+    if not laws:
+        return None
+    if d is not None and "lr_vs_n_and_d" in laws:
+        a, b, c = laws["lr_vs_n_and_d"]
+        return float(a * n ** b * d ** c)
+    if "lr_vs_n" in laws:
+        a, b = laws["lr_vs_n"]
+        return float(a * n ** b)
+    return None
+
+
+def batch_size_for(n: float, default: int = DEFAULT_BATCH_SIZE) -> int:
+    """Tuned batch size, snapped to a power of two. Falls back to the fixed
+    DEFAULT_BATCH_SIZE, which is what every INDIGO run has used so far."""
+    laws = tuned_laws()
+    if not laws or "bs_vs_n" not in laws:
+        return default
+    a, b = laws["bs_vs_n"]
+    raw = a * n ** b
+    return int(2 ** round(math.log2(max(raw, 1.0))))
+
+
+def beta2_for(n: float, default: float = 0.999) -> float:
+    """Tuned AdamW beta2. Default 0.999 is torch's, and what INDIGO has always
+    run; Porian et al. report it matters at the small batch sizes we use."""
+    laws = tuned_laws()
+    return laws["beta2"] if laws and "beta2" in laws else default
+
+
 def n_heads_for(d_model: int) -> int:
     """Head count under the ladder's fixed-head-dim policy.
 
@@ -300,6 +384,9 @@ class SweepConfig:
     est_wall_sec: float
     nominal_multiple: float
     seed: Optional[int] = None
+    # AdamW beta2. Constant until slurms/lr_grid.sh has run;
+    # beta2_for() then supplies the tuned value.
+    beta2: float = 0.999
 
     @property
     def aspect(self) -> float:
@@ -443,7 +530,9 @@ def build_grid(
         return SweepConfig(
             budget=budget, target_n=target, n_params=n, d_model=d,
             slot_encoder_layers=sel, n_heads=n_heads_for(d),
-            lr=lr_for(n, law), batch_size=batch_size, passes=passes,
+            lr=(tuned_lr_for(n, passes) or lr_for(n, law)),
+            batch_size=batch_size_for(n, batch_size),
+            beta2=beta2_for(n), passes=passes,
             steps=steps, epochs=epochs,
             limit_examples=(steps // epochs) * batch_size,
             epochs_over_corpus=passes / corpus,
@@ -562,7 +651,9 @@ def build_data_ladder(
         out.append(SweepConfig(
             budget=per_ex * passes, target_n=float(n), n_params=n,
             d_model=d_model, slot_encoder_layers=slot_encoder_layers,
-            n_heads=n_heads_for(d_model), lr=lr_for(n, law),
+            n_heads=n_heads_for(d_model),
+            lr=(tuned_lr_for(n, passes) or lr_for(n, law)),
+            beta2=beta2_for(n),
             batch_size=batch_size, passes=passes, steps=steps, epochs=epochs,
             limit_examples=(steps // epochs) * batch_size,
             epochs_over_corpus=passes / corpus,
@@ -631,10 +722,28 @@ def max_feasible_budget(span: float = DEFAULT_SPAN,
 def describe(grid: Sequence[SweepConfig], corpus: int = CORPUS_EXAMPLES,
              wall_cap_sec: Optional[float] = None) -> str:
     a, b = fit_lr_law()
+    laws = tuned_laws()
+    if laws:
+        parts = []
+        if "lr_vs_n_and_d" in laws:
+            c0, c1, c2 = laws["lr_vs_n_and_d"]
+            parts.append(f"lr(N,D) = {c0:.3e} * N^{c1:.4f} * D^{c2:.4f}")
+        elif "lr_vs_n" in laws:
+            c0, c1 = laws["lr_vs_n"]
+            parts.append(f"lr(N) = {c0:.3e} * N^{c1:.4f}")
+        if "bs_vs_n" in laws:
+            c0, c1 = laws["bs_vs_n"]
+            parts.append(f"bs(N) = {c0:.3g} * N^{c1:.4f}")
+        if "beta2" in laws:
+            parts.append(f"beta2 = {laws['beta2']:g}")
+        header = ("Tuned laws (" + TUNED_LAWS_PATH + "): " + ";  ".join(parts))
+    else:
+        header = (f"LR law: lr(N) = {math.exp(a):.3e} * N^{b:.4f}   "
+                  f"(fit to {len(MEASURED_LR)} measured points; exponent "
+                  f"weakly determined. No tuned laws at {TUNED_LAWS_PATH}; "
+                  f"run slurms/lr_grid.sh then scripts/fit_lr_law.py)")
     lines = [
-        f"LR law: lr(N) = {math.exp(a):.3e} * N^{b:.4f}   "
-        f"(fit to {len(MEASURED_LR)} measured points; exponent weakly "
-        f"determined -- see module docstring)",
+        header,
         "",
         f"{'config':<30} {'N':>11} {'asp':>5} {'lr':>9} {'D (passes)':>12} "
         f"{'steps':>8} {'ep':>6} {'wall':>7} {'mult':>6}",

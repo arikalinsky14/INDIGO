@@ -180,6 +180,9 @@ COMPILE="${COMPILE:-0}"                       # torch.compile(model). First batc
                                               # is slow to trace; subsequent ~1.3x.
 
 # -------------------- Optimization --------------------
+BETA2="${BETA2:-0.999}"                       # AdamW beta2. Tuned per
+                                              # scale once lr_grid.sh has
+                                              # run; see fit_lr_law.py.
 LR="${LR:-6e-5}"                              # PRODUCTION default LR for the
                                               # cross_attn head. If you flip
                                               # HEAD_MODE=mlp, bump this to ~1.44e-3
@@ -267,6 +270,7 @@ ARGS=(
 
   # Optimization
   --lr "${LR}"
+  --beta2 "${BETA2}"
   --weight-decay "${WEIGHT_DECAY}"
   --grad-clip "${GRAD_CLIP}"
   --warmup-fraction "${WARMUP_FRACTION}"

@@ -100,6 +100,11 @@ class LRSearchResult:
     final_val_de_p95: Optional[float] = None
     final_val_de_by_chroma: Optional[dict] = None
     de_result: Optional[dict] = None
+    # AdamW betas this trial ran with. Porian et al. 2024 report that beta2
+    # tuning is essential at low batch size, so it is a swept axis rather
+    # than a constant and has to travel with the result.
+    beta1: float = 0.9
+    beta2: float = 0.999
 
     @property
     def diverged(self) -> bool:
@@ -168,6 +173,7 @@ def train_with_lr(
     de_limit: int = 0,
     de_simulator=None,
     seed: int = 42,
+    betas: Tuple[float, float] = (0.9, 0.999),
 ) -> LRSearchResult:
     # Re-seed before EVERY trial, not once for the sweep. Seeding once would
     # give trial 1 one initialisation, trial 2 another, and so on -- so the
@@ -177,7 +183,8 @@ def train_with_lr(
     # differences between them are attributable to the LR.
     set_seed(seed)
     model = build_model(config).to(device)
-    optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer = AdamW(model.parameters(), lr=lr, betas=betas,
+                      weight_decay=weight_decay)
 
     active_collate = collate_fn_packed if packed_tf else collate_fn
     loss_fn = compute_loss_packed if packed_tf else compute_loss
@@ -273,6 +280,8 @@ def train_with_lr(
         final_val_de_p95=de_result["delta_e_p95"] if scored else None,
         final_val_de_by_chroma=de_result.get("by_chroma") if scored else None,
         de_result=de_result,
+        beta1=betas[0],
+        beta2=betas[1],
     )
 
 
@@ -300,6 +309,7 @@ def lr_tuning(
     de_simulator=None,
     selection_metric: str = "delta_e",
     seed: int = 42,
+    betas: Tuple[float, float] = (0.9, 0.999),
 ) -> Tuple[float, List[LRSearchResult]]:
     lrs = np.logspace(np.log10(lr_min), np.log10(lr_max), n_lrs)
     print(f"\n{'=' * 70}")
@@ -329,7 +339,7 @@ def lr_tuning(
             log_every=log_every, verbose=verbose,
             packed_tf=packed_tf, bf16=bf16,
             de_examples=de_examples, de_limit=de_limit,
-            de_simulator=de_simulator, seed=seed,
+            de_simulator=de_simulator, seed=seed, betas=betas,
         )
         results.append(result)
         de_str = ("" if result.final_val_de is None
@@ -429,6 +439,14 @@ def main() -> None:
                         help="Stream dataset shard-by-shard (recommended at "
                              "production scale; the legacy mode OOMs).")
 
+    parser.add_argument("--beta1", type=float, default=0.9,
+                        help="AdamW beta1")
+    parser.add_argument("--beta2", type=float, default=0.999,
+                        help="AdamW beta2. Porian et al. 2024 sweep "
+                             "{0.95, 0.99, 0.999} and report that tuning it "
+                             "matters at small batch sizes, which is the "
+                             "regime INDIGO trains in. Torch's default, and "
+                             "INDIGO's until now, is the top of that range.")
     parser.add_argument("--lr-min", type=float, default=1e-5)
     parser.add_argument("--lr-max", type=float, default=1e-2)
     parser.add_argument("--n-lrs", type=int, default=8)
@@ -565,6 +583,7 @@ def main() -> None:
                   f"(greedy), scored once per LR", flush=True)
 
     optimal_lr, results = lr_tuning(
+        betas=(args.beta1, args.beta2),
         epochs=args.epochs,
         train_dataset=train_dataset, val_dataset=val_dataset,
         config=config, device=device,
@@ -636,7 +655,7 @@ def main() -> None:
     # sweep the per-config tuning protocol needs.
     tag = (f"ep{args.epochs}_lim{n_train}"
            f"_d{args.d_model}_se{args.slot_encoder_layers}"
-           f"_bs{args.batch_size}")
+           f"_bs{args.batch_size}_b2{args.beta2:g}")
     results_file = output_dir / f"lr_search_{tag}.json"
     with open(results_file, "w") as f:
         json.dump({
@@ -659,6 +678,8 @@ def main() -> None:
             "decoder_layers": args.decoder_layers,
             "n_params": n_params_saved,
             "batch_size": args.batch_size,
+            "beta1": args.beta1,
+            "beta2": args.beta2,
             "weight_decay": args.weight_decay,
             "grad_clip": args.grad_clip,
             "warmup_fraction": args.warmup_fraction,

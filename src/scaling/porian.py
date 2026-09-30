@@ -50,6 +50,7 @@ thresholds, calibrated for LM cross-entropy (sigma 0.002 to 0.05 over loss 3 to
 """
 from __future__ import annotations
 
+from collections import defaultdict as collections_defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -428,3 +429,90 @@ def tuned_optimum(grid_values: Sequence[float], losses: Sequence[float],
     grid, y_grid, idx = akima_argmin(xs, ys, interp_multiplier)
     best = float(grid[idx])
     return best, bool(best < xs[1] or best > xs[-2])
+
+
+@dataclass
+class HParamOptimum:
+    """One configuration's tuned hyperparameters, after nested minimisation."""
+    n_params: int
+    lr: float
+    batch_size: float
+    beta2: Optional[float]
+    value: float
+    lr_on_edge: bool
+    bs_on_edge: bool
+    n_cells: int
+
+    @property
+    def usable(self) -> bool:
+        """Both axes must have bracketed. An optimum sitting at a grid
+        endpoint is a wall the sweep hit, not a minimum it found."""
+        return not (self.lr_on_edge or self.bs_on_edge)
+
+
+def nested_hparam_optimum(cells: Sequence[Dict[str, float]], n_params: int,
+                          value_key: str = "value",
+                          interp_multiplier: int = INTERP_MULTIPLIER
+                          ) -> HParamOptimum:
+    """Their `get_interpolated_hparams_dfs`, for one model size.
+
+    `cells` are the sweep's (lr, batch_size, beta2, value) records. The
+    minimisation nests exactly as theirs does:
+
+      1. beta2 is collapsed first, by taking the best cell at each (bs, lr).
+         It is categorical with three levels, so there is nothing to
+         interpolate along.
+      2. Within each batch size, the learning-rate optimum is the Akima argmin
+         over lr, giving lr*(bs) and the value there.
+      3. Across batch sizes, the same applies to that value, giving bs*. lr* at
+         bs* comes from interpolating lr*(bs), which is how they carry the
+         inner optimum out to the outer one rather than re-reading a grid cell.
+
+    Both stages carry their `on_edge` flag, and `usable` requires both to have
+    bracketed.
+    """
+    by_bs: Dict[float, List[Dict[str, float]]] = collections_defaultdict(list)
+    for c in cells:
+        by_bs[float(c["batch_size"])].append(c)
+
+    bs_list, lr_at_bs, val_at_bs, edge_at_bs, beta_at_bs = [], [], [], [], []
+    for bs in sorted(by_bs):
+        group = by_bs[bs]
+        best_at_lr: Dict[float, Dict[str, float]] = {}
+        for c in group:                      # collapse beta2
+            lr = float(c["lr"])
+            if lr not in best_at_lr or c[value_key] < best_at_lr[lr][value_key]:
+                best_at_lr[lr] = c
+        lrs = sorted(best_at_lr)
+        vals = [best_at_lr[x][value_key] for x in lrs]
+        if len(lrs) < 2:
+            continue
+        lr_star, on_edge = tuned_optimum(lrs, vals, interp_multiplier)
+        if len(lrs) >= 3:
+            grid, y_grid, idx = akima_argmin(lrs, vals, interp_multiplier)
+            v_star = float(y_grid[idx])
+        else:
+            v_star = float(min(vals))
+        bs_list.append(bs)
+        lr_at_bs.append(lr_star)
+        val_at_bs.append(v_star)
+        edge_at_bs.append(on_edge)
+        beta_at_bs.append(best_at_lr[min(best_at_lr, key=lambda x:
+                                         best_at_lr[x][value_key])].get("beta2"))
+
+    if not bs_list:
+        raise ValueError(f"N={n_params}: no batch size had two learning rates")
+
+    if len(bs_list) < 3:
+        # One or two batch sizes cannot bracket; report the better and say so.
+        j = int(np.argmin(val_at_bs))
+        return HParamOptimum(n_params, lr_at_bs[j], bs_list[j], beta_at_bs[j],
+                             val_at_bs[j], edge_at_bs[j], True, len(cells))
+
+    bs_star, bs_edge = tuned_optimum(bs_list, val_at_bs, interp_multiplier)
+    lb = np.log(bs_list)
+    lr_star = float(np.exp(np.interp(np.log(bs_star), lb, np.log(lr_at_bs))))
+    grid, y_grid, idx = akima_argmin(bs_list, val_at_bs, interp_multiplier)
+    j = int(np.argmin(np.abs(np.asarray(bs_list) - bs_star)))
+    return HParamOptimum(n_params, lr_star, bs_star, beta_at_bs[j],
+                         float(y_grid[idx]), edge_at_bs[j], bs_edge, len(cells))

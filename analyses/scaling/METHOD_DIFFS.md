@@ -33,6 +33,14 @@ runs in total. That single row explains most of what follows.
 
 ---
 
+## How the tuned laws reach the sweep
+
+`src/scaling/configs.py` loads `analyses/scaling/results/lr_law_fit.json` when
+it exists and falls back to the old three-point law when it does not, so
+nothing about the existing sweep moves until the grid has actually been run.
+The dry run says which law is in force. Set `TUNED_LAWS_PATH` to point
+elsewhere, or at a path that does not exist to force the fallback.
+
 ## Differences that are now fixed
 
 ### 1. Parabola vs Akima spline  **(the big one)**
@@ -154,18 +162,35 @@ floor of zero as though it were measured. Pinning the floor needs more budgets
 
 ## Differences that remain open
 
-### A. Batch size is never tuned  **(largest remaining gap)**
+### A. Batch size  **(now implemented, awaiting the run)**
 
 They sweep 5 to 7 batch sizes per model size, spanning 64x, and minimise over
-that axis before fitting. We fix `batch_size = 256` everywhere and never look.
-Their optimum moves with scale, so a fixed batch size is a scale-dependent
-handicap of unknown sign.
+that axis before fitting. INDIGO fixed `batch_size = 256` everywhere and never
+looked, so a moving optimum was a scale-dependent handicap of unknown sign.
 
-### B. AdamW beta2 is never tuned
+`nested_hparam_optimum` now does their nested minimisation: beta2 collapses
+first, then the learning rate within each batch size, then the batch size
+across them, carrying the inner optimum out by interpolation rather than
+re-reading a grid cell. `scripts/fit_lr_law.py` fits `bs(N)` alongside `lr(N)`,
+and `batch_size_for()` in `src/scaling/configs.py` supplies it to the sweep.
 
-They sweep three values and report that tuning beta2 is **essential at lower
-batch sizes**. We run the default at batch 256, which is at the small end of
-their grid: exactly the regime they flag.
+Critically, D is held fixed **in examples** while batch size varies, so steps
+adjust and every cell sees the same data. That matches their design: within a
+model size their token budget is constant to within 1% across all 64 to 112
+cells. Varying batch size at fixed *steps* instead would change D and confound
+the two axes.
+
+### B. AdamW beta2  **(now implemented, awaiting the run)**
+
+They sweep {0.95, 0.99, 0.999} and report that tuning beta2 is **essential at
+lower batch sizes**. INDIGO ran torch's default of 0.999, the top of that
+range, at batch 256, which is the small end of their grid: exactly the regime
+they flag.
+
+Neither `lr_tuning.py` nor `training.py` exposed the betas at all. Both do now,
+the grid sweeps beta2 as its own axis, and `beta2_for()` supplies the tuned
+value. Stage 1 of `slurms/lr_grid.sh` exists to answer whether it moves: if it
+is flat, stages 2 and 3 drop to one value and get three times cheaper.
 
 ### C. Constant LR versus cosine decay
 
@@ -180,8 +205,9 @@ LR means something different at different D. Under a constant LR it does not.
 Covered at length in the meeting doc. Theirs is arguably not a "law in N" at
 all: they tune at the configurations they then use, so whatever D dependence
 exists is absorbed into each tuned optimum. We extrapolate one N-only law to
-configurations never tuned at, spanning 9x in D at fixed N. `slurms/lr_grid.sh`
-plus the 2-D fit in `scripts/fit_lr_law.py` measures the exponent.
+configurations never tuned at, spanning 9x in D at fixed N. Stage 3 of `slurms/lr_grid.sh` plus the 2-D fit in `scripts/fit_lr_law.py`
+measures the exponent, and `tuned_lr_for(n, d)` prefers the two-dimensional law
+over the one-dimensional one wherever the dataset size is known.
 
 ### E. Budget count and spacing
 
