@@ -155,14 +155,15 @@ OUT_ROOT="${OUT_ROOT:-data/checkpoints/scaling_sweep}"
 BUDGETS="${BUDGETS:-1e14 4e14 1.4e15 4e15}"
 SPAN="${SPAN:-10}"
 POINTS="${POINTS:-6}"
-REPEAT_SEED="${REPEAT_SEED:-43}"
+REPEAT_SEEDS="${REPEAT_SEEDS:-43 44}"
 MAX_WALL_HOURS="${MAX_WALL_HOURS:-}"
 DATA_LADDER="${DATA_LADDER:-}"
 BATCH_SIZE="${BATCH_SIZE:-256}"
 SEED="${SEED:-42}"
 
 GRID_ARGS="--budgets ${BUDGETS} --span ${SPAN} --points ${POINTS} --batch-size ${BATCH_SIZE}"
-[[ -n "${REPEAT_SEED}" ]] && GRID_ARGS="${GRID_ARGS} --repeat-seed ${REPEAT_SEED}"
+[[ -n "${CORPUS:-}" ]] && GRID_ARGS="${GRID_ARGS} --corpus ${CORPUS}"
+[[ -n "${REPEAT_SEEDS}" ]] && GRID_ARGS="${GRID_ARGS} --repeat-seeds ${REPEAT_SEEDS}"
 [[ -n "${MAX_WALL_HOURS}" ]] && GRID_ARGS="${GRID_ARGS} --max-wall-hours ${MAX_WALL_HOURS}"
 [[ -n "${DATA_LADDER}" ]] && GRID_ARGS="${GRID_ARGS} --data-ladder"
 LIMIT_DE_EXAMPLES="${LIMIT_DE_EXAMPLES:-2048}"
@@ -202,6 +203,38 @@ if not OPTICAL_SIM_AVAILABLE:
           file=sys.stderr)
     sys.exit(1)
 "
+echo
+
+# CORPUS_EXAMPLES vs what is actually on disk. The grid divides passes by
+# this number to decide each config's epochs, and the epoch ceiling is a hard
+# filter on which sizes are feasible, so a stale value silently mis-sizes
+# every rung. It went stale the moment data/train grew from 10M to 40M rows,
+# and the only symptom would have been rungs quietly refusing to straddle
+# their own optimum. Reads parquet footers only, so it costs seconds.
+python - "${DATA_DIR}" <<'PYEOF'
+import sys
+sys.path.insert(0, ".")
+from pathlib import Path
+from src.dataset import scan_files
+from src.scaling.configs import CORPUS_EXAMPLES
+
+total = sum(f.nrows for f in scan_files(Path(sys.argv[1])))
+train = int(0.9995 * total)                # matches src/dataset.py's split
+print(f"corpus on disk: {total:,} rows -> train split {train:,}")
+print(f"CORPUS_EXAMPLES in src/scaling/configs.py: {CORPUS_EXAMPLES:,}")
+if abs(train - CORPUS_EXAMPLES) / max(train, 1) > 0.02:
+    print("", file=sys.stderr)
+    print(f"ERROR: CORPUS_EXAMPLES is stale by "
+          f"{abs(train - CORPUS_EXAMPLES) / train:.0%}.", file=sys.stderr)
+    print(f"       Set it to {train:,} in src/scaling/configs.py, or pass",
+          file=sys.stderr)
+    print(f"       CORPUS={train} to this script.", file=sys.stderr)
+    print("       Left stale, the epoch ceiling filters the wrong sizes and",
+          file=sys.stderr)
+    print("       rungs stop straddling their own optimum.", file=sys.stderr)
+    sys.exit(1)
+print("corpus size agrees with CORPUS_EXAMPLES (within 2%)")
+PYEOF
 echo
 
 N_CONFIGS=$(python scripts/scaling_sweep.py --n-configs ${GRID_ARGS})

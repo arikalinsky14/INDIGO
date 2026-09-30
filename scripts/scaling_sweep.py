@@ -143,8 +143,11 @@ def main() -> None:
                    help="ratio of largest to smallest N within a budget")
     p.add_argument("--points", type=int, default=DEFAULT_POINTS,
                    help="sizes per budget")
-    p.add_argument("--repeat-seed", type=int, default=None,
-                   help="re-run each rung's middle size under this second seed")
+    p.add_argument("--repeat-seeds", type=int, nargs="*", default=None,
+                   help="extra seeds for each rung's middle size. Two gives a "
+                        "variance estimate with 2 dof instead of 1; wave 1 ran "
+                        "one and the noise MC then refused 38%% of mid-chroma "
+                        "draws and 60%% of high.")
     p.add_argument("--max-wall-hours", type=float, default=None,
                    help="override the 3h --qos=short cap when a longer QoS is available")
     p.add_argument("--data-ladder", action="store_true",
@@ -177,7 +180,7 @@ def main() -> None:
     else:
         grid = build_grid(args.budgets, span=args.span, points=args.points,
                           batch_size=args.batch_size, corpus=args.corpus,
-                          wall_cap_sec=cap, repeat_seed=args.repeat_seed)
+                          wall_cap_sec=cap, repeat_seeds=args.repeat_seeds)
 
     if args.n_configs:
         print(len(grid))

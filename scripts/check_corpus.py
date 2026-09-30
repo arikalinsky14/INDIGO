@@ -134,6 +134,15 @@ def main() -> None:
                     bad.append((s, f"{n} rows, expected "
                                    f"{args.expect_rows_per_shard}"))
             print(f"  total rows     : {rows:,}")
+            # Derive the split exactly as src/dataset.py does, so there is one
+            # authoritative source for CORPUS_EXAMPLES. Getting it wrong
+            # silently mis-sizes every rung's epoch arithmetic, because the
+            # grid divides passes by this number to decide how many epochs a
+            # config needs.
+            train = int(0.9995 * rows)
+            print(f"  train split    : {train:,}   <- set CORPUS_EXAMPLES "
+                  f"in src/scaling/configs.py to THIS")
+            print(f"  validation     : {rows - train:,}")
             if bad:
                 print(f"  {len(bad)} shard(s) short or unreadable:")
                 for s, why in bad[:10]:

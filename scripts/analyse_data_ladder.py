@@ -36,7 +36,7 @@ points can fake either one alone.
 Noise
 -----
 --noise-de is the paired run-to-run spread in val_de at fixed config, which
-the IsoFLOP sweep's --repeat-seed arms measure. It has no default on purpose:
+the IsoFLOP sweep's --repeat-seeds arms measure. It has no default on purpose:
 calling a curve flat is a statement about noise, and inventing a figure for
 it is how the epoch-ceiling probe first reported a ceiling that did not
 exist. Without it this script reports slopes and refuses to call saturation.
@@ -227,7 +227,7 @@ def report(points: Sequence[Point], skipped: Sequence[str],
     if noise is None:
         print("\nNo --noise-de supplied, so no verdict. Slopes are above.")
         print("Pass the paired run-to-run spread from the IsoFLOP sweep's")
-        print("--repeat-seed arms. Calling a curve flat is a claim about noise,")
+        print("--repeat-seeds arms. Calling a curve flat is a claim about noise,")
         print("and inventing a noise figure is how the epoch-ceiling probe first")
         print("reported a ceiling that did not exist.")
     else:

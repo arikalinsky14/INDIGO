@@ -350,6 +350,7 @@ def feasible_n_window(
     sizes: Sequence[Tuple[int, int, int]],
     batch_size: int = DEFAULT_BATCH_SIZE,
     wall_cap_sec: Optional[float] = None,
+    corpus: int = CORPUS_EXAMPLES,
 ) -> Tuple[Optional[int], Optional[int]]:
     """Smallest and largest ladder N whose run fits the wall cap at this budget.
 
@@ -368,7 +369,7 @@ def feasible_n_window(
         passes = budget / train_flops_per_example(cfg)
         if passes < batch_size:
             continue                      # fewer than one step
-        if passes > EPOCH_CEILING * CORPUS_EXAMPLES:
+        if passes > EPOCH_CEILING * corpus:
             continue                      # past the measured repeat-depth limit
         if estimate_wall_sec(int(passes)) <= cap:
             if lo is None:
@@ -385,7 +386,7 @@ def build_grid(
     corpus: int = CORPUS_EXAMPLES,
     lr_law: Optional[Tuple[float, float]] = None,
     wall_cap_sec: Optional[float] = None,
-    repeat_seed: Optional[int] = None,
+    repeat_seeds: Optional[Sequence[int]] = None,
 ) -> List[SweepConfig]:
     """One IsoFLOP rung per budget, `points` sizes spanning `span` x in N.
 
@@ -393,10 +394,17 @@ def build_grid(
     (never narrowed) to stay inside the wall-clock window otherwise, so every
     rung keeps the full span needed for curvature to be visible.
 
-    `repeat_seed` re-runs each rung's middle size under a second seed. Those
-    pairs are the only way to put an error bar on a fitted N*: v1 had no
-    repeats, so when its per-budget val_de spread fell to 1.04 units at the
-    top rung there was no way to tell signal from eval noise.
+    `repeat_seeds` re-runs each rung's middle size under each extra seed. Those
+    repeats are the only way to put an error bar on a fitted N*: v1 had no
+    repeats at all, so when its per-budget val_de spread fell to 1.04 units at
+    the top rung there was no way to tell signal from eval noise.
+
+    ONE extra seed per rung is not enough. Wave 1 ran one, which estimates each
+    rung's sigma from a single |delta|, and that estimate is itself so noisy
+    that the Monte Carlo over it refused 38% of draws for the mid chroma bucket
+    and 60% for high. Two extra seeds give three runs per point and a variance
+    estimate with 2 degrees of freedom instead of 1, at the cost of one more
+    config per rung.
     """
     law = lr_law or fit_lr_law()
     sizes = achievable_sizes()
@@ -431,7 +439,8 @@ def build_grid(
         )
 
     for budget in budgets:
-        floor_n, ceil_n = feasible_n_window(budget, sizes, batch_size, wall_cap_sec)
+        floor_n, ceil_n = feasible_n_window(budget, sizes, batch_size,
+                                            wall_cap_sec, corpus)
         if floor_n is None:
             continue                      # no size at this budget fits the wall
         n_star = chinchilla_n_star(budget)
@@ -461,9 +470,13 @@ def build_grid(
 
         for n, d, sel, mult in chosen:
             grid.append(make(budget, mult * n_star, n, d, sel, mult, None))
-        if repeat_seed is not None and chosen:
+        # Repeats go on the rung's MIDDLE size: it sits nearest the parabola's
+        # minimum, which is the point N* is most sensitive to, and it is never
+        # one of the undertrained corners whose noise is unrepresentative.
+        if repeat_seeds and chosen:
             n, d, sel, mult = chosen[len(chosen) // 2]
-            grid.append(make(budget, mult * n_star, n, d, sel, mult, repeat_seed))
+            for seed in repeat_seeds:
+                grid.append(make(budget, mult * n_star, n, d, sel, mult, seed))
     return grid
 
 
@@ -576,7 +589,8 @@ def describe_data_ladder(ladder: Sequence[SweepConfig],
 
 def max_feasible_budget(span: float = DEFAULT_SPAN,
                         batch_size: int = DEFAULT_BATCH_SIZE,
-                        wall_cap_sec: Optional[float] = None) -> float:
+                        wall_cap_sec: Optional[float] = None,
+                        corpus: int = CORPUS_EXAMPLES) -> float:
     """Largest budget whose feasible N window is still `span` wide.
 
     Not the same question v1 asked. v1 pinned the rung to the Chinchilla prior
@@ -590,7 +604,8 @@ def max_feasible_budget(span: float = DEFAULT_SPAN,
     lo, hi = 1e12, 1e19
     for _ in range(120):
         mid = math.sqrt(lo * hi)
-        floor_n, ceil_n = feasible_n_window(mid, sizes, batch_size, wall_cap_sec)
+        floor_n, ceil_n = feasible_n_window(mid, sizes, batch_size,
+                                            wall_cap_sec, corpus)
         ok = (floor_n is not None and ceil_n is not None
               and ceil_n >= floor_n * span)
         if ok:
@@ -686,14 +701,14 @@ def _main() -> None:
     p.add_argument("--span", type=float, default=DEFAULT_SPAN)
     p.add_argument("--points", type=int, default=DEFAULT_POINTS)
     p.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
-    p.add_argument("--repeat-seed", type=int, default=None)
+    p.add_argument("--repeat-seeds", type=int, nargs="*", default=None)
     p.add_argument("--max-wall-hours", type=float, default=None,
                    help="override the 3h --qos=short cap when a longer QoS is available")
     args = p.parse_args()
     cap = args.max_wall_hours * 3600 * WALL_MARGIN if args.max_wall_hours else None
     print(describe(build_grid(args.budgets, span=args.span, points=args.points,
                               batch_size=args.batch_size,
-                              wall_cap_sec=cap, repeat_seed=args.repeat_seed)))
+                              wall_cap_sec=cap, repeat_seeds=args.repeat_seeds)))
 
 
 if __name__ == "__main__":

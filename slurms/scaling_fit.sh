@@ -44,7 +44,7 @@ set -euo pipefail
 #                  it would read them as one-point budgets and refuse.
 #   MODE=all       fit, then ladder. What to run once every job is done.
 #
-# BUDGETS/SPAN/POINTS/REPEAT_SEED must MATCH the sweep submission in dry-run mode,
+# BUDGETS/SPAN/POINTS/REPEAT_SEEDS must MATCH the sweep submission in dry-run mode,
 # or the grid this prints will not be the grid that ran. In fit mode they are
 # unused: the fit reads N and C back out of each run's own config.json and
 # history.jsonl, so it cannot silently inherit a stale grid.
@@ -77,12 +77,12 @@ OUT_ROOT="${OUT_ROOT:-data/checkpoints/scaling_sweep}"
 BUDGETS="${BUDGETS:-1e14 4e14 1.4e15 4e15}"
 SPAN="${SPAN:-10}"
 POINTS="${POINTS:-6}"
-REPEAT_SEED="${REPEAT_SEED:-43}"
+REPEAT_SEEDS="${REPEAT_SEEDS:-43 44}"
 MAX_WALL_HOURS="${MAX_WALL_HOURS:-}"
 BATCH_SIZE="${BATCH_SIZE:-256}"
 
 GRID_ARGS="--budgets ${BUDGETS} --span ${SPAN} --points ${POINTS} --batch-size ${BATCH_SIZE}"
-[[ -n "${REPEAT_SEED}" ]] && GRID_ARGS="${GRID_ARGS} --repeat-seed ${REPEAT_SEED}"
+[[ -n "${REPEAT_SEEDS}" ]] && GRID_ARGS="${GRID_ARGS} --repeat-seeds ${REPEAT_SEEDS}"
 [[ -n "${MAX_WALL_HOURS}" ]] && GRID_ARGS="${GRID_ARGS} --max-wall-hours ${MAX_WALL_HOURS}"
 
 # The fit reads whichever val_de the run recorded. "final" is the honest

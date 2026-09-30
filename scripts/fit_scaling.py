@@ -382,9 +382,19 @@ def measure_seed_noise(groups: Dict[float, List[Run]], bucket: str
                 continue
             key = (r.config.d_model, r.config.slot_encoder_layers, r.passes)
             by_cfg.setdefault(key, []).append(de)
-        deltas = [abs(v[0] - v[1]) for v in by_cfg.values() if len(v) >= 2]
-        out[budget] = (float(np.mean(deltas)) / math.sqrt(2.0)
-                       if deltas else None)
+        # With exactly 2 runs the only estimator available is the paired
+        # difference: Var(delta) = 2*sigma^2, so sigma = |delta|/sqrt(2). That
+        # is 1 degree of freedom and is itself very noisy -- wave 1 ran one
+        # repeat per rung and the Monte Carlo over the resulting sigma refused
+        # 38% of mid-chroma draws and 60% of high. With 3 or more runs, use the
+        # sample standard deviation instead.
+        sigmas = []
+        for v in by_cfg.values():
+            if len(v) >= 3:
+                sigmas.append(float(np.std(v, ddof=1)))
+            elif len(v) == 2:
+                sigmas.append(abs(v[0] - v[1]) / math.sqrt(2.0))
+        out[budget] = float(np.mean(sigmas)) if sigmas else None
     known = {b: s for b, s in out.items() if s is not None}
     if known:
         for b, s in out.items():
@@ -584,7 +594,7 @@ def report(fits: Dict[str, List[IsoFlopFit]],
         else:
             print("  No noise-propagated interval available (no repeat-seed "
                   "pairs), so no test.")
-            print("  Add --repeat-seed arms before comparing buckets; the "
+            print("  Add --repeat-seeds arms before comparing buckets; the "
                   "resample-only CI is")
             print("  far too tight to support a comparison.")
         if pooled and pooled.exponent is not None:
