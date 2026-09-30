@@ -529,6 +529,14 @@ def main() -> None:
         decoder_layers=args.decoder_layers,
     )
 
+    # Parameter count, recorded alongside the optimum so the LR law can be
+    # fitted against N without re-deriving the architecture from the filename.
+    try:
+        from src.scaling.flops import n_params as _n_params
+        n_params_saved = int(_n_params(config))
+    except Exception:                       # analysis convenience, never fatal
+        n_params_saved = None
+
     # Default packed_tf to head_mode == 'cross_attn' if not set.
     packed_tf = args.packed_tf if args.packed_tf is not None else (args.head_mode == "cross_attn")
     if packed_tf and args.head_mode == "mlp":
@@ -622,7 +630,13 @@ def main() -> None:
     # Tag output filenames with the train-subset size so multi-N runs
     # (the scaling-law workflow) don't clobber each other.
     n_train = len(train_dataset)
-    tag = f"ep{args.epochs}_lim{n_train}"
+    # The architecture MUST be in the filename. Without it, a sweep over model
+    # sizes at one dataset size writes every size into lr_search_ep1_lim<N>.json
+    # and each run silently overwrites the last, which is exactly the shape of
+    # sweep the per-config tuning protocol needs.
+    tag = (f"ep{args.epochs}_lim{n_train}"
+           f"_d{args.d_model}_se{args.slot_encoder_layers}"
+           f"_bs{args.batch_size}")
     results_file = output_dir / f"lr_search_{tag}.json"
     with open(results_file, "w") as f:
         json.dump({
@@ -641,6 +655,9 @@ def main() -> None:
             "n_heads": args.n_heads,
             "d_model": args.d_model,
             "n_layers": args.n_layers,
+            "slot_encoder_layers": args.slot_encoder_layers,
+            "decoder_layers": args.decoder_layers,
+            "n_params": n_params_saved,
             "batch_size": args.batch_size,
             "weight_decay": args.weight_decay,
             "grad_clip": args.grad_clip,
