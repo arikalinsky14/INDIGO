@@ -16,8 +16,10 @@ Seed-averaged, not min-over-runs: the minimum of 8 runs is biased downward and
 the bias grows with how many seeds a config had. The 2.75e15 rung's raw
 minimum of 9.17 is one seed of a three-seed cluster averaging 10.04.
 """
-import json, sys, math, collections
+import json, sys, math, collections, pathlib
 import numpy as np
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+from src.scaling import porian as P
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -31,13 +33,25 @@ by_b = collections.defaultdict(list)
 for r in d["runs"]:
     by_b[min(d["budgets"], key=lambda x: abs(x - r["flops"]))].append(r)
 
-def isoflop(pts, val):
-    x = np.log([p["n_params"] for p in pts]); y = np.array([val(p) for p in pts])
-    a, b, c = np.polyfit(x, y, 2)
-    if a <= 0: return None
-    ns = math.exp(-b / (2*a))
-    lo, hi = min(p["n_params"] for p in pts), max(p["n_params"] for p in pts)
-    return ns if lo <= ns <= hi else None
+def noise_for(val):
+    """Seed noise for this metric, from the repeat-seed clusters."""
+    g = collections.defaultdict(list)
+    for r in d["runs"]:
+        g[(round(r["flops"], -11), r["n_params"])].append(val(r))
+    return P.NoiseModel.from_clusters(list(g.values()))
+
+
+def rungs_for(val):
+    """Every rung under the full estimator: Akima, boundary rejection,
+    seed-noise bootstrap. Same code path as section 4 of the write-up, so the
+    exponents here and there cannot drift apart."""
+    noise = noise_for(val)
+    return [P.fit_rung(b, [p["n_params"] for p in by_b[b]],
+                       [val(p) for p in by_b[b]],
+                       d_vals=[p["passes"] for p in by_b[b]], noise=noise,
+                       rng=np.random.default_rng(0))
+            for b in sorted(by_b)]
+
 
 def seed_avg_best(pts, val):
     g = collections.defaultdict(list)
@@ -45,8 +59,11 @@ def seed_avg_best(pts, val):
     return min(sum(v)/len(v) for v in g.values())
 
 buds = sorted(by_b)
-ce_ns = [(b, isoflop(by_b[b], lambda p: p["val_loss"])) for b in buds]
-de_ns = [(b, isoflop(by_b[b], lambda p: p["val_de"]["pooled"])) for b in buds]
+ce_rungs = rungs_for(lambda p: p["val_loss"])
+de_rungs = rungs_for(lambda p: p["val_de"]["pooled"])
+ce_ns = [(r.budget, r.n_star_median if r.usable else None) for r in ce_rungs]
+de_ns = [(r.budget, r.n_star_median if r.usable else None) for r in de_rungs]
+SIGMA = {id(ce_rungs): ce_rungs, id(de_rungs): de_rungs}
 ce_best = [seed_avg_best(by_b[b], lambda p: p["val_loss"]) for b in buds]
 de_best = [seed_avg_best(by_b[b], lambda p: p["val_de"]["pooled"]) for b in buds]
 
@@ -61,10 +78,12 @@ for ax in axes:
 # ---- A: N*(C), both metrics -------------------------------------------------
 ax = axes[0]
 alphas = {}
-for pts, col, lab in ((ce_ns, CE_C, "cross-entropy"), (de_ns, DE_C, r"$\Delta E_{00}$")):
-    ok = [(b, n) for b, n in pts if n]
-    xs = [b for b, _ in ok]; ys = [n for _, n in ok]
-    al = np.polyfit(np.log(xs), np.log(ys), 1)[0]
+for rungs, col, lab in ((ce_rungs, CE_C, "cross-entropy"),
+                        (de_rungs, DE_C, r"$\Delta E_{00}$")):
+    ok = [r for r in rungs if r.usable]
+    xs = [r.budget for r in ok]; ys = [r.n_star_median for r in ok]
+    # 1/sigma^2 weighted, as in their step-2 fit.
+    al = P.power_law_fit(xs, ys, [r.log_sigma for r in ok]).exponent
     alphas[lab] = al
     ax.plot(xs, ys, "-o", color=col, linewidth=2.2, markersize=9,
             markeredgecolor=SURF, markeredgewidth=1.5, zorder=3,
