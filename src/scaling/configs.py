@@ -110,7 +110,20 @@ QOS_SHORT_SEC = 3 * 3600
 # recover it because most configs are a single epoch.
 WALL_MARGIN = 0.80
 
-CORPUS_EXAMPLES = 9_997_312
+# Train-split size of data/train, from scripts/check_corpus.py reading every
+# parquet footer (job 24226399): 40,000,000 total rows, 8,000 shards, no gaps,
+# split 0.9995/0.0005 exactly as src/dataset.py does it.
+#
+# Was 9_997_312 for the 10M corpus. The extension to 40M (Sept 24-30,
+# high_chroma_prob=0.2 throughout, verified uniform against the per-shard
+# sidecars) is what lets the top two rungs straddle their own optimum: against
+# the old constant the 8.29e15 rung came back 1-below/5-above and 2.5e16 was
+# fully one-sided and unfittable.
+#
+# slurms/scaling_sweep.sh re-checks this against DATA_DIR before dispatching,
+# because a stale value silently mis-sizes every rung's epoch arithmetic and
+# the only symptom is rungs quietly failing to bracket their minimum.
+CORPUS_EXAMPLES = 39_980_000
 
 # Epoch ceiling. 8.0 -> 1.0 (Sept 24, endpoints) -> 1.5 (Sept 24, trajectories).
 #

@@ -486,6 +486,33 @@ binding constraint, and more data is the lever:
 4x the corpus reaches production's own budget. Beyond ~40M the wall clock
 takes over again and more data buys nothing, so 40M is the target.
 
+### The 40M corpus (generated Sept 24-30)
+
+Done. `data/train` is 8,000 shards, ids 0-7999, no gaps, 40,000,000 rows,
+every shard at its expected count, train split 39,980,000. Generated at
+`high_chroma_prob=0.2` throughout, verified uniform against the per-shard
+sidecars before the extension began -- the top-level `run_manifest.json` is
+overwritten by each run and described only shards 1800-1999, so it could not
+be trusted for that.
+
+Measured cost, which the script header had wrong by 30x (it quoted the
+random-path figure): the search path is 8.106 s/row against 0.135 s/row
+random, so at p=0.2 the average is 1.729 s/row = **2.40 core-hours per
+5000-row shard**. Sizing `--time` from the old number killed all 30 tasks of
+the first extension array at their 6h limit. No shard was corrupted by those
+kills: each is ~2.4 h of computation followed by a write of seconds, so the
+window for a kill to land mid-write is ~0.1%.
+
+What it bought, and the reason it was worth 14,400 core-hours:
+
+| rung | at the old 10M corpus | at 40M |
+|---|---|---|
+| 8.29e15 | 1 below / 5 above | **3 / 3** |
+| 2.50e16 | 0 / 6, ONE-SIDED | **3 / 3** |
+
+All six rungs now bracket their own optimum, where the top two previously
+could not be fitted at all.
+
 ### Two other findings
 
 - **head_dim is a confound against v1.** v1's standout, d128/se3 at val_de
