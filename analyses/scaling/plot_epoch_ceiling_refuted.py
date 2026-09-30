@@ -58,7 +58,7 @@ eps = sorted(r["passes"] / CORPUS for r in runs)
 ax.scatter(eps, range(len(eps)), s=26, color=BLUE, edgecolor=SURF,
            linewidth=1.0, zorder=3)
 ax.axvline(1.0, color=ACCENT, linewidth=2, zorder=2)
-ax.text(0.97, 25, "1 epoch — first repeat", color=ACCENT, fontsize=9.5,
+ax.text(0.97, 25, "1 epoch: first repeat", color=ACCENT, fontsize=9.5,
         rotation=90, va="center", ha="right")
 ax.axvline(1.5, color=INK2, linewidth=1.3, linestyle=(0, (4, 3)), zorder=2)
 ax.text(1.47, 25, "old EPOCH_CEILING", color=INK2, fontsize=9.5,
@@ -101,10 +101,10 @@ for k, n in enumerate(multi):
     if k % 3 == 0: ax.set_ylabel(r"val $\Delta E_{00}$", color=INK2, fontsize=9)
 
 fig.text(0.012, 0.975,
-         "Degradation is NOT caused by repeating data — the epoch-ceiling theory is refuted",
+         "Degradation is NOT caused by repeating data: the epoch-ceiling theory is refuted",
          color=INK, fontsize=14, ha="left", va="top")
 fig.text(0.30, 0.925,
-         "All 9 sizes the sweep trained at 2+ budgets — none hand-picked "
+         "All 9 sizes the sweep trained at 2+ budgets, none hand-picked "
          r"($\star$ = that size's best)",
          color=INK, fontsize=11, ha="left", va="top")
 fig.text(0.30, 0.887,

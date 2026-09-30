@@ -104,7 +104,7 @@ for ax, vals, col, name, unit in (
     ax.set_xscale("log")
     ax.set_xlabel("C (FLOPs)", color=INK, fontsize=10.5)
     ax.set_ylabel(unit + "  (lower is better)", color=INK, fontsize=10.5)
-    ax.set_title(name + " — turns at the same budget", color=INK,
+    ax.set_title(name + ": turns at the same budget", color=INK,
                  fontsize=11.5, loc="left", pad=8)
 
 fig.text(0.006, 0.975,
