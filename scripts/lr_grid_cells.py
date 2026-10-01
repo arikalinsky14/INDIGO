@@ -57,8 +57,23 @@ def sweep_n_range(fit: dict) -> tuple[int, int]:
     return int(min(ns)), int(max(ns))
 
 
-def cells_for(stage: int, fit_path: str, beta2: float) -> list[dict]:
+def cells_for(stage, fit_path: str, beta2: float) -> list[dict]:
     fit = json.load(open(fit_path))
+
+    if stage == "probe":
+        # One mid-ladder size, one learning rate, a short budget. The only
+        # question is examples per second.
+        #
+        # It exists because stage 1 was sized at the planner's 1301 ex/s and
+        # ran at a median of 204, so every cell hit its wall. The sweep itself
+        # reaches 2171 ex/s on the same shards, so the gap is contention or
+        # configuration rather than a floor, and the difference decides whether
+        # the rest of the tuning costs 20 GPU-hours or 200. Run it alone:
+        # --array=0-0, nothing else of yours queued.
+        rungs_ = [r for r in fit["by_metric"]["pooled"]["rungs"] if r.get("usable")]
+        n, d, se = nearest_config(rungs_[len(rungs_) // 2]["n_star_median"])
+        return [{"n_params": n, "d_model": d, "se": se, "D": 614_400,
+                 "beta2": beta2}]
 
     if stage == 1:
         # Both ends of the ladder the SWEEP uses, not of every achievable
@@ -104,7 +119,10 @@ def cells_for(stage: int, fit_path: str, beta2: float) -> list[dict]:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--stage", type=int, required=True, choices=(1, 2, 3))
+    p.add_argument("--stage", required=True, choices=("probe", "1", "2", "3"),
+                   help="'probe' is one cell at one learning rate: it measures "
+                        "throughput and nothing else, and decides whether the "
+                        "rest is affordable.")
     p.add_argument("--fit", default="analyses/scaling/results/porian_fit.json")
     p.add_argument("--beta2", type=float, default=0.99)
     p.add_argument("--format", choices=("lines", "table"), default="lines")
@@ -124,18 +142,21 @@ def main() -> None:
     p.add_argument("--n-lrs", type=int, default=7)
     a = p.parse_args()
 
-    cells = cells_for(a.stage, a.fit, a.beta2)
+    stage = a.stage if a.stage == "probe" else int(a.stage)
+    cells = cells_for(stage, a.fit, a.beta2)
+    n_lrs = 1 if stage == "probe" else a.n_lrs
     if a.format == "lines":
         for c in cells:
             print(f"{c['d_model']} {c['se']} {c['D']} {c['beta2']:g}")
         return
 
-    print(f"STAGE {a.stage}: {len(cells)} cells")
+    print(f"STAGE {a.stage}: {len(cells)} cell(s), "
+          f"{n_lrs} learning rate(s) each")
     print(f"{'idx':>4} {'model':<12} {'N':>11} {'D':>12} {'M = D/N':>9} "
           f"{'beta2':>6} {'GPU-h':>7}")
     total = 0.0
     for i, c in enumerate(cells):
-        h = a.n_lrs * c["D"] / a.rate / 3600
+        h = n_lrs * c["D"] / a.rate / 3600
         total += h
         print(f"{i:>4} d{c['d_model']}/se{c['se']:<8} {c['n_params']:>11,} "
               f"{c['D']:>12,} {c['D'] / c['n_params']:>9.2f} "
@@ -146,7 +167,7 @@ def main() -> None:
     # The first stage-1 submission was estimated at 0.9h per cell against a
     # 6h wall and still hit the limit.
     MARGIN = 0.6
-    hours = [a.n_lrs * c["D"] / a.rate / 3600 for c in cells]
+    hours = [n_lrs * c["D"] / a.rate / 3600 for c in cells]
     at_risk = [h for h in hours if h > a.wall_hours * MARGIN]
     if at_risk:
         worst = max(hours)

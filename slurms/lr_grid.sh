@@ -153,6 +153,8 @@ from src.scaling.configs import DEFAULT_BATCH_SIZE; print(DEFAULT_BATCH_SIZE)')"
 fi
 
 STAGE="${STAGE:-1}"
+# The probe runs ONE learning rate; every other stage runs the full grid.
+[[ "${STAGE}" == "probe" ]] && N_LRS=1
 FIT="${FIT:-analyses/scaling/results/porian_fit.json}"
 BETA2_WINNER="${BETA2_WINNER:-0.99}"
 
@@ -162,7 +164,10 @@ SELECTION_METRIC="${SELECTION_METRIC:-delta_e}"
 HEAD_MODE="${HEAD_MODE:-cross_attn}"
 DATA_DIR="${DATA_DIR:-/ix1/ohinder/ajk245/Github/INDIGO/data/train}"
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/${HEAD_MODE}}"
-EXAMPLES_PER_SEC="${EXAMPLES_PER_SEC:-1301}"
+# MEASURED on the first stage-1 submission (median of 227 step samples), not
+# the 1301 the sweep planner assumes. Sizing against 1301 is what put every
+# cell into its wall. Raise it once a probe shows the contention is gone.
+EXAMPLES_PER_SEC="${EXAMPLES_PER_SEC:-204}"
 
 # Stage 3 varies the multiplier inside ONE run by scoring at fractions of it,
 # which is only valid with a constant LR; lr_tuning.py refuses it otherwise.
