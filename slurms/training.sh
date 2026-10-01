@@ -94,6 +94,45 @@ DATA_DIR="${DATA_DIR:-}"                   # Path to a parquet-shards directory;
                                            # <repo>/data/train
 SPLIT="${SPLIT:-train}"                    # Dataset split (train/validation)
 LIMIT_EXAMPLES="${LIMIT_EXAMPLES:-}"       # Limit to N examples (for testing)
+LIMIT_SHARD_ALIGNED="${LIMIT_SHARD_ALIGNED:-0}"   # 1 = draw LIMIT_EXAMPLES from
+                                           # whole shards rather than the first
+                                           # N of the global shuffle. Streaming
+                                           # reads a full ~140MB table per shard
+                                           # touched, so a scattered limit
+                                           # re-reads the whole corpus EVERY
+                                           # epoch. Set 1 whenever
+                                           # LIMIT_EXAMPLES is much smaller
+                                           # than the corpus.
+LIMIT_VAL_EXAMPLES="${LIMIT_VAL_EXAMPLES:-5000}"  # Examples per val-loss (CE) eval.
+                                           # 5000 = the full 0.05% val split.
+                                           # 0 disables CE val entirely.
+LIMIT_DE_EXAMPLES="${LIMIT_DE_EXAMPLES:-256}"     # Examples per DeltaE_00 eval.
+                                           # DeltaE is the metric that matters
+                                           # (CE/DeltaE decoupling is verified
+                                           # on INDIGO), so this is on by
+                                           # default. Costs ~50ms/example of
+                                           # optical sim plus the decode: a few
+                                           # percent at the default cadence.
+                                           # 0 disables.
+DE_EVERY="${DE_EVERY:-0}"                  # DeltaE cadence in steps. 0 = every
+                                           # save tick (SAVE_EVERY). Use a
+                                           # multiple of SAVE_EVERY on short
+                                           # runs where the eval would
+                                           # otherwise dominate wall time.
+DE_ON_EPOCH_END="${DE_ON_EPOCH_END:-1}"    # 1 (default) = also run a DeltaE
+                                           # eval at every epoch boundary.
+                                           # 0 = only at the cadence and the
+                                           # final save, so an 8-epoch run
+                                           # does not pay 8x the eval cost of
+                                           # a 1-epoch run.
+DE_SAMPLE="${DE_SAMPLE:-0}"                # 1 = temperature-sample the DeltaE
+                                           # eval; 0 (default) = greedy, so the
+                                           # metric is deterministic across
+                                           # checkpoints. NOTE de_curve.sh
+                                           # defaults the OTHER way
+                                           # (SAMPLE_PREDICTIONS=1), so its
+                                           # curves are on a different scale.
+DE_TEMPERATURE="${DE_TEMPERATURE:-1.0}"    # Temperature when DE_SAMPLE=1.
 SEED="${SEED:-42}"                         # Random seed
 
 # -------------------- Model Architecture --------------------
@@ -141,6 +180,9 @@ COMPILE="${COMPILE:-0}"                       # torch.compile(model). First batc
                                               # is slow to trace; subsequent ~1.3x.
 
 # -------------------- Optimization --------------------
+BETA2="${BETA2:-0.999}"                       # AdamW beta2. Tuned per
+                                              # scale once lr_grid.sh has
+                                              # run; see fit_lr_law.py.
 LR="${LR:-6e-5}"                              # PRODUCTION default LR for the
                                               # cross_attn head. If you flip
                                               # HEAD_MODE=mlp, bump this to ~1.44e-3
@@ -228,6 +270,7 @@ ARGS=(
 
   # Optimization
   --lr "${LR}"
+  --beta2 "${BETA2}"
   --weight-decay "${WEIGHT_DECAY}"
   --grad-clip "${GRAD_CLIP}"
   --warmup-fraction "${WARMUP_FRACTION}"
@@ -249,6 +292,24 @@ if [[ "${BF16}" == "1" ]]; then
   ARGS+=(--bf16)
 else
   ARGS+=(--no-bf16)
+fi
+
+if [[ "${LIMIT_SHARD_ALIGNED}" == "1" ]]; then
+  ARGS+=(--limit-shard-aligned)
+fi
+ARGS+=(--limit-val-examples "${LIMIT_VAL_EXAMPLES}")
+ARGS+=(--limit-de-examples "${LIMIT_DE_EXAMPLES}")
+ARGS+=(--de-every "${DE_EVERY}")
+ARGS+=(--de-temperature "${DE_TEMPERATURE}")
+if [[ "${DE_SAMPLE}" == "1" ]]; then
+  ARGS+=(--de-sample)
+else
+  ARGS+=(--no-de-sample)
+fi
+if [[ "${DE_ON_EPOCH_END}" == "1" ]]; then
+  ARGS+=(--de-on-epoch-end)
+else
+  ARGS+=(--no-de-on-epoch-end)
 fi
 
 # PACKED_TF tri-state: "" = auto (python picks per head), "1" = force on,
@@ -325,6 +386,8 @@ echo "  feature mode:    ${FEATURE_MODE}"
 echo "  encoder hidden:  ${ENCODER_HIDDEN}"
 echo "  encoder out:     ${ENCODER_OUT}"
 echo "  d_model:         ${D_MODEL}"
+echo "  val (CE) examples:  ${LIMIT_VAL_EXAMPLES}"
+echo "  val (dE) examples:  ${LIMIT_DE_EXAMPLES} (every ${DE_EVERY:-save_every} steps, sample=${DE_SAMPLE})"
 echo "  n_layers:        ${N_LAYERS}"
 echo "  dropout:         ${DROPOUT}"
 echo "  Output dim:      3201 (M_MAX=32 * NUM_THICKNESSES=100 + EOS)"

@@ -40,6 +40,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
+from functools import lru_cache
+
 import numpy as np
 import pyarrow.parquet as pq
 import torch
@@ -119,7 +121,23 @@ def find_repo_root(start: Optional[Path] = None) -> Path:
     raise FileNotFoundError("Could not find repository root")
 
 
+# scan_files opens every shard to read its row count, which is a few thousand
+# metadata reads on a network filesystem. A single training run builds three
+# datasets (train, val, DeltaE), so without this the same scan runs three
+# times and dominates startup. Keyed by resolved path; a run never changes its
+# shards underneath itself. Call scan_files.cache_clear() if that ever stops
+# being true.
+@lru_cache(maxsize=16)
+def _scan_files_cached(resolved: str) -> Tuple[FileMeta, ...]:
+    return tuple(_scan_files_uncached(Path(resolved)))
+
+
 def scan_files(data_prompts_dir: Path) -> List[FileMeta]:
+    """Cached wrapper. See `_scan_files_uncached` for the real work."""
+    return list(_scan_files_cached(str(Path(data_prompts_dir).resolve())))
+
+
+def _scan_files_uncached(data_prompts_dir: Path) -> List[FileMeta]:
     """Enumerate `layers_N_angle_A_substrate_S/seed_X.parquet` files.
 
     Identical convention to the original CHROMA-Lite scan_files. The
@@ -263,12 +281,14 @@ class FlexThinFilmDataset(IterableDataset):
         split: str = "train",
         verbose: bool = False,
         limit_examples: Optional[int] = None,
+        limit_shard_aligned: bool = False,
         streaming: bool = False,
     ):
         self.seed = seed
         self.split = split
         self.verbose = verbose
         self.limit_examples = limit_examples
+        self.limit_shard_aligned = limit_shard_aligned
         self.streaming = streaming
 
         data_prompts_dir = Path(data_prompts_dir)
@@ -302,9 +322,44 @@ class FlexThinFilmDataset(IterableDataset):
         self.order = perm[int(start_frac * total_rows):int(end_frac * total_rows)]
 
         if limit_examples is not None and limit_examples < len(self.order):
-            self.order = self.order[:limit_examples]
-            if verbose:
-                print(f"[Dataset] Limited to first {limit_examples} examples")
+            if limit_shard_aligned:
+                # Take WHOLE SHARDS until we have enough rows, then truncate
+                # to exactly limit_examples.
+                #
+                # Why: `self.order` is a global shuffle, so its first N rows
+                # are scattered across every shard. `_iter_streaming` reads a
+                # full ~140 MB parquet table per shard it touches, so a small
+                # limit spread over 2000 shards reads the ENTIRE corpus to
+                # yield a fraction of it -- e.g. 76,800 of 10M rows still
+                # reads all 2000 shards, ~280 GB, and does it again every
+                # epoch. Restricting to the shards we actually need cuts that
+                # by 16x at limit=614,400 and 125x at limit=76,800.
+                #
+                # This stays a valid random sample: shards are generated from
+                # independent seeds (the same argument `_iter_streaming`
+                # already relies on to justify emitting rows shard-by-shard
+                # rather than in globally-shuffled order).
+                order_np = self.order.numpy()
+                fids = self.file_ids.numpy()[order_np]
+                counts = np.bincount(fids, minlength=len(self.files))
+                shard_ids = np.unique(fids)
+                np.random.default_rng(seed).shuffle(shard_ids)
+                chosen, running = [], 0
+                for fid in shard_ids:
+                    chosen.append(int(fid))
+                    running += int(counts[fid])
+                    if running >= limit_examples:
+                        break
+                keep = np.isin(fids, np.asarray(chosen))
+                self.order = self.order[torch.from_numpy(keep)][:limit_examples]
+                if verbose:
+                    print(f"[Dataset] Limited to {len(self.order):,} examples "
+                          f"from {len(chosen)} shard(s) of {len(self.files)} "
+                          f"(shard-aligned)")
+            else:
+                self.order = self.order[:limit_examples]
+                if verbose:
+                    print(f"[Dataset] Limited to first {limit_examples} examples")
 
         if verbose:
             print(

@@ -33,14 +33,55 @@ set -euo pipefail
 # one shard at a time. Re-running this script resumes from wherever the
 # previous run stopped.
 #
-# Throughput (rough): a 5000-row shard takes ~5 min on one CPU core. With
-# 32 workers, 2000 shards (10M rows) takes ~5 hours wall time.
+# Throughput. MEASURED by slurms/verify_datagen.sh (job 24169077, Sept 24):
+#
+#     random path  0.135 s/row      search path  8.106 s/row
+#     at HIGH_CHROMA_PROB=0.2 the average is 1.729 s/row
+#     -> 2.40 CORE-HOURS per 5000-row shard
+#     -> 10M rows on 32 workers = 150 h (6.3 days)
+#
+# The "~5 min per shard, ~5 hours for 10M" figure this comment used to give
+# was for the RANDOM path only, i.e. HIGH_CHROMA_PROB=0. At the production
+# 0.2 it is ~30x that, because the search path costs 60x per row and takes a
+# fifth of the rows. Sizing --time from the old number killed all 30 tasks of
+# the first extension array at their 6h limit, each ~64 shards into 200.
+#
+# Size --time from 2.40 core-hours per shard:
+#
+#     SHARDS_PER_TASK / 32 workers * 2.40 h  =  hours needed
+#     200 shards -> 15.0 h    (use --time=24:00:00, the CRC maximum)
+#     100 shards ->  7.5 h    (use --time=12:00:00)
+#
+# A task killed at its limit leaves up to 32 TRUNCATED parquets, one per
+# in-flight worker, which --skip-existing then skips forever. Run
+#   sbatch slurms/check_corpus.sh      (then --delete-bad)
+# after any run that hit TIME_LIMIT, before resubmitting.
 #
 # Examples
 # --------
 #
-# 1. Production training set (2M rows, default settings):
+# 1. Production training set, default settings (now including
+#    high_chroma_prob=0.2, which is what data/train actually is):
 #    sbatch slurms/generate_data.sh
+#
+# 1b. EXTENDING an existing corpus. Start past the last shard id and keep
+#    every other parameter identical; --skip-existing makes it idempotent,
+#    so a re-run resumes rather than duplicating. Check what you are
+#    extending FIRST -- run_manifest.json is overwritten by each run and
+#    therefore describes only the LAST chunk, so the per-shard sidecars are
+#    the real provenance:
+#      ls data/train/angle_00_substrate_CSi/ | tail -1
+#      python -c "import json;print(json.load(open(
+#        'data/train/angle_00_substrate_CSi/shard_01999.manifest.json')))"
+#    then, for 200 shards starting at 2000:
+#      TOTAL_ROWS=1000000 START_SHARD_ID=2000 sbatch slurms/generate_data.sh
+#
+# 1c. The same extension as a PARALLEL ARRAY (preferred for large ones).
+#    30 tasks x 200 shards = 6000 shards = 30M rows, ids 2000-7999, at most
+#    10 running at once:
+#      ARRAY_START_SHARD=2000 SHARDS_PER_TASK=200 \
+#          sbatch --qos=long --time=06:00:00 --array=0-29%10 \
+#          slurms/generate_data.sh
 #
 # 2. Tier-B test set (held-out real materials, 50k rows, disjoint shard IDs):
 #    TOTAL_ROWS=50000 START_SHARD_ID=2000000 \
@@ -58,6 +99,13 @@ set -euo pipefail
 #        sbatch slurms/generate_data.sh
 #
 # ============================================================================
+
+# NOTE: sbatch COPIES this script at submission time, but the Python it calls
+# is read at job start from the submit directory. So `git pull` must happen
+# BEFORE any submit that relies on a new feature of THIS FILE (array mode was
+# added Sept 24, and an array submitted just before the pull ran the old copy,
+# ignored ARRAY_START_SHARD, and re-skipped shards 0-1999 for 30 tasks).
+# Conversely, editing create_dataset/*.py changes what ALREADY-QUEUED tasks do.
 
 module purge
 module load python/pytorch_251_311_cu124
@@ -96,6 +144,7 @@ nproc
 # ============================================================================
 
 # Volume.
+TOTAL_ROWS_EXPLICIT="${TOTAL_ROWS:-}"            # set = caller passed one
 TOTAL_ROWS="${TOTAL_ROWS:-10000000}"             # Total rows across all shards
 ROWS_PER_SHARD="${ROWS_PER_SHARD:-5000}"        # Rows per shard
 START_SHARD_ID="${START_SHARD_ID:-0}"           # First shard id (use disjoint
@@ -108,12 +157,25 @@ LAYER_MAX="${LAYER_MAX:-10}"
 GREYSCALE_THRESHOLD="${GREYSCALE_THRESHOLD:-8.0}"
 GREYSCALE_KEEP_PROB="${GREYSCALE_KEEP_PROB:-0.2}"
 
-# High-chroma-search path — default 0 keeps existing behaviour identical.
-# Target production value HIGH_CHROMA_PROB=0.2 (~20% of dataset), per
-# create_dataset/src/high_chroma_search.py docstring + spec §3.
-# Per-row cost at defaults is ~60× the random-path cost; a full 2M-row
-# run at prob=0.2 adds ~10-14 h on 32 workers over the current baseline.
-HIGH_CHROMA_PROB="${HIGH_CHROMA_PROB:-0.0}"
+# High-chroma-search path. Default is 0.2, the PRODUCTION value, verified
+# against the per-shard sidecars of data/train (shard_NNNNN.manifest.json).
+#
+# It used to default to 0.0 "to keep existing behaviour identical", which was
+# true when this script was written and became a trap once the production
+# corpus was built at 0.2: extending that corpus with the defaults would have
+# appended 30M rows from a DIFFERENT distribution than its first 10M, silently,
+# and confounded every scaling result computed on it. The default now matches
+# what the corpus actually is, so the dangerous case requires an explicit
+# override rather than an omission.
+#
+# Cost: the search path is ~60x the random path per row, so a 2M-row run at
+# prob=0.2 adds ~10-14 h on 32 workers. That is why data/train was generated
+# in 200-shard chunks -- roughly what fits the 3h --qos=short cap. Size new
+# chunks the same way, or use a longer QoS.
+#
+# Set HIGH_CHROMA_PROB=0.0 explicitly for a random-only dataset; it is no
+# longer what you get by forgetting.
+HIGH_CHROMA_PROB="${HIGH_CHROMA_PROB:-0.2}"
 HIGH_CHROMA_CANDIDATE_COUNT="${HIGH_CHROMA_CANDIDATE_COUNT:-24}"
 HIGH_CHROMA_REFINE_ITERS="${HIGH_CHROMA_REFINE_ITERS:-12}"
 HIGH_CHROMA_OPTIMIZER="${HIGH_CHROMA_OPTIMIZER:-dog}"
@@ -136,6 +198,48 @@ OUTPUT_DIR="${OUTPUT_DIR:-data/train}"
 
 # Parallelism.
 PARALLEL_WORKERS="${PARALLEL_WORKERS:-${SLURM_CPUS_PER_TASK:-32}}"
+
+# Array env vars without --array: the slice would silently collapse to the
+# plain-mode defaults (START_SHARD_ID=0, TOTAL_ROWS=10000000), i.e. a re-run
+# of shards 0-1999. --skip-existing means that destroys nothing, but it burns
+# hours of Python startups skipping an existing corpus. Fail instead.
+if [[ -z "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+  if [[ -n "${ARRAY_START_SHARD:-}" || -n "${SHARDS_PER_TASK:-}" ]]; then
+    echo "ERROR: ARRAY_START_SHARD/SHARDS_PER_TASK are set but this is not an" >&2
+    echo "       array job -- you probably forgot --array=0-N%M on sbatch." >&2
+    echo "       Without it these variables are ignored and the job falls back" >&2
+    echo "       to START_SHARD_ID=${START_SHARD_ID} TOTAL_ROWS=${TOTAL_ROWS}." >&2
+    exit 1
+  fi
+fi
+
+# ----------------------------------------------------------------------------
+# ARRAY MODE
+# ----------------------------------------------------------------------------
+# With --array, each task takes its own disjoint slice of shard ids, so the
+# whole extension runs in parallel under one job id that can be throttled with
+# %N and cancelled in one go. Ranges are disjoint by construction, so tasks
+# never contend for a shard, and --skip-existing keeps the whole thing
+# idempotent if a task is killed and resubmitted.
+#
+#   SHARDS_PER_TASK    shards each array task generates (default 200)
+#   ARRAY_START_SHARD  shard id the array begins at (default START_SHARD_ID)
+#
+# Task k covers ids [ARRAY_START_SHARD + k*SHARDS_PER_TASK, +SHARDS_PER_TASK).
+# TOTAL_ROWS is derived, so setting it alongside --array has no effect and is
+# called out rather than silently ignored.
+if [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+  SHARDS_PER_TASK="${SHARDS_PER_TASK:-200}"
+  ARRAY_START_SHARD="${ARRAY_START_SHARD:-${START_SHARD_ID}}"
+  if [[ -n "${TOTAL_ROWS_EXPLICIT:-}" ]]; then
+    echo "NOTE: TOTAL_ROWS is ignored in array mode; each task generates"
+    echo "      SHARDS_PER_TASK=${SHARDS_PER_TASK} shards."
+  fi
+  START_SHARD_ID=$(( ARRAY_START_SHARD + SLURM_ARRAY_TASK_ID * SHARDS_PER_TASK ))
+  TOTAL_ROWS=$(( SHARDS_PER_TASK * ROWS_PER_SHARD ))
+  echo "Array task ${SLURM_ARRAY_TASK_ID}: shards ${START_SHARD_ID}..$(( START_SHARD_ID + SHARDS_PER_TASK - 1 ))"
+  echo
+fi
 
 # Compute shard range.
 N_SHARDS=$(( (TOTAL_ROWS + ROWS_PER_SHARD - 1) / ROWS_PER_SHARD ))
@@ -180,7 +284,13 @@ echo
 # Write a top-level run manifest before forking workers. Each shard also gets
 # its own .manifest.json sidecar from compile_datasets.py.
 mkdir -p "${OUTPUT_DIR}"
-RUN_MANIFEST="${OUTPUT_DIR}/run_manifest.json"
+# Name the manifest by the shard range it describes. A fixed
+# run_manifest.json is overwritten by every run, which is exactly how the
+# provenance of data/train shards 0-1799 was lost: the surviving file
+# described only the last 200-shard chunk. It also races when array tasks run
+# concurrently. Nothing reads this file -- it is provenance -- so naming it by
+# range is free.
+RUN_MANIFEST="${OUTPUT_DIR}/run_manifest_shards_${START_SHARD_ID}_${END_SHARD_ID}.json"
 cat > "${RUN_MANIFEST}" <<EOF
 {
   "created_utc": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",

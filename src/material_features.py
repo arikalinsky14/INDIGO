@@ -48,7 +48,19 @@ from pathlib import Path
 from typing import ClassVar, Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
-import torch
+# torch is imported lazily, inside the functions that build tensors.
+#
+# Everything the scaling analysis needs from this module is pure Python: the
+# vocabulary constants, the token arithmetic, the feature dimensions. Importing
+# torch at module scope made src/scaling/flops.py depend on it transitively,
+# despite that module documenting itself as torch-free, which meant no FLOP or
+# wall-clock analysis could run anywhere torch was not installed, including a
+# login node with no environment activated. Nothing else about these functions
+# changes: they import torch on first call.
+def _torch():
+    import torch
+    return torch
+
 
 
 # ============================================================================
@@ -355,7 +367,7 @@ def featurize(material: MaterialNK, mode: str = "raw_spectrum") -> torch.Tensor:
 
     Returns
     -------
-    torch.Tensor of dtype float32, on CPU. The model's material encoder is
+    _torch().Tensor of dtype float32, on CPU. The model's material encoder is
     responsible for moving to device.
     """
     if mode == "raw_spectrum":
@@ -366,7 +378,7 @@ def featurize(material: MaterialNK, mode: str = "raw_spectrum") -> torch.Tensor:
         )  # [2, NUM_COMPACT_LAMBDA]
     else:
         raise ValueError(f"Unknown featurization mode: {mode!r}")
-    return torch.from_numpy(feat).float()
+    return _torch().from_numpy(feat).float()
 
 
 def feature_dim(mode: str = "raw_spectrum") -> int:
@@ -382,7 +394,7 @@ def featurize_pool(
     pool: List[MaterialNK], mode: str = "raw_spectrum"
 ) -> torch.Tensor:
     """Featurize a list of materials into a [M, 2, L] tensor."""
-    return torch.stack([featurize(m, mode=mode) for m in pool], dim=0)
+    return _torch().stack([featurize(m, mode=mode) for m in pool], dim=0)
 
 
 def pad_pool_features(
@@ -406,10 +418,10 @@ def pad_pool_features(
     if M > m_max:
         raise ValueError(f"Pool size {M} exceeds m_max={m_max}")
     pad_shape = (m_max - M,) + tuple(pool_feats.shape[1:])
-    padded = torch.cat(
-        [pool_feats, torch.zeros(pad_shape, dtype=pool_feats.dtype)], dim=0
+    padded = _torch().cat(
+        [pool_feats, _torch().zeros(pad_shape, dtype=pool_feats.dtype)], dim=0
     )
-    mask = torch.zeros(m_max, dtype=torch.bool)
+    mask = _torch().zeros(m_max, dtype=_torch().bool)
     mask[:M] = True
     return padded, mask
 

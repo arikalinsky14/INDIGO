@@ -626,8 +626,25 @@ def compute_loss(
         gather_idx = n_laid.view(-1, 1, 1).expand(-1, 1, logits.size(-1))
         logits = logits.gather(1, gather_idx).squeeze(1)                     # [B, V]
     loss = F.cross_entropy(logits, target)
-    accuracy = (logits.argmax(dim=-1) == target).float().mean()
-    return {"loss": loss, "accuracy": accuracy}
+    correct = logits.argmax(dim=-1) == target
+    accuracy = correct.float().mean()
+    # `n_tokens` / `n_correct` let callers aggregate across batches exactly.
+    # In the fanned-out collate every row IS one scored token, so n_tokens
+    # equals the batch size here. See `compute_loss_packed` for the packed
+    # case, where the two differ.
+    # EOS split. Plain accuracy on this task is dominated by the EOS token:
+    # one of every ~5.5 scored tokens is EOS, so predicting only EOS scores
+    # ~0.18 and a real 0.18 is indistinguishable from having learned nothing.
+    # Reporting the non-EOS count separately is what makes them separable.
+    non_eos = target != EOS_TOKEN
+    return {
+        "loss": loss,
+        "accuracy": accuracy,
+        "n_tokens": torch.tensor(target.numel(), device=logits.device),
+        "n_correct": correct.sum(),
+        "n_tokens_non_eos": non_eos.sum(),
+        "n_correct_non_eos": (correct & non_eos).sum(),
+    }
 
 
 def compute_loss_packed(
@@ -662,11 +679,28 @@ def compute_loss_packed(
     )
     pred = logits.argmax(dim=-1)
     valid = target != -100
+    n_tokens = valid.sum()
+    n_correct = ((pred == target) & valid).sum()
     if valid.any():
         accuracy = (pred[valid] == target[valid]).float().mean()
     else:
         accuracy = torch.tensor(0.0, device=logits.device)
-    return {"loss": loss, "accuracy": accuracy}
+    # `loss` and `accuracy` are means over VALID TOKENS, of which there are
+    # `n_tokens` -- not over the `B` examples in the batch. Callers
+    # aggregating across batches must weight by `n_tokens`, not by batch
+    # size, or they compute an example-weighted average of per-token means
+    # (biased whenever tokens-per-example varies, which it does: structures
+    # are 2-10 layers).
+    # See compute_loss for why EOS is split out.
+    non_eos = valid & (target != EOS_TOKEN)
+    return {
+        "loss": loss,
+        "accuracy": accuracy,
+        "n_tokens": n_tokens,
+        "n_correct": n_correct,
+        "n_tokens_non_eos": non_eos.sum(),
+        "n_correct_non_eos": ((pred == target) & non_eos).sum(),
+    }
 
 
 # ============================================================================

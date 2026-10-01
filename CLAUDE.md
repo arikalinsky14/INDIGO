@@ -1,22 +1,176 @@
 # CLAUDE.md — INDIGO project notes for future Claude sessions
 
+## ⚠️ DIRECTION CHANGE — Sept 17, 2026 — read this first
+
+Per research advisor guidance, the paper is refocusing on **pretrain
+understanding**, not the ΔE finetune line of work. As of Sept 17:
+
+- **All finetune experiments have been moved off `main`.** The code,
+  analyses, SLURM wrappers, checkpoints, and diagnostics for the
+  Sept 8 – Sept 16 finetune push live on the `finetune-experiment`
+  branch. Checkout that branch to run any of it or rebuild on it.
+- **`main` is now clean pretrain territory.** Only the `test_eval.sh`
+  `--qos=short` removal (a general cluster fix that helps pretrain
+  eval too) was carried forward from the finetune session.
+- **This CLAUDE.md's finetune notes are preserved for reference below**
+  — the numbers, journey, and dead-ends are worth keeping so we
+  don't relitigate them if the finetune direction is ever revived.
+  But the referenced files (`src/de_finetune.py`, `scripts/finetune_de.py`,
+  `analyses/de_finetune/*`, `slurms/finetune_de.sh`, etc.) do NOT exist
+  on `main`. To read/run them: `git checkout finetune-experiment`.
+
+**For new work on `main`**: focus is pretrain — training curves,
+ΔE evaluation of the pretrain checkpoints, model-analysis diagnostics,
+paper-figure generation, dataset-quality checks. Anything ΔE-finetune-
+adjacent goes on `finetune-experiment`.
+
+---
+
+## ⚠️ CURRENT WORK — Oct 1, 2026 — compute-optimal scaling study
+
+The live line of work on `main`. A 48-run IsoFLOP sweep is **finished and
+analysed**; the optimizer tuning that should have preceded it is **set up but
+not yet run**. Read `analyses/scaling/README.md` for the design and
+`analyses/scaling/METHOD_DIFFS.md` for the audit against Porian et al. 2024.
+
+### What is settled
+
+| | |
+|---|---|
+| N* vs compute | C^0.92 on ΔE₀₀, C^0.81 on CE (Chinchilla: 0.50) |
+| in effective parameters | C^0.98 and C^0.87 |
+| examples per parameter | D*/N* ∝ C^-0.78 (Chinchilla: flat) |
+| both metrics turn at | C = 2.75e15, best pooled ΔE 10.04 |
+| usable rungs | 5 of 6 (top rung's argmin is on the boundary) |
+| epoch-ceiling theory | refuted: 47 of 48 runs under one epoch |
+| wall clock | tracks examples, not FLOPs (p = 0.06 for a size term) |
+
+`scripts/fit_scaling_porian.py` regenerates all of it from
+`analyses/scaling/results/isoflop_fit.json`. The estimator is a port of the
+authors' released code, not a reading of the paper: Akima interpolation with
+boundary rejection, a seed-noise bootstrap whose median is the observation, and
+a 1/σ²-weighted power law. Switching to it took the pooled interval from
+[0.53, 1.42] to [0.81, 1.00].
+
+### What is NOT settled, and the plan
+
+The learning rate the sweep ran on rests on three measurements, **none of which
+bracketed its own optimum**. Batch size is fixed by VRAM (256, not tuned, and
+note the sweep ran 256 while production may run 512). AdamW β₂ has always been
+torch's 0.999; Porian's data puts it at 0.95 at batch 256.
+
+Run the stages in `slurms/lr_grid.sh` in order. Each gates the next.
+
+**0. `STAGE=probe`** — one cell, one LR, <1 GPU-h. Measures examples per
+second and nothing else. Run it ALONE. The first stage-1 submission ran at a
+median of 204 ex/s where the sweep reaches 2171 on the same shards, and which
+holds decides whether the rest costs 20 GPU-hours or 200. Feed the answer back
+as `EXAMPLES_PER_SEC=` before sizing anything.
+
+**1. `STAGE=1`** — β₂ ∈ {0.95, 0.99, 0.999} at both ends of the ladder, three
+LRs each, 6 cells, ~11 GPU-h at 2171 ex/s. Three rates rather than one because
+β₂ and the LR interact; three rather than seven because the question is whether
+the β₂ *ranking* is stable, not where the LR optimum is. If the two ends
+disagree, β₂ interacts with scale and the sequential staging below does not
+hold: stop and reconsider rather than carrying a wrong constant forward.
+
+**2. `STAGE=2`** — the LR law, 5 cells at the sweep's own (N*, D*) points,
+~15 GPU-h at 2171 ex/s. **This is where we deliberately differ from Porian.**
+They tune at a constant multiplier (their sweep holds M between 20.0 and 21.1
+while parameters vary 42x), so a law in N alone is the right object for them.
+Ours cannot: D*/N* runs 29.3 to 0.86 across our budgets and the 48 runs occupy
+M from 0.28 to 52. Tuning at a fixed D would make M vary as 1/N across the
+ladder, 220x, which is the aspect-ratio confound in a different variable. So
+stage 2 follows the compute-optimal trajectory instead, spanning N by 66x and M
+from 34 to 0.93.
+
+**3. `STAGE=3`** — the multiplier axis, 1 cell, ~15 GPU-h. Stage 2 is a
+one-dimensional path through (N, M) and cannot separate the two exponents, so
+this varies M by 29x at FIXED N to get the D term the deployed law omits. It
+scores ΔE at fractions of a single run, which is how Porian get 90 multipliers
+per sweep run, and that trick REQUIRES a constant LR: a cosine prefix has not
+decayed and is not a valid shorter run. `lr_tuning.py` refuses the combination
+otherwise. Note this measures D under a constant LR while the sweep trains with
+cosine; decide which the sweep should use before trusting the exponent.
+
+**4. Fit and apply.**
+
+```bash
+python scripts/fit_lr_law.py --results-dir outputs/lr_search/cross_attn \
+    --coverage-from analyses/scaling/results/isoflop_fit.json
+```
+
+Writes `analyses/scaling/results/lr_law_fit.json`, which `configs.py` picks up
+automatically. Until that file exists everything falls back to the old
+three-point law unchanged, and the dry run says which is in force. The coverage
+report lists every model size the sweep trains and whether the fitted law
+interpolates or extrapolates to it; the target is zero extrapolated sizes.
+
+Then re-run the sweep into a **fresh `--out-root`**. A save directory is named
+for (budget, size, seed) only and carries no trace of the hyperparameters, so
+re-running over the old one would overwrite runs that are not comparable. The
+planner refuses by default and tops up instead.
+
+### Hard-won lessons, do not relearn these
+
+- **At D = 614,400 nothing learns.** Accuracy sits at the EOS base rate
+  (1/5.5 = 0.182) and ΔE is scatter from 25 to 37. The sweep's own run at
+  N = 81k needed D = 4.2M to reach ΔE 12.4. Tune at D*, not at the historical
+  614,400.
+- **Tuning cells run ~10x slower than sweep runs** when several share the
+  shards. Throttle arrays (`%2`) and size from a measured rate.
+- **A 3-point LR grid can never bracket**: its only interior point is the
+  second and second-to-last at once. Use ≥5, centred per cell on the prior.
+- **The analysis stack must import without torch.** `tests/` enforces it.
+  `flops.ArchSpec` is the stand-in for `ModelConfig`; never import `src.model`
+  in an analysis script or a SLURM heredoc.
+- **Every SLURM script uses the cluster's own two lines**, `module load
+  python/pytorch_251_311_cu124` then `source "$HOME/envs/llm-env/bin/activate"`.
+  Never invent an activation, never hide its failure behind `|| true`.
+- **C is not 6ND here.** `src/scaling/flops.py` computes it analytically;
+  C/(N·D) falls from 306 to 218 across the ladder.
+
+---
+
+## Finetune experiment notes (archived Sept 17, 2026 — for reference only)
+
+The section below is the CLAUDE.md as it stood at the end of the
+finetune push (Sept 16). Kept in place so future sessions have the
+full picture of what was tried and learned. Files referenced here
+live on the `finetune-experiment` branch.
+
+---
+
+
 Repo: **INDIGO** (Pitt CRC). Flexible-material RGB/Lab → thin-film-stack
 generative model. Autoregressive decoder predicts (slot, thickness) per
 layer; the material pool varies per example (encoder is pool-agnostic).
 
-## Current state (Sept 14, 2026)
+## Current state (Sept 15, 2026)
 
-**Numbers (val_loss_de = mean ΔE₀₀ at greedy pick on 500 val examples):**
+**Val (greedy ΔE₀₀ on 1000 val examples):**
 
 | Model | val_loss_de | Notes |
 |---|---|---|
 | Pretrain (`prod_3ep_bs512_lr6e-5/step_13000`) | ~8.55 | 3 epochs CE, val-optimal step |
-| Best finetune, no sim-feedback | 8.02 | K=3 slot, LR=1e-5, CE=0.1, const LR, unfrozen encoder |
-| **Best finetune, WITH sim-feedback** | **7.92** | Same recipe + `SIM_FEEDBACK=1`; step 1250 of 1665 |
+| K=3 slot finetune, no sim-feedback | 8.02 | LR=1e-5, CE=0.1, const LR, unfrozen encoder |
+| **K=3 slot finetune + sim-feedback** | **7.92** | Same recipe + `SIM_FEEDBACK=1`; step 1250 of 1665 — current champion |
+| hier M=4 × N=3 + simfb + prefix-aug 0.20 (Sept 14) | 8.06 | worse than K=3+simfb; fell into flat-target pathology |
 
-**Inference-time (ensemble decode + real-sim select) on test set:**
-Median ΔE ≈ **0.65**, p95 ≈ **3.3** — for tier_a partial (350/500).
-Full 500×2-tier eval is pending resubmit (see Open Threads below).
+**Inference-time (ensemble + real-sim select) on 500 rows × 2 tiers:**
+
+| Model | N=200 tier_a med / p95 | H_slot | H_thick | N=20 tier_a med / p95 |
+|---|---|---|---|---|
+| Pretrain (no simfb) | 0.717 / 3.735 | 2.30 | 3.49 | 1.552 / 6.756 |
+| K=3 slot finetune (no simfb) | 0.658 / 3.423 | 2.62 | 4.30 | 1.652 / 6.422 |
+| K=3 slot + simfb, SIM_FEEDBACK=1 | 0.710 / 3.438 | 2.63 | 4.31 | 1.545 / 7.114 |
+
+Val_de spread = 0.63 units. Ensemble N=200 tier_a spread = 0.06 units.
+Ensemble N=20 tier_a spread = 0.10 units. `frac_unique = 1.000`
+across all three (every one of 200 samples is a unique candidate).
+**The ensemble decoder is largely model-agnostic in its current
+form** — see Sept 15 finding #1. Note that log(pool=15)=2.71, so
+finetune samples are at 97% of uniform vs pretrain at 85%.
 
 **The bottleneck is high-chroma / edge-of-gamut colors** — the ~5% p95+
 tail. Median already crushes the target. HC=0.30 finetune data was
@@ -154,83 +308,255 @@ that breaks CE loss and adds bookkeeping.
    softmax(-β·ΔE_real)). This is when things started working.
 4. **Unfrozen encoder (Experiment B)** unlocked ~0.15 val_de vs frozen.
 5. **Constant LR** avoided cosine-death degradation past mid-training.
-6. **Joint mode failed** because top-K concentrates on 1-2 slots.
-   Hierarchical M×N is the proper thickness-training design (not yet
-   run at scale).
+6. **Joint mode failed** because top-K concentrates on 1-2 slots'
+   neighbor thicknesses → target dist is flat → no rank signal.
 7. **Sim-feedback residual** finally broke through the ~8.0 plateau
    → 7.92 (Sept 13). Small but real, and beat all previous variants.
+8. **Hierarchical M=4×N=3 also failed at β=1** (Sept 14 run) for
+   the same "flat target" reason as joint mode: with 12 candidates
+   whose ΔE spans only a few units, softmax(-1·ΔE) is nearly
+   uniform. Diagnosed Sept 15 via new flat-target metrics
+   (target_entropy near log(12), argmin_hit near 1/12). Fix under
+   test: bump β to 5-10 to sharpen the target distribution.
+
+## Sept 15 findings (what we learned overnight and today)
+
+### 1. Ensemble decoder is largely model-agnostic (the primary finding)
+
+val_de spans **7.92 → 8.55** across our checkpoints (0.63 unit gap).
+At N=200 ensemble the tier_a medians span **0.658 → 0.717** (0.06
+unit). Reducing to N=20 didn't help: medians spanned **1.545 → 1.652**
+(0.10 unit). At both N the spread is a small fraction of the val_de
+gap.
+
+**Interpretation**: the ensemble decoder finds low-ΔE candidates in
+the sampling *tail*; finetune moves the *mode*. Different things.
+Because the pretrain-era model already samples with high entropy
+(slot_ent ≈ log(pool_size), thick_ent ≈ log(NUM_THICKNESSES)),
+temperature=1.0 sampling produces ~200 diverse candidates that the
+real-sim reranker can pick from — model quality barely matters as
+long as sampling is diverse. The training objective (make greedy
+val_de lower) and the deployed metric (ensemble ΔE) are only weakly
+correlated.
+
+**What this means for the roadmap**: driving val_de below 7.92 by any
+of the standard tricks (bigger K, prefix aug, β tuning, longer runs)
+looks unlikely to move the ensemble inference metric that matters.
+The interesting question shifts from "how do we lower val_de?" to
+"can we make the *ensemble* itself better?"
+
+### 2. β sharpening for hierarchical FAILED
+
+Sept 15 P2/P3 (β=5, β=10) tested my Sept 14 flat-target hypothesis:
+
+| Run | val_de best | tgt_max | tgt_H | argmin_hit |
+|---|---|---|---|---|
+| hier β=1 | 8.06 | ~0.09 | ~2.4 | 0.12 |
+| hier β=5 | 8.20 | ~0.49 | ~1.3 | 0.12 |
+| hier β=10 | 8.21 | ~0.51 | ~1.2 | 0.12 |
+
+The `tgt_max` jumped from ~1/K (uniform) to ~0.5 (mass on top-2)
+exactly as expected. So β sharpening DID make the target peaked.
+But `argmin_hit` didn't move (still random-over-12) and val_de got
+**worse** by 0.15 units. Sharpening made the model overcommit to a
+specific (slot, thick) that didn't generalize.
+
+**Revised understanding**: With a flat target, gradient spreads
+across all K candidates weighted by their ΔE ordering — a smooth
+learning signal. With a peaked target, the model force-pushes toward
+the argmin candidate and collapses. In hierarchical mode, β=1 is
+apparently the best of the bad options.
+
+### 3. Sim-feedback at inference: winning on tier_b, losing on tier_a
+
+The N=200 SIM_FEEDBACK=1 test won on tier_b median (0.509 vs 0.564
+non-simfb finetune) but LOST on tier_a median (0.710 vs 0.658).
+Consistent with the "residual-distribution-shift" hypothesis:
+training saw sim(GT_prefix), inference sees sim(model_prefix). But
+given the primary finding above, the whole SIM_FEEDBACK=1 vs =0
+difference is within ensemble noise anyway.
+
+### 4. Diagnostics added Sept 15
+
+**Training-side** (`_topK_sim_loss_for_example`):
+- `target_entropy` — H(softmax(-β·ΔE)); log(K) = uniform, 0 = peaked
+- `target_max_prob` — max target weight; 1/K = uniform, 1 = peaked
+- `topk_delta_e_range` — (max ΔE − min ΔE) across candidates
+- Printed in the log as `tgt_H`, `tgt_max`, `dE_rng`
+
+**Inference-side** (`generate_ensemble` + `test_eval.py`):
+- `mean_slot_entropy_by_pos` — per-position empirical H of slots
+  actually sampled across the N replicas
+- `mean_thick_entropy_by_pos` — same for thicknesses
+- `fraction_unique` — unique-after-dedup / N; near 1 = highly diverse
+  sampling, near 1/K = degenerate
+- Aggregated in `summary.json["sampling"]` and printed in the tier
+  summary line as `H_slot`, `H_thick`, `frac_unique`
+
+These are the ONLY way to tell if our finetune is reducing the
+sampling diversity that ensemble inference depends on. Watch them
+across the P1-P4 checkpoints.
+
+**Also**: ε-exploration is wired into hierarchical mode (was future
+work Sept 13). Setting `EPSILON_START>0` in hierarchical picks
+floor(K·ε) random slots per position, each still getting its own
+top-N thickness.
+
+### Sept 16 addendum: sampling-entropy hypothesis was reversed
+
+P7 (N=200 with the new sampling diagnostic) shows the OPPOSITE of
+what I predicted. I hypothesized finetune might be *reducing*
+sampling entropy (concentrating the model's proposal distribution
+and hurting the ensemble). Actual:
+
+| Checkpoint | H_slot | H_thick | tier_a med |
+|---|---|---|---|
+| Pretrain | 2.296 | 3.487 | 0.717 |
+| K=3 slot finetune | 2.625 | 4.305 | 0.658 |
+| K=3 slot + simfb | 2.626 | 4.306 | 0.710 |
+
+Finetune INCREASES sampling entropy (85% → 97% of log(pool_size)).
+And the two finetunes are essentially identical proposers — H_slot
+matches to 3 decimals despite differing training objectives and a
+0.10 val_de gap between them. This explains why their ensemble ΔE
+is within noise of each other: they produce virtually the same
+sampling distribution.
+
+Implications:
+- The "sampling collapse" concern from Sept 15 is dead. The current
+  top-K real-sim loss with β=1 spreads probability across candidates
+  because the flat-ish target puts non-negligible gradient on
+  multiple candidates per step — the model raises multiple logits
+  rather than concentrating.
+- The finetune's val_de improvements come from making argmax pick
+  match GT better, without concentrating overall sampling mass.
+  Two proposers can have identical sampling distributions but
+  different argmax picks.
+- Suggests "make model a BETTER PROPOSER" is not "make it more
+  peaked" — the pretrain is more peaked but samples worse
+  candidates. What we'd need is peaked ON THE RIGHT CANDIDATES,
+  which is exactly what best-of-N-in-training would optimize.
+
+### 5. Neighbor-mode ε-exploration (added Sept 15)
+
+**Motivation**: uniform ε-random draws sample slots from the pool
+tail — candidates the model already discriminates against as
+obviously bad. The learning signal comes from candidates the model
+is AMBIGUOUS about (its 4th-8th ranked slots), not garbage.
+
+**Design** (`_topK_sim_loss_for_example`, applies to slot and
+hierarchical modes): with `epsilon_neighbor_m = M > 0`, restrict
+ε-random draws to the M non-top-K slots with the HIGHEST model
+logits (uniform draw within that pool). With `M = 0` (default),
+old uniform-over-pool behavior.
+
+**Knob**: `EPSILON_NEIGHBOR_M` env var, `--epsilon-neighbor-m` CLI
+arg. Sensible starting value: `M = 2 · REAL_SIM_TOPK` (gives the
+model ~2× more "next-best" candidates than the top-K itself). No
+effect when `EPSILON_START = EPSILON_END = 0`.
+
+**Why this may help the ensemble-agnosticism finding**: if finetune
+is concentrating the model's sampling distribution (verifiable via
+the sampling-entropy diagnostic in P6/P7), neighbor-mode training
+may keep it peaked-but-not-collapsed — the model learns nuanced
+ranking over plausible candidates, keeping sampling diversity where
+it matters. If sampling entropy is already high across all
+checkpoints, neighbor-mode is a moderate-expected-win but low-risk
+addition.
+
+**Sept 16 activation footgun (fixed)**: the original ε formula was
+`K_random = int(K_eff * ε)` — floor rounding. With K=3 and ε=0.20,
+that's `int(0.6) = 0`. The P8 run configured ε=0.20 + neighbor M=6
+and got val_de=7.89@step500 (nominally beating 7.92) BUT with
+K_random=0 — neighbor mode never activated. The "champion" was
+seed variance, not a real neighbor-mode result.
+
+Sept 16 fix: `K_random = int(round(K_eff * ε))` (round-to-nearest,
+so ε=0.20 at K=3 now gives K_random=1). AND when neighbor mode is
+on with any ε > 0, force K_random ≥ 1 so the intent is always
+honored. Both changes to `_topK_sim_loss_for_example`. Backward
+compatibility notes:
+  - Old K=3, ε=0.15 → 0 random (unchanged, rounds down)
+  - Old K=3, ε=0.20 → 0 random → **new: 1 random** (round to nearest)
+  - Old K=3, ε=0.34 → 1 random (unchanged)
+  - K=5, ε=0.15 → old 0, new 1 (round to nearest)
+
+To engage neighbor mode reliably: use ε ≥ 0.34 at K=3, or ε ≥ 0.20
+at K=5. Or just rely on the "≥ 1 when neighbor is on" clamp.
 
 ## Open threads / suggested next work
 
-### Immediate
+The primary Sept 15 finding (ensemble decoder is model-agnostic)
+changes the strategy. Instead of chasing val_de improvements, we
+need to understand what actually moves ensemble ΔE.
 
-1. **Rerun test_eval on our two best checkpoints** (12h wall now,
-   `--qos=short` removed):
-   - `finetune_de_B_slot3_ce0p1_lr1e5_213k_const/best` — pretrain
-     comparison baseline (no sim_feedback needed)
-   - `finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb/best` — **run
-     with `SIM_FEEDBACK=1`** to unlock the residual signal at inference
-     (this is the whole point of the plumbing added Sept 14)
-2. **Compare summary.json** — sim-feedback should show measurable
-   improvement on the p95+ high-chroma tail if the residual signal
-   generalizes.
+### Immediate diagnostic runs (Sept 15 followup)
 
-### The Big Open Question (user flagged for next session)
+**P5-P7** — cheap test_evals that isolate model quality from ensemble
+brute-force. All three use existing code + new sampling-entropy
+diagnostics (added Sept 15). Small wall times, run in parallel.
 
-**Sim-feedback trajectory oscillates and peaks early — how do we
-extend the advantage?** All our finetune runs share a pattern: val_de
-drops sharply in the first 300-600 steps, then oscillates around a
-noisy plateau for the rest. The sim-feedback run hit val_de=7.99 at
-step 250 (already best) and 7.92 at step 1250 — genuinely better peak
-but same oscillation pattern.
+**P5** (test_eval, ~15 min × 3): **greedy inference (TEMPERATURE=0.01,
+ENSEMBLE_N=1)** on the same 3 checkpoints as P4. Does the 0.63-unit
+val_de gap actually show up in inference ΔE when ensemble effects are
+turned off? If yes, model quality matters at pure greedy but the
+ensemble washes it out. If no, the val_de improvements are illusory.
 
-**User's own hypothesis to explore:** more simulations per example
-during finetune (larger K, or hierarchical M×N) might give the
-residual-conditioned model richer per-position choice sets to learn
-from. The intuition: residual conditioning changes what "good pick"
-looks like; if the top-K set is still narrow (K=3 slot), we're not
-giving the model enough opportunity to rerank.
+**P6** (test_eval, ~30 min × 3): **N=5 ensemble at TEMPERATURE=1.0**.
+Halfway between greedy and N=20. Complete the ΔE(N) scaling picture.
 
-**Other ideas worth trying:**
+**P7** (test_eval, ~1h × 3): **N=200 at TEMPERATURE=1.0** re-runs
+with the new sampling-entropy diagnostics enabled — completes the
+per-checkpoint entropy profile. (The N=200 runs from Sept 14 didn't
+have these diagnostics.)
 
-- **Hierarchical M×N + sim-feedback**: pair the two additions. M=3,
-  N=3 gives 9 candidates per position with distinct (slot, thickness)
-  pairs; combined with residual conditioning the model gets both a
-  richer choice set AND state feedback per step.
-- **ε-exploration + sim-feedback**: the residual tells the model
-  "you're off by X"; random exploration might surface candidates the
-  model wouldn't ordinarily consider that better match the residual.
-- **Different LR for residual_proj**: the base model may be
-  over-training while residual_proj is under-training. Split LR groups
-  in the optimizer.
-- **EMA / weight averaging across recent-best checkpoints** to smooth
-  the oscillation and capture "the average of the peak region."
-- **Curriculum by chroma magnitude**: train easy → hard so the model
-  builds representations before hitting the hard tail.
-- **Larger dataset**: 213k examples might just not be enough for the
-  residual signal to fully develop. Scale to 500k or 1M once we know
-  the recipe works.
-- **Longer training + best-checkpoint retention**: we already have
-  best-checkpoint save; a longer run at winning recipe might find a
-  deeper trough somewhere later than step 1250.
-- **Data augmentation of prefixes**: during training, perturb GT
-  prefix layers (small thickness jitter or occasional wrong-material
-  swap) so the residual distribution the model sees at training is
-  wider — closer to what inference will produce.
+Copy-paste in Common Invocations.
 
-**Design constraint to keep in mind**: the residual at inference is
-computed from the model's OWN partial prefix, not GT. During training
-we compute it from GT prefix. Distribution shift is real. Prefix
-augmentation might close that gap.
+### Interpretation guide for P5-P7 results
 
-### Also-nice-to-have
+- **If P5 medians spread by ~0.6 units**: model matters at greedy;
+  the ensemble is the equalizer. Next: reduce ensemble reliance —
+  ideas include (i) fewer replicas but higher-quality proposal
+  (nucleus-p, learned temperature), (ii) train the model to be a
+  BETTER PROPOSER for the ensemble rather than a better greedy
+  predictor, (iii) reduce N and use the savings to sim more candidates
+  per position.
+- **If P5 medians spread by <0.1 units**: greedy val_de is a noisy
+  proxy, model quality has never been the bottleneck. Radical
+  rethink needed — maybe the physics search IS the whole product,
+  and the model should be replaced with a much smaller distribution
+  (fixed uniform over "likely" materials + pool-conditioned thickness
+  distribution).
+- **If P6/P7 entropies differ across checkpoints**: finetune is
+  changing sampling diversity, which explains the tier_a/tier_b
+  split (simfb wins tier_b but loses tier_a). Then: constrained
+  finetune that preserves entropy might be the direction.
+- **If entropies are all ~equal at ~log(pool_size)**: finetune is
+  NOT reducing sampling diversity — the model is a near-uniform
+  proposer regardless of training. Then: pushing entropy DOWN on
+  correct picks (making it a better proposer) is the direction.
 
-- Plumb sim-feedback through `inference/src/generate.py` was done
-  Sept 14; not yet exercised at scale. First test_eval with
-  `SIM_FEEDBACK=1` will validate the plumbing end-to-end.
-- Consider MOVING the `_compute_partial_residuals` loop to
-  batched-vmap sim. Current per-example Python loop is fine but adds
-  25% wall clock; a batched JAX call could nearly eliminate it.
+### The pending P1 run (K=3 slot + simfb + prefix-aug)
+
+Not yet in the .out set we received. If val_de comes out ≤ 7.92,
+prefix-aug on the winning recipe is confirmed. But given the primary
+finding, even a val_de win won't matter for ensemble inference.
+Still worth running because it's the cleanest signal on whether
+prefix-aug alone helps the residual signal.
+
+### Longer-term ideas (unchanged from Sept 14)
+
+- **Best-of-N-in-training**: sample K candidates from the model, sim
+  each, backprop to increase the probability of the best one. This
+  is exactly the ensemble decoder as a training objective — should
+  align train and deploy metrics.
+- **EMA / weight averaging** across recent-best checkpoints.
+- **Curriculum by chroma magnitude**.
+- **Larger dataset** (500k-1M).
+- **Batched-vmap partial-residual sim** to cut the 25% simfb overhead.
+- **DAgger / scheduled sampling**: sometimes feed the model its own
+  generated prefix during training, use the resulting sim residual.
+  Directly closes the train↔inference residual-distribution gap.
 
 ## Cluster / environment gotchas
 
@@ -259,7 +585,178 @@ The trailer is auto-inserted from the session's attribution config.
 
 ## Common invocations (copy-paste ready)
 
-**Finetune (winning recipe with sim-feedback):**
+### P8v2 — K=3 slot + simfb + neighbor-mode ε (Sept 16, K_random fix)
+
+The Sept 15 P8 run configured EPSILON_START=0.20 with K=3, but
+floor(3 · 0.20) = 0 meant K_random=0 and neighbor mode never
+activated. The reported val_de=7.89 was seed variance, not a real
+result. Fixed Sept 16 by switching K_random to round-to-nearest AND
+forcing K_random ≥ 1 whenever neighbor mode is on. This re-run
+GUARANTEES 1 random slot per position from the neighbor pool.
+
+Recipe below uses K=3 with ε=0.34 (unambiguously K_random=1 even
+without the new clamp), so the run is reproducible even if the
+clamp is reverted.
+
+```bash
+PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb_eps34_nbr6 \
+    FREEZE_ENCODER=0 LR=1e-5 REAL_SIM_TOPK=3 CE_LOSS_WEIGHT=0.1 \
+    TOPK_MODE=slot LR_SCHEDULE=constant SIM_FEEDBACK=1 \
+    EPSILON_START=0.34 EPSILON_END=0.34 EPSILON_DECAY_FRACTION=1.0 \
+    EPSILON_NEIGHBOR_M=6 \
+    EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
+    NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
+    sbatch --time=05:00:00 slurms/finetune_de.sh
+```
+
+Alternate at K=5 (more candidates per position, ε=0.20 → 1 random):
+```bash
+PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_slot5_ce0p1_lr1e5_213k_const_simfb_eps20_nbr10 \
+    FREEZE_ENCODER=0 LR=1e-5 REAL_SIM_TOPK=5 CE_LOSS_WEIGHT=0.1 \
+    TOPK_MODE=slot LR_SCHEDULE=constant SIM_FEEDBACK=1 \
+    EPSILON_START=0.20 EPSILON_END=0.20 EPSILON_DECAY_FRACTION=1.0 \
+    EPSILON_NEIGHBOR_M=10 \
+    EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
+    NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
+    sbatch --time=06:00:00 slurms/finetune_de.sh
+```
+
+### P9 — gamut eval on pretrain + best simfb checkpoint (Sept 15)
+
+Runs the 28-target gamut battery (sRGB corners, L/a/b sweeps,
+chromatic corners) on both checkpoints. Distinct from test_eval:
+gamut eval hits worst-case edge-of-gamut colors that expose the
+p95+ tail directly.
+
+```bash
+# Pretrain baseline
+CHECKPOINT=data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    PRESET=balanced OPTIMIZER=dog \
+    OUTPUT_NAME=gamut_pretrain_balanced_dog.json \
+    sbatch slurms/gamut_eval.sh
+
+# Best simfb checkpoint — with SIM_FEEDBACK=1 to unlock the residual
+CHECKPOINT=data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb/best \
+    PRESET=balanced OPTIMIZER=dog SIM_FEEDBACK=1 \
+    OUTPUT_NAME=gamut_simfb_balanced_dog.json \
+    sbatch slurms/gamut_eval.sh
+```
+
+Bumps to `PRESET=best` (~1.5h) or `PRESET=max` (~3h) trade time for
+tighter numbers per target. The `dog` optimizer is the current
+production default; add `OPTIMIZER=both` to also run Adam.
+
+### Sept 15 followup: P5-P7 (isolate model quality from ensemble)
+
+**P5 — greedy inference on all 3 checkpoints, N=1 TEMP=0.01:**
+```bash
+for CKPT in \
+    data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const/best \
+    data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb/best
+do
+  CHECKPOINT=$CKPT \
+      LIMIT=500 ENSEMBLE_N=1 TEMPERATURE=0.01 \
+      OUTPUT_DIR=inference/outputs/test_eval_greedy \
+      sbatch --time=01:30:00 slurms/test_eval.sh
+done
+# For the simfb checkpoint add SIM_FEEDBACK=1 on that one command:
+CHECKPOINT=data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb/best \
+    LIMIT=500 ENSEMBLE_N=1 TEMPERATURE=0.01 SIM_FEEDBACK=1 \
+    OUTPUT_DIR=inference/outputs/test_eval_greedy_simfb \
+    sbatch --time=01:30:00 slurms/test_eval.sh
+```
+
+**P6 — N=5 tiny ensemble:**
+```bash
+# Same triplet with ENSEMBLE_N=5, output to test_eval_n5. Estimated ~30 min each.
+CHECKPOINT=data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    LIMIT=500 ENSEMBLE_N=5 TEMPERATURE=1.0 \
+    OUTPUT_DIR=inference/outputs/test_eval_n5 \
+    sbatch --time=02:00:00 slurms/test_eval.sh
+# (repeat for the other two checkpoints)
+```
+
+**P7 — N=200 re-runs with the new sampling entropy diagnostic:**
+```bash
+# Re-run N=200 so summary.json now includes the "sampling" block with
+# H_slot, H_thick, frac_unique per checkpoint.
+CHECKPOINT=data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    LIMIT=500 ENSEMBLE_N=200 TEMPERATURE=1.0 \
+    OUTPUT_DIR=inference/outputs/test_eval_n200_v2 \
+    sbatch slurms/test_eval.sh
+# (repeat for the other two checkpoints, + SIM_FEEDBACK=1 on the simfb one)
+```
+
+### Earlier Sept 15 experiments (P1-P4)
+
+**P1 — prefix-aug on K=3 slot + simfb (clean single-variable test):**
+```bash
+PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb_paug20 \
+    FREEZE_ENCODER=0 LR=1e-5 REAL_SIM_TOPK=3 CE_LOSS_WEIGHT=0.1 \
+    TOPK_MODE=slot LR_SCHEDULE=constant SIM_FEEDBACK=1 \
+    PREFIX_AUG_PROB=0.20 PREFIX_AUG_THICKNESS_SCALE=0.15 \
+    EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
+    NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
+    sbatch --time=05:00:00 slurms/finetune_de.sh
+```
+
+**P2 — hier M=4×N=3 + simfb + prefix-aug + β=5 (unstick flat target):**
+```bash
+PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_hier4x3_ce0p1_lr1e5_213k_const_simfb_paug20_beta5 \
+    FREEZE_ENCODER=0 LR=1e-5 CE_LOSS_WEIGHT=0.1 LR_SCHEDULE=constant \
+    TOPK_MODE=hierarchical REAL_SIM_TOPK=4 THICKNESS_TOPN=3 \
+    SIM_TARGET_BETA=5.0 \
+    SIM_FEEDBACK=1 PREFIX_AUG_PROB=0.20 PREFIX_AUG_THICKNESS_SCALE=0.15 \
+    EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
+    NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
+    sbatch --time=12:00:00 slurms/finetune_de.sh
+```
+
+**P3 — hier M=4×N=3 + simfb + prefix-aug + β=10 (aggressive β):**
+```bash
+PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_hier4x3_ce0p1_lr1e5_213k_const_simfb_paug20_beta10 \
+    FREEZE_ENCODER=0 LR=1e-5 CE_LOSS_WEIGHT=0.1 LR_SCHEDULE=constant \
+    TOPK_MODE=hierarchical REAL_SIM_TOPK=4 THICKNESS_TOPN=3 \
+    SIM_TARGET_BETA=10.0 \
+    SIM_FEEDBACK=1 PREFIX_AUG_PROB=0.20 PREFIX_AUG_THICKNESS_SCALE=0.15 \
+    EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
+    NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
+    sbatch --time=12:00:00 slurms/finetune_de.sh
+```
+
+**P4 — small-ensemble test_evals (unmask model differences):** fire
+all three in parallel. Each ~1h at N=20. Use a distinct
+`OUTPUT_DIR_SUFFIX` so results don't collide with the N=200 runs.
+
+```bash
+# P4a: pretrain baseline @ N=20
+CHECKPOINT=data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
+    LIMIT=500 ENSEMBLE_N=20 TEMPERATURE=1.0 \
+    OUTPUT_DIR=inference/outputs/test_eval_n20 \
+    sbatch --time=03:00:00 slurms/test_eval.sh
+
+# P4b: K=3 slot no simfb @ N=20
+CHECKPOINT=data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const/best \
+    LIMIT=500 ENSEMBLE_N=20 TEMPERATURE=1.0 \
+    OUTPUT_DIR=inference/outputs/test_eval_n20 \
+    sbatch --time=03:00:00 slurms/test_eval.sh
+
+# P4c: K=3 slot + simfb, SIM_FEEDBACK=1 @ N=20
+CHECKPOINT=data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb/best \
+    LIMIT=500 ENSEMBLE_N=20 TEMPERATURE=1.0 SIM_FEEDBACK=1 \
+    OUTPUT_DIR=inference/outputs/test_eval_n20 \
+    sbatch --time=03:00:00 slurms/test_eval.sh
+```
+
+### Standing recipes
+
+**Finetune (winning K=3 slot + simfb baseline, Sept 13):**
 ```bash
 PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
     SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb \
@@ -270,24 +767,7 @@ PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3e
     sbatch --time=05:00:00 slurms/finetune_de.sh
 ```
 
-**Finetune (Sept 14 experiment: hierarchical M=4 × N=3 + sim-feedback +
-prefix-aug 0.20):** targets the "sim-feedback advantage peaks early"
-plateau. Wider candidate set (12 per position vs 3) gives the residual
-signal more resolution to matter; prefix-aug narrows the train/inference
-residual-distribution gap. Wall clock ~2-3× the K=3-slot run because
-sim cost scales with M·N; bump wall time accordingly.
-```bash
-PRETRAINED_CHECKPOINT=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000 \
-    SAVE_DIR=/ix1/ohinder/ajk245/Github/INDIGO/data/checkpoints/finetune_de_B_hier4x3_ce0p1_lr1e5_213k_const_simfb_paug20 \
-    FREEZE_ENCODER=0 LR=1e-5 CE_LOSS_WEIGHT=0.1 LR_SCHEDULE=constant \
-    TOPK_MODE=hierarchical REAL_SIM_TOPK=4 THICKNESS_TOPN=3 \
-    SIM_FEEDBACK=1 PREFIX_AUG_PROB=0.20 PREFIX_AUG_THICKNESS_SCALE=0.15 \
-    EPOCHS=1 LIMIT_EXAMPLES=213000 LIMIT_VAL_EXAMPLES=1000 \
-    NUM_WORKERS=0 LOG_EVERY=50 SAVE_EVERY=250 \
-    sbatch --time=12:00:00 slurms/finetune_de.sh
-```
-
-**Inference eval with sim-feedback:**
+**Test eval (final-product N=200 setting):**
 ```bash
 CHECKPOINT=data/checkpoints/finetune_de_B_slot3_ce0p1_lr1e5_213k_const_simfb/best \
     LIMIT=500 ENSEMBLE_N=200 TEMPERATURE=1.0 SIM_FEEDBACK=1 \

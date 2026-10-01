@@ -27,6 +27,8 @@ Checkpoints: data/checkpoints/<config.tag()>/step_<N>/  and  .../latest/
 import argparse
 import contextlib
 import json
+import numpy as np
+import random
 import math
 import sys
 import time
@@ -36,9 +38,15 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import torch
 
 
-@contextlib.contextmanager
-def _nullcontext():
-    yield
+# NOTE: must be contextlib.nullcontext (a reusable class), NOT a
+# @contextlib.contextmanager generator. The amp context below is built once
+# and re-entered every step, and a generator-based context manager is
+# single-use -- it raises "'_GeneratorContextManager' object has no attribute
+# 'args'" on the second step. That only bites when the autocast branch is not
+# taken (any CPU run, or a GPU run without --bf16), which is why it went
+# unnoticed: the production runs all used --bf16 on CUDA, where
+# torch.amp.autocast is itself reusable.
+_nullcontext = contextlib.nullcontext
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
@@ -56,6 +64,11 @@ from src.materials_vocab import (
     encode_layer,
 )
 from src.model import ModelConfig, build_model, compute_loss, compute_loss_packed
+from src.delta_e_eval import (
+    evaluate_delta_e,
+    primary_metric as delta_e_primary_metric,
+    OPTICAL_SIM_AVAILABLE,
+)
 
 
 def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
@@ -178,12 +191,32 @@ def collate_fn_packed(examples: List[TrainingExample]) -> Dict[str, torch.Tensor
 
 
 def get_lr_schedule(
-    step: int, total_steps: int, base_lr: float, warmup_fraction: float = 0.02
+    step: int, total_steps: int, base_lr: float, warmup_fraction: float = 0.02,
+    schedule: str = "cosine",
 ) -> float:
-    """Linear warmup followed by cosine decay to zero."""
+    """Linear warmup, then cosine decay to zero or a held constant.
+
+    `constant` exists to separate two explanations of the same observation.
+    The fixed-N data ladder found val_de RISING with more passes (10.82 at
+    0.45 epochs, then 11.43, 12.50, 12.99 at 0.95, 2.01, 4.26). Every point
+    ran one cosine cycle over its own horizon at one base LR, so "repeated
+    data hurts" and "a long cosine horizon decays badly" fit equally well.
+    CLAUDE.md records the latter as cosine death on the finetune line, where
+    constant LR held val_de near its peak and cosine peaked then degraded.
+
+    Warmup is unchanged in either mode, so correction #2 (warmup as a FLOP
+    fraction) still holds. Default stays cosine: every result so far was
+    produced with it, and a silent schedule change would make new runs
+    incomparable to them.
+    """
     warmup_steps = int(total_steps * warmup_fraction)
     if step < warmup_steps:
         return base_lr * (step + 1) / max(warmup_steps, 1)
+    if schedule == "constant":
+        return base_lr
+    if schedule != "cosine":
+        raise ValueError(f"unknown lr schedule {schedule!r}; "
+                         f"expected 'cosine' or 'constant'")
     decay_steps = total_steps - warmup_steps
     decay_progress = (step - warmup_steps) / max(decay_steps, 1)
     decay_progress = min(decay_progress, 1.0)
@@ -201,8 +234,22 @@ def evaluate_validation(
     device,
     loss_fn,
     bf16: bool,
-) -> Tuple[float, float]:
-    """Compute val loss + accuracy. Restores the model's train() state on exit."""
+) -> Tuple[float, float, float]:
+    """Compute val loss, accuracy and non-EOS accuracy.
+
+    The third return value exists because plain token accuracy on this task is
+    almost uninformative, in a way that has twice been mistaken for a training
+    failure. A token is a (slot, thickness) PAIR out of 3201, and one token per
+    structure is EOS. Structures average 4.5 layers, so EOS is 1/5.5 = 0.182 of
+    all scored tokens -- and a model that learns only "emit EOS in the right
+    place", which is easy and largely positional, already scores ~0.18.
+
+    Every arm of both the epoch-ceiling probe and scaling sweep v1 reported
+    val_acc in 0.173-0.176 regardless of model size or compute, which looks
+    exactly like "nothing learned" and is not: val_loss and val_de moved
+    properly across the same runs. Splitting EOS out makes the distinction
+    visible instead of requiring someone to rediscover the base rate.
+    """
     was_training = model.training
     model.eval()
     amp_ctx = (
@@ -212,22 +259,65 @@ def evaluate_validation(
     )
     total_loss = 0.0
     total_correct = 0
-    total_samples = 0
+    total_tokens = 0
+    non_eos_correct = 0
+    non_eos_tokens = 0
     try:
         with torch.no_grad():
             for batch in val_loader:
                 batch_on_device = {k: v.to(device) for k, v in batch.items()}
                 with amp_ctx:
                     losses = loss_fn(model, batch_on_device)
-                count = batch_on_device["lab"].size(0)
-                total_loss += losses["loss"].item() * count
-                total_correct += int(losses["accuracy"].item() * count)
-                total_samples += count
+                if "n_correct_non_eos" in losses:
+                    non_eos_correct += int(losses["n_correct_non_eos"].item())
+                    non_eos_tokens += int(losses["n_tokens_non_eos"].item())
+                # Weight by scored TOKENS, not by batch size. `loss` and
+                # `accuracy` are per-token means, so example-weighting them
+                # gives a biased estimator whenever tokens-per-example varies
+                # (structures are 2-10 layers). `n_correct` is an exact
+                # integer count -- deriving it as int(accuracy * count) used
+                # to truncate, which reads as exactly 0.0 whenever accuracy
+                # is below 1/batch_size (the regime small models start in).
+                n_tok = int(losses["n_tokens"].item())
+                total_loss += losses["loss"].item() * n_tok
+                total_correct += int(losses["n_correct"].item())
+                total_tokens += n_tok
     finally:
         if was_training:
             model.train()
-    denom = max(total_samples, 1)
-    return total_loss / denom, total_correct / denom
+    denom = max(total_tokens, 1)
+    non_eos = (non_eos_correct / non_eos_tokens
+               if non_eos_tokens else float("nan"))
+    return total_loss / denom, total_correct / denom, non_eos
+
+
+def set_seed(seed: int, deterministic: bool = False) -> None:
+    """Seed every RNG that affects a run.
+
+    Until this existed, `--seed` was passed ONLY to FlexThinFilmDataset, so
+    the data permutation was reproducible but the MODEL was not: weight init,
+    dropout masks and any sampling all drew from an unseeded global RNG. Two
+    runs at byte-identical configuration therefore trained different models.
+
+    Measured consequence, from two d_model=512 LR sweeps whose commands were
+    identical down to --seed 42: the lr=1e-4 trial returned val_de 41.30 in
+    one and 24.33 in the other -- a 52% spread. That is far LARGER than the
+    between-arm differences the epoch-ceiling probe and the IsoFLOP fits are
+    trying to resolve (2-8 dE units), so unseeded runs make those
+    measurements noise.
+
+    `deterministic=True` additionally pins cuDNN/cuBLAS algorithm choice.
+    That costs throughput and is not needed for run-to-run comparability at
+    the level this study cares about, so it is opt-in.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    if deterministic:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 
 def append_history(history_path: Path, entry: Dict[str, Any]) -> None:
@@ -298,6 +388,7 @@ def run_one_epoch(
     total_steps: int,
     base_lr: float,
     warmup_fraction: float,
+    lr_schedule: str,
     grad_clip: float,
     log_every: int,
     verbose: bool,
@@ -343,7 +434,8 @@ def run_one_epoch(
     samples_since_log = 0
 
     for batch in loader:
-        current_lr = get_lr_schedule(global_step, total_steps, base_lr, warmup_fraction)
+        current_lr = get_lr_schedule(global_step, total_steps, base_lr,
+                                     warmup_fraction, lr_schedule)
         set_lr(optimizer, current_lr)
 
         optimizer.zero_grad()
@@ -396,6 +488,19 @@ def run_one_epoch(
                     lr=current_lr,
                 )
 
+        # Stop at the planned budget. This is a no-op for a fresh run (the
+        # loader yields exactly steps_per_epoch batches), but it is essential
+        # after a MID-EPOCH --resume: start_epoch is computed as
+        # global_step // steps_per_epoch, so the resumed epoch would
+        # otherwise run a full loader pass on top of the steps already done
+        # and overshoot total_steps. A run resumed at step 1500 of a
+        # 2400-step plan would end at 3900 -- 62% more compute than planned,
+        # with the cosine schedule running off its own end. Resuming exactly
+        # at an epoch boundary (what save_dir/"latest" holds) was always
+        # safe; this makes every other resume point safe too.
+        if global_step >= total_steps:
+            break
+
     return {
         "global_step": global_step,
         "avg_loss": epoch_loss / max(n_batches, 1),
@@ -413,13 +518,68 @@ def parse_args() -> argparse.Namespace:
                              "(default: <repo>/data/train, matching the "
                              "OUTPUT_DIR default of slurms/generate_data.sh)")
     parser.add_argument("--split", type=str, default="train")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Seeds model init, dropout, sampling AND the "
+                             "data permutation. Two runs sharing a seed and "
+                             "config train the same model.")
+    parser.add_argument("--deterministic", action=argparse.BooleanOptionalAction,
+                        default=False,
+                        help="Also pin cuDNN/cuBLAS algorithm choice. Costs "
+                             "throughput; not needed for run-to-run "
+                             "comparability, so off by default.")
     parser.add_argument("--limit-examples", type=int, default=None,
                         help="Limit to first N examples (for testing/debugging)")
+    parser.add_argument("--limit-shard-aligned",
+                        action=argparse.BooleanOptionalAction, default=False,
+                        help="Draw --limit-examples from whole shards instead "
+                             "of the first N of the global shuffle. Streaming "
+                             "reads a full ~140MB parquet table per shard it "
+                             "touches, so a scattered limit re-reads the ENTIRE "
+                             "corpus every epoch to yield a fraction of it "
+                             "(76,800 of 10M rows still touches all 2000 "
+                             "shards). Shard-aligned cuts that by 16-125x. "
+                             "Shards are independently seeded, so this stays a "
+                             "random sample.")
     parser.add_argument("--limit-val-examples", type=int, default=5000,
                         help="Cap on val examples per checkpoint eval "
                              "(default: 5000, the full 0.05%% val split). "
                              "Set to 0 to skip val eval entirely.")
+    # -- DeltaE validation. This is the metric that matters: the CE/DeltaE
+    # decoupling is verified on INDIGO, so val_loss is NOT a usable proxy
+    # for deployed quality, and the compute-optimal scaling study fits its
+    # IsoFLOP parabolas on DeltaE. Kept separate from --limit-val-examples
+    # because DeltaE costs ~100x more per example than CE (autoregressive
+    # decode + optical sim), so it runs on a much smaller slice.
+    parser.add_argument("--limit-de-examples", type=int, default=256,
+                        help="Examples per DeltaE_00 val eval (default: 256). "
+                             "Costs roughly 50ms/example of optical sim plus "
+                             "the autoregressive decode, i.e. a few percent "
+                             "overhead at the default save cadence. Set to 0 "
+                             "to skip DeltaE eval entirely.")
+    parser.add_argument("--de-every", type=int, default=0,
+                        help="Run the DeltaE eval every N steps. 0 (default) "
+                             "means every save tick, matching --save-every. "
+                             "Use a multiple of --save-every to sample DeltaE "
+                             "more coarsely than val_loss on short runs.")
+    parser.add_argument("--de-sample", action=argparse.BooleanOptionalAction,
+                        default=False,
+                        help="Temperature-sample instead of greedy-decoding "
+                             "the DeltaE eval. Default greedy, so the metric "
+                             "is deterministic and comparable across "
+                             "checkpoints. Note slurms/de_curve.sh defaults "
+                             "the other way (SAMPLE_PREDICTIONS=1), so its "
+                             "curves are not comparable to this one.")
+    parser.add_argument("--de-temperature", type=float, default=1.0,
+                        help="Temperature for --de-sample.")
+    parser.add_argument("--de-on-epoch-end", action=argparse.BooleanOptionalAction,
+                        default=True,
+                        help="Force a DeltaE eval at every epoch boundary "
+                             "(default on). Turn OFF for multi-epoch runs "
+                             "where only the end-of-run value is wanted: "
+                             "otherwise an 8-epoch run pays 8 DeltaE evals "
+                             "while a 1-epoch run pays one, which both wastes "
+                             "time and makes the two cost different amounts. "
+                             "The FINAL save always evaluates regardless.")
     parser.add_argument("--streaming", action=argparse.BooleanOptionalAction,
                         default=False,
                         help="Stream the dataset shard-by-shard (one parquet "
@@ -459,6 +619,12 @@ def parse_args() -> argparse.Namespace:
     # Training hyperparameters
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=4.42e-5)
+    parser.add_argument("--beta1", type=float, default=0.9,
+        help="AdamW beta1")
+    parser.add_argument("--beta2", type=float, default=0.999,
+        help="AdamW beta2. Swept rather than assumed since Porian "
+             "et al. 2024 find it matters at small batch size; "
+             "src/scaling/configs.py supplies the tuned value.")
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=4)
@@ -471,6 +637,11 @@ def parse_args() -> argparse.Namespace:
                              "consumer the bottleneck.")
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--warmup-fraction", type=float, default=0.02)
+    parser.add_argument("--lr-schedule", type=str, default="cosine",
+                        choices=["cosine", "constant"],
+                        help="post-warmup LR. 'constant' separates a data-"
+                             "repetition effect from long-horizon cosine decay; "
+                             "see get_lr_schedule.")
 
     # Performance knobs
     parser.add_argument("--bf16", action=argparse.BooleanOptionalAction,
@@ -521,6 +692,13 @@ def main() -> None:
     except FileNotFoundError:
         repo_root = Path(__file__).resolve().parent.parent
 
+    # Seed BEFORE anything builds a model or a dataset. Without this, only
+    # the data permutation was reproducible and every run trained a
+    # differently-initialised model.
+    set_seed(args.seed, deterministic=args.deterministic)
+    print(f"[INFO] Seed: {args.seed} (model init + data; "
+          f"deterministic kernels={args.deterministic})")
+
     data_dir = Path(args.data_dir) if args.data_dir else repo_root / "data" / "train"
     print(f"[INFO] Loading data from {data_dir}")
 
@@ -530,6 +708,7 @@ def main() -> None:
         split=args.split,
         verbose=args.verbose,
         limit_examples=args.limit_examples,
+        limit_shard_aligned=args.limit_shard_aligned,
         streaming=args.streaming,
     )
 
@@ -545,6 +724,10 @@ def main() -> None:
     loader_kw = {}
     if args.num_workers > 0:
         loader_kw["prefetch_factor"] = args.prefetch_factor
+    if args.num_workers > 0:
+        # Without this, every epoch boundary tears down and respawns all
+        # workers, re-paying dataset setup on each one.
+        loader_kw["persistent_workers"] = True
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -554,38 +737,69 @@ def main() -> None:
         **loader_kw,
     )
 
-    # ---- Validation dataset (small held-out slice from the same DATA_DIR).
-    # 5k examples at the default 99.95/0.05 split (see src/dataset.py). Used
-    # for the per-save-tick val-loss line in history.jsonl and for early
-    # divergence detection during long runs. Set --limit-val-examples 0 to
-    # skip. Val workers are capped at 2: this loader is iterated only every
-    # `save-every` steps, so a large worker pool sits idle 99% of the time.
-    val_loader = None
-    if args.limit_val_examples and args.limit_val_examples > 0:
+    # ---- Validation slice, read ONCE and shared by both consumers.
+    #
+    # CE val and DeltaE val both draw from the same held-out split. Reading it
+    # twice meant two scans of a slice that, being the tail 0.05% of a global
+    # shuffle, has rows in nearly every shard -- so each read touched the
+    # whole corpus. One read, sized for whichever consumer wants more, then
+    # sliced. A useful side effect: CE and DeltaE are now scored on the same
+    # underlying examples, so the two metrics are directly comparable.
+    #
+    # Both are held in memory because the val loader is iterated at EVERY
+    # checkpoint save; re-streaming it each time is not affordable.
+    want_val = max(args.limit_val_examples or 0, 0)
+    want_de = max(args.limit_de_examples or 0, 0) if OPTICAL_SIM_AVAILABLE else 0
+    n_val_needed = max(want_val, want_de)
+
+    val_examples = []
+    if n_val_needed > 0:
         val_dataset = FlexThinFilmDataset(
             data_dir,
             seed=args.seed,
             split="validation",
             verbose=False,
-            limit_examples=args.limit_val_examples,
+            limit_examples=n_val_needed,
+            limit_shard_aligned=args.limit_shard_aligned,
             streaming=args.streaming,
         )
-        val_workers = min(2, args.num_workers)
-        val_loader_kw = {}
-        if val_workers > 0:
-            val_loader_kw["prefetch_factor"] = args.prefetch_factor
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=args.batch_size,
-            collate_fn=active_collate,
-            num_workers=val_workers,
-            pin_memory=True,
-            **val_loader_kw,
-        )
-        print(f"[INFO] Val split: {len(val_dataset):,} examples "
+        val_examples = list(val_dataset)
+        print(f"[INFO] Val slice: {len(val_examples):,} examples read once "
+              f"(CE wants {want_val:,}, DeltaE wants {want_de:,})", flush=True)
+
+    val_loader = None
+    if want_val > 0 and val_examples:
+        subset = val_examples[:want_val]
+        val_loader = [active_collate(subset[i:i + args.batch_size])
+                      for i in range(0, len(subset), args.batch_size)]
+        print(f"[INFO] Val split: {len(subset):,} examples in "
+              f"{len(val_loader)} cached batch(es) "
               f"(evaluated on every checkpoint save)")
+    elif want_val > 0:
+        print("[INFO] Val eval requested but the split yielded no examples.")
     else:
         print("[INFO] Val eval disabled (--limit-val-examples 0)")
+
+    # ---- DeltaE slice: the same examples the CE val used, no second read.
+    de_examples = None
+    de_simulator = None
+    if args.limit_de_examples and args.limit_de_examples > 0:
+        if not OPTICAL_SIM_AVAILABLE:
+            print("[INFO] DeltaE eval requested but the optical simulator is "
+                  "unavailable (jaxlayerlumos missing); skipping. val_de will "
+                  "be absent from history.jsonl.", flush=True)
+        elif not val_examples:
+            print("[INFO] DeltaE eval requested but the validation split "
+                  "yielded no examples; skipping.", flush=True)
+        else:
+            de_examples = val_examples[:args.limit_de_examples]
+            # Reused across evals so jaxlayerlumos' trace cache stays warm
+            # (it re-traces per stack depth; see src/delta_e_eval.py).
+            from src.optical_sim import OpticalSimulator
+            de_simulator = OpticalSimulator(incidence_angle=0)
+            print(f"[INFO] DeltaE val slice: {len(de_examples):,} examples, "
+                  f"{'sampled T=' + str(args.de_temperature) if args.de_sample else 'greedy'}, "
+                  f"every {args.de_every or args.save_every} steps", flush=True)
 
     config = ModelConfig(
         feature_mode=args.feature_mode,
@@ -618,7 +832,9 @@ def main() -> None:
     if args.bf16:
         print(f"[INFO] bf16 autocast: on")
 
-    optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = AdamW(model.parameters(), lr=args.lr,
+                      betas=(args.beta1, args.beta2),
+                      weight_decay=args.weight_decay)
 
     if args.save_dir:
         save_dir = Path(args.save_dir)
@@ -698,28 +914,94 @@ def main() -> None:
     history_path = save_dir / "history.jsonl"
     print(f"[INFO] Training history: {history_path.resolve()}", flush=True)
 
+    de_every = args.de_every or args.save_every
+
     def _save_and_log(step: int, train_loss: float, lr: float,
-                      subdir: Path, *, epoch: "int | None" = None) -> None:
+                      subdir: Path, *, epoch: "int | None" = None,
+                      force_de: bool = False) -> None:
         val_loss = float("nan")
         val_acc = float("nan")
+        val_acc_non_eos = float("nan")
         if val_loader is not None:
-            val_loss, val_acc = evaluate_validation(
+            val_loss, val_acc, val_acc_non_eos = evaluate_validation(
                 model, val_loader, device, loss_fn, bf16=args.bf16,
             )
+
+        # DeltaE_00 on the held-out slice. This is the metric checkpoint
+        # selection and the scaling study's IsoFLOP fits key on -- val_loss
+        # is recorded alongside it as a diagnostic only. Can run at a
+        # coarser cadence than val_loss since it is far more expensive.
+        de_result = None
+        if de_examples and (force_de or step % de_every == 0):
+            de_t0 = time.perf_counter()
+            de_result = evaluate_delta_e(
+                model, de_examples, device,
+                limit=args.limit_de_examples,
+                sample=args.de_sample,
+                temperature=args.de_temperature,
+                seed=args.seed if args.de_sample else None,
+                simulator=de_simulator,
+            )
+            de_result["wall_seconds"] = time.perf_counter() - de_t0
+
         save_checkpoint(model, config, optimizer, step, train_loss,
                         subdir, lr=lr)
-        append_history(history_path, {
+
+        entry = {
             "step": step,
             "epoch": epoch,
             "train_loss": train_loss,
             "val_loss": val_loss,
             "val_acc": val_acc,
+            # Token accuracy excluding EOS. val_acc alone sits on the ~0.18
+            # EOS base rate for any model that has merely learned where
+            # structures end, which reads as "nothing learned" when it is not.
+            "val_acc_non_eos": val_acc_non_eos,
             "lr": lr,
             "wall_time_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        })
+        }
+        if de_result is not None and de_result.get("available"):
+            # Contract: a val_de_* DISTRIBUTION key is present only when it
+            # holds a real number. When the eval ran but scored nothing (every
+            # generation invalid, or every sim failed) we still record that it
+            # ran, via the count/rate keys, but omit the stats rather than
+            # writing nulls -- so downstream plotting and the scaling fits can
+            # treat "val_de_median present" as "usable".
+            entry["val_de_n"] = de_result.get("n_scored", 0)
+            entry["val_de_valid_rate"] = de_result.get("valid_rate")
+            entry["val_de_greedy"] = de_result.get("greedy")
+            entry["val_de_seconds"] = de_result.get("wall_seconds")
+            if de_result.get("n_scored"):
+                # Flat val_de_* keys keep history.jsonl one level deep and
+                # directly plottable; by_chroma is the nested exception, and
+                # is what the chroma-conditioned scaling fits read.
+                entry["val_de_median"] = de_result["delta_e_median"]
+                entry["val_de_mean"] = de_result["delta_e_mean"]
+                entry["val_de_p75"] = de_result["delta_e_p75"]
+                entry["val_de_p95"] = de_result["delta_e_p95"]
+                entry["val_de_by_chroma"] = {
+                    bucket: {k: stats[k] for k in
+                             ("n", "n_examples", "median", "mean", "p75", "p95")
+                             if k in stats}
+                    for bucket, stats in de_result.get("by_chroma", {}).items()
+                }
+        append_history(history_path, entry)
+
         if val_loader is not None:
-            print(f"[Val] step={step} val_loss={val_loss:.4f} "
-                  f"val_acc={val_acc:.3f}", flush=True)
+            line = (f"[Val] step={step} val_loss={val_loss:.4f} "
+                    f"val_acc={val_acc:.3f} acc_noEOS={val_acc_non_eos:.4f}")
+            if de_result is not None and de_result.get("n_scored"):
+                by_c = de_result.get("by_chroma", {})
+                buckets = " ".join(
+                    f"{b}={by_c[b]['median']:.2f}"
+                    for b in ("low", "mid", "high")
+                    if by_c.get(b, {}).get("n")
+                )
+                line += (f" val_de_median={de_result['delta_e_median']:.3f}"
+                         f" p95={de_result['delta_e_p95']:.3f}"
+                         f" [{buckets}]"
+                         f" ({de_result['wall_seconds']:.0f}s)")
+            print(line, flush=True)
 
     def mid_epoch_hook(step: int, train_loss: float, lr: float) -> None:
         _save_and_log(step, train_loss, lr, save_dir / f"step_{step}")
@@ -735,6 +1017,7 @@ def main() -> None:
             total_steps=total_steps,
             base_lr=args.lr,
             warmup_fraction=args.warmup_fraction,
+            lr_schedule=args.lr_schedule,
             grad_clip=args.grad_clip,
             log_every=args.log_every,
             verbose=args.verbose,
@@ -755,13 +1038,14 @@ def main() -> None:
               f"acc={avg_acc:.3f}, final_lr={final_lr:.2e}")
 
         _save_and_log(global_step, avg_loss, final_lr,
-                      save_dir / "latest", epoch=epoch)
+                      save_dir / "latest", epoch=epoch,
+                      force_de=args.de_on_epoch_end)
 
     # Belt-and-suspenders: explicit save after the epoch loop exits, even if
     # args.epochs is somehow 0 or run_one_epoch returned early. Overwrites
     # the per-epoch "latest" with identical content if everything ran.
     _save_and_log(global_step, avg_loss, final_lr,
-                  save_dir / "final", epoch=args.epochs - 1)
+                  save_dir / "final", epoch=args.epochs - 1, force_de=True)
 
     print("[INFO] Training complete!")
     print(f"[INFO] Final checkpoint:  {save_dir / 'final'}", flush=True)

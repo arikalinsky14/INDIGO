@@ -69,19 +69,21 @@ def evaluate_teacher_forcing(model, dataset, device, batch_size=64,
     )
     total_loss = 0.0
     total_correct = 0
-    total_samples = 0
+    total_tokens = 0
     with torch.no_grad():
         for batch in loader:
             batch_on_device = {k: v.to(device) for k, v in batch.items()}
             losses = compute_loss(model, batch_on_device)
-            count = batch_on_device["lab"].size(0)
-            total_loss += losses["loss"].item() * count
-            total_correct += int(losses["accuracy"].item() * count)
-            total_samples += count
+            # Token-weighted; `n_correct` is exact. See the note in
+            # src/model.py:compute_loss_packed.
+            n_tok = int(losses["n_tokens"].item())
+            total_loss += losses["loss"].item() * n_tok
+            total_correct += int(losses["n_correct"].item())
+            total_tokens += n_tok
     return {
-        "loss": total_loss / max(total_samples, 1),
-        "accuracy": total_correct / max(total_samples, 1),
-        "n_samples": total_samples,
+        "loss": total_loss / max(total_tokens, 1),
+        "accuracy": total_correct / max(total_tokens, 1),
+        "n_samples": total_tokens,
     }
 
 
@@ -124,20 +126,22 @@ def evaluate_precollated(model, batches: List[Dict[str, torch.Tensor]],
     model.eval()
     total_loss = 0.0
     total_correct = 0
-    total_samples = 0
+    total_tokens = 0
     with torch.no_grad():
         for batch in batches:
             batch_on_device = {k: v.to(device, non_blocking=True)
                                for k, v in batch.items()}
             losses = compute_loss(model, batch_on_device)
-            count = batch_on_device["lab"].size(0)
-            total_loss += losses["loss"].item() * count
-            total_correct += int(losses["accuracy"].item() * count)
-            total_samples += count
+            # Token-weighted; `n_correct` is exact. See the note in
+            # src/model.py:compute_loss_packed.
+            n_tok = int(losses["n_tokens"].item())
+            total_loss += losses["loss"].item() * n_tok
+            total_correct += int(losses["n_correct"].item())
+            total_tokens += n_tok
     return {
-        "loss": total_loss / max(total_samples, 1),
-        "accuracy": total_correct / max(total_samples, 1),
-        "n_samples": total_samples,
+        "loss": total_loss / max(total_tokens, 1),
+        "accuracy": total_correct / max(total_tokens, 1),
+        "n_samples": total_tokens,
     }
 
 
