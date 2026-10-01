@@ -96,13 +96,34 @@ set -euo pipefail
 #            another. The sweep's own run at that model size needed D = 4.2M
 #            to reach DeltaE 12.4.
 #
-#   STAGE=3  the multiplier axis at one fixed N.        1 cell,   ~15 GPU-h
-#            Stage 2 is a one-dimensional path through (N, M), so it cannot
-#            separate the two exponents on its own. This varies M by 29x at
-#            fixed N, inside ONE run, by scoring at fractions of it. Together
-#            the two stages support the 2-D fit lr(N, M).
+#   STAGE=2  EVERY model on the lowest 3 curves.      18 cells, ~43 GPU-h
+#            The LR search runs INSIDE the IsoFLOP test. Not one point per
+#            rung: the whole curve, because the curve is what the parabola is
+#            fitted through, and a point whose LR was extrapolated moves the
+#            minimum as surely as one trained wrong.
 #
-# About 53 GPU-h in total, against the 566 runs behind their laws.
+#            Each point is its own (N, M), which is what makes the law
+#            identifiable here. Within one rung C is fixed, so
+#            log M = const - 2 log N and the two columns are collinear; a
+#            second rung shifts the intercept and separates them. Three rungs
+#            give a condition number of 401 and recover both exponents to
+#            +/- 0.05 under 10% noise. So the multiplier axis comes free from
+#            the geometry, with no fractional scoring and no constant LR
+#            needed, which means the law is measured under the schedule the
+#            sweep actually trains with.
+#
+#            This is the one place we knowingly diverge from Porian et al.,
+#            and it is forced: they tune at a constant multiplier (20.0 to
+#            21.1 while parameters vary 42x), so a law in N alone is right for
+#            them. Ours cannot be, since D*/N* runs 29.3 to 0.86.
+#
+#   STAGE=3  the extrapolation check.                   1 cell,  ~5 GPU-h
+#            The upper rungs get the fitted law rather than a measurement.
+#            Tune the compute-optimal point of the highest usable rung and
+#            compare predicted against measured. If the ratio is far from 1,
+#            the law does not reach and more rungs need tuning directly.
+#
+# About 60 GPU-h in total, against the 566 runs behind their laws.
 #
 # ---------------------------------------------------------------------------
 # Usage
@@ -115,9 +136,10 @@ set -euo pipefail
 #   python scripts/fit_lr_law.py --results-dir outputs/lr_search/cross_attn
 #
 #   # then, with BETA2_WINNER set to what stage 1 picked:
-#   STAGE=2 BETA2_WINNER=0.99 sbatch --array=0-4 slurms/lr_grid.sh
-#   STAGE=3 BETA2_WINNER=0.99 sbatch --array=0-0 --qos=long --time=20:00:00 \
-#       slurms/lr_grid.sh
+#   STAGE=2 BETA2_WINNER=0.99 sbatch --array=0-17%2 --time=11:00:00 \
+#       --qos=long slurms/lr_grid.sh
+#   STAGE=3 BETA2_WINNER=0.99 sbatch --array=0-0 --time=11:00:00 \
+#       --qos=long slurms/lr_grid.sh
 #
 #   python scripts/fit_lr_law.py --results-dir outputs/lr_search/cross_attn \
 #       --coverage-from analyses/scaling/results/isoflop_fit.json

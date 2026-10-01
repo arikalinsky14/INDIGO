@@ -74,24 +74,35 @@ the β₂ *ranking* is stable, not where the LR optimum is. If the two ends
 disagree, β₂ interacts with scale and the sequential staging below does not
 hold: stop and reconsider rather than carrying a wrong constant forward.
 
-**2. `STAGE=2`** — the LR law, 5 cells at the sweep's own (N*, D*) points,
-~15 GPU-h at 2171 ex/s. **This is where we deliberately differ from Porian.**
-They tune at a constant multiplier (their sweep holds M between 20.0 and 21.1
-while parameters vary 42x), so a law in N alone is the right object for them.
-Ours cannot: D*/N* runs 29.3 to 0.86 across our budgets and the 48 runs occupy
-M from 0.28 to 52. Tuning at a fixed D would make M vary as 1/N across the
-ladder, 220x, which is the aspect-ratio confound in a different variable. So
-stage 2 follows the compute-optimal trajectory instead, spanning N by 66x and M
-from 34 to 0.93.
+**2. `STAGE=2`** — **the LR search runs inside the IsoFLOP test.** Every model
+on the three lowest curves is tuned directly, 18 cells, ~43 GPU-h at 2171 ex/s.
+Not one representative point per rung: the whole curve, because the curve is
+what the parabola is fitted through, and a point whose LR was extrapolated
+moves the minimum as surely as one trained wrong.
 
-**3. `STAGE=3`** — the multiplier axis, 1 cell, ~15 GPU-h. Stage 2 is a
-one-dimensional path through (N, M) and cannot separate the two exponents, so
-this varies M by 29x at FIXED N to get the D term the deployed law omits. It
-scores ΔE at fractions of a single run, which is how Porian get 90 multipliers
-per sweep run, and that trick REQUIRES a constant LR: a cosine prefix has not
-decayed and is not a valid shorter run. `lr_tuning.py` refuses the combination
-otherwise. Note this measures D under a constant LR while the sweep trains with
-cosine; decide which the sweep should use before trusting the exponent.
+Each point carries its own (N, M), and that is what makes the law identifiable
+without a separate experiment. Within ONE rung C is fixed, so M = C/(kN²) and
+log M = const − 2 log N: the columns are collinear (corr −0.9998) and only the
+combination b − 2c is recoverable. A second rung shifts the intercept and
+separates them. At three rungs the design matrix has condition number 401, and
+on synthetic data with 10% noise on log lr\* it recovers both exponents to
+±0.05 and ±0.03. Two rungs would do (cond 630); above three the cost roughly
+doubles per rung for little extra conditioning.
+
+So the multiplier axis comes free from the IsoFLOP geometry. It needs no
+fractional-scoring trick and no constant learning rate to get it, which means
+the law is measured under the schedule the sweep actually trains with. This is
+the one place we knowingly diverge from Porian et al., and it is forced: they
+tune at a constant multiplier (20.0 to 21.1 while parameters vary 42x), so a
+law in N alone is the right object for them. Ours cannot be, because D\*/N\*
+runs 29.3 to 0.86 across our budgets.
+
+**3. `STAGE=3`** — the extrapolation check, 1 cell, ~5 GPU-h. The upper rungs
+get the fitted law rather than a measurement, so tune the compute-optimal point
+of the highest usable rung and compare what the law predicted against what that
+point actually wanted. It is where an error in the law does the most damage. If
+the ratio is far from 1, the law does not reach and more rungs have to be tuned
+directly rather than extrapolated.
 
 **4. Fit and apply.**
 

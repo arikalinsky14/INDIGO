@@ -57,8 +57,26 @@ def sweep_n_range(fit: dict) -> tuple[int, int]:
     return int(min(ns)), int(max(ns))
 
 
-def cells_for(stage, fit_path: str, beta2: float) -> list[dict]:
+def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3) -> list[dict]:
     fit = json.load(open(fit_path))
+
+    rungs_ = [r for r in fit["by_metric"]["pooled"]["rungs"] if r.get("usable")]
+    if not rungs_:
+        raise SystemExit(f"no usable rungs in {fit_path}")
+
+    # The sweep's own grid, budget -> {N: D}. Stage 2 tunes every point of it
+    # on the lowest curves, so it needs the whole grid rather than each rung's
+    # optimum. porian_fit.json carries the rungs; the runs live in the artifact
+    # it was built from.
+    src = fit.get("runs")
+    if src is None:
+        src = json.load(open(fit["source"]))["runs"]
+    budgets = sorted(r["budget"] for r in rungs_)
+    points_at = {b: {} for b in budgets}
+    for run in src:
+        b = min(budgets, key=lambda x: abs(x - run["flops"]))
+        if abs(run["flops"] - b) / b < 0.25:
+            points_at[b][run["n_params"]] = run["passes"]
 
     if stage == "probe":
         # One mid-ladder size, one learning rate, a short budget. The only
@@ -70,7 +88,6 @@ def cells_for(stage, fit_path: str, beta2: float) -> list[dict]:
         # configuration rather than a floor, and the difference decides whether
         # the rest of the tuning costs 20 GPU-hours or 200. Run it alone:
         # --array=0-0, nothing else of yours queued.
-        rungs_ = [r for r in fit["by_metric"]["pooled"]["rungs"] if r.get("usable")]
         n, d, se = nearest_config(rungs_[len(rungs_) // 2]["n_star_median"])
         return [{"n_params": n, "d_model": d, "se": se, "D": 614_400,
                  "beta2": beta2}]
@@ -93,7 +110,6 @@ def cells_for(stage, fit_path: str, beta2: float) -> list[dict]:
         # accuracy sat at the EOS base rate for every trial and DeltaE came
         # back as scatter between 25 and 37, so no beta2 could be ranked
         # against another.
-        rungs_ = [r for r in fit["by_metric"]["pooled"]["rungs"] if r.get("usable")]
         ends = [rungs_[0], rungs_[-1]]
         out = []
         for r in ends:
@@ -103,32 +119,49 @@ def cells_for(stage, fit_path: str, beta2: float) -> list[dict]:
                         "beta2": b} for b in STAGE1_BETA2)
         return out
 
-    rungs = [r for r in fit["by_metric"]["pooled"]["rungs"] if r.get("usable")]
-    if not rungs:
-        raise SystemExit(f"no usable rungs in {fit_path}")
-
     if stage == 2:
+        # EVERY model on the lowest `rungs` IsoFLOP curves, tuned directly.
+        #
+        # Not one representative point per rung. The whole curve, because the
+        # curve is what the parabola is fitted through: a point whose learning
+        # rate was extrapolated rather than measured moves the minimum as
+        # surely as one that was trained wrong.
+        #
+        # Each point is its own (N, M) pair, and that is what makes the law
+        # identifiable without a separate experiment. Within ONE rung C is
+        # fixed, so M = C/(k N^2) and log M = const - 2 log N: the two columns
+        # are collinear (corr -0.9998) and only the combination b - 2c can be
+        # recovered. A second rung shifts the intercept and separates them. At
+        # three rungs the design matrix has condition number 401, and on
+        # synthetic data with 10% noise on log lr* it recovers both exponents
+        # to +/- 0.05 and +/- 0.03.
+        #
+        # So the M axis comes free from the IsoFLOP geometry. It does not need
+        # the fractional-scoring trick, and it does not need a constant
+        # learning rate to get it, which means this measures the law under the
+        # schedule the sweep actually trains with.
         out = []
-        for r in rungs:
-            n, d, se = nearest_config(r["n_star_median"])
-            # Tune at the D the sweep spends at that rung's optimum, rounded
-            # up a little so the cell brackets rather than sits on it.
-            out.append({"n_params": n, "d_model": d, "se": se,
-                        "D": int(round(r["d_star"] * 1.1 / 1000) * 1000),
-                        "beta2": beta2, "M": r["d_star"] / r["n_star_median"]})
+        for b in budgets[:rungs]:
+            for n, D in sorted(points_at[b].items()):
+                _, d_model, se = nearest_config(n)
+                out.append({"n_params": n, "d_model": d_model, "se": se,
+                            "D": int(D), "beta2": beta2, "budget": b,
+                            "M": D / n})
         return out
 
     if stage == 3:
-        # Varying M at fixed N is what separates the M exponent from the N one.
-        # Cost is 7 learning rates times D, and D = M_max * N, so the cell goes
-        # on a SMALL model: the M range is what matters here, not the size.
-        # The second rung spans the sweep's full M range at a third of the
-        # price of the middle one.
-        n, d, se = nearest_config(rungs[1]["n_star_median"])
-        m_max = max(r["d_star"] / r["n_star_median"] for r in rungs)
-        return [{"n_params": n, "d_model": d, "se": se,
-                 "D": int(round(m_max * n / 1000) * 1000), "beta2": beta2,
-                 "fractions": [1 / 32, 1 / 10, 1 / 3]}]
+        # The extrapolation check. Stage 2 measures the low rungs; the upper
+        # ones get the fitted law rather than a measurement, so tune ONE point
+        # on a high rung and compare what the law predicted against what the
+        # sweep actually wanted there.
+        #
+        # The compute-optimal point of the highest rung that the IsoFLOP fit
+        # could use: it is where an error in the law does the most damage.
+        r = rungs_[-1]
+        n, d_model, se = nearest_config(r["n_star_median"])
+        return [{"n_params": n, "d_model": d_model, "se": se,
+                 "D": int(r["d_star"]), "beta2": beta2,
+                 "M": r["d_star"] / r["n_star_median"]}]
 
     raise SystemExit(f"unknown stage {stage}")
 
@@ -142,6 +175,12 @@ def main() -> None:
                         "rest is affordable.")
     p.add_argument("--fit", default="analyses/scaling/results/porian_fit.json")
     p.add_argument("--beta2", type=float, default=0.99)
+    p.add_argument("--rungs", type=int, default=3,
+                   help="stage 2: how many of the LOWEST IsoFLOP curves to "
+                        "tune in full. Two is the minimum that separates the "
+                        "N and M exponents; three gives a condition number of "
+                        "401 against 630 at two. Above three the cost roughly "
+                        "doubles per rung for little extra conditioning.")
     p.add_argument("--format", choices=("lines", "table"), default="lines")
     p.add_argument("--rate", type=float, default=204.0,
                    help="examples per second. The default is the MEASURED "
@@ -160,7 +199,7 @@ def main() -> None:
     a = p.parse_args()
 
     stage = a.stage if a.stage == "probe" else int(a.stage)
-    cells = cells_for(stage, a.fit, a.beta2)
+    cells = cells_for(stage, a.fit, a.beta2, a.rungs)
     # Stage 1 ranks beta2; stage 2 locates the LR optimum. Different jobs,
     # different grid widths.
     n_lrs = {"probe": 1, 1: 3}.get(stage, a.n_lrs)
