@@ -52,7 +52,17 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from src.model import ModelConfig
+# ModelConfig is imported LAZILY, inside the four helpers that build one.
+#
+# src/model.py imports torch at module scope, and importing it here made this
+# module, and every analysis that reads the compute axis, require torch. That
+# is what broke scripts/fit_wall_model.py on a login node: a two-parameter
+# least squares over some JSON files died with ModuleNotFoundError before doing
+# any work. tests/test_flops_imports_without_torch.py locks this down.
+def _model_config(**kw):
+    from src.model import ModelConfig
+    return ModelConfig(**kw)
+
 from src.scaling.flops import (
     n_params,
     train_flops_per_example,
@@ -413,7 +423,7 @@ def achievable_sizes(
             aspect = d / sel
             if not aspect_min <= aspect <= aspect_max:
                 continue
-            cfg = ModelConfig(head_mode="cross_attn", d_model=d,
+            cfg = _model_config(head_mode="cross_attn", d_model=d,
                               n_heads=n_heads_for(d), slot_encoder_layers=sel,
                               decoder_layers=decoder_layers)
             n = n_params(cfg)
@@ -531,7 +541,7 @@ def feasible_n_window(
     cap = wall_cap_sec if wall_cap_sec is not None else QOS_SHORT_SEC * WALL_MARGIN
     lo = hi = None
     for n, d, sel in sizes:
-        cfg = ModelConfig(head_mode="cross_attn", d_model=d,
+        cfg = _model_config(head_mode="cross_attn", d_model=d,
                           n_heads=n_heads_for(d), slot_encoder_layers=sel,
                           decoder_layers=1, batch_size=batch_size)
         passes = budget / train_flops_per_example(cfg)
@@ -582,7 +592,7 @@ def build_grid(
 
     def make(budget: float, target: float, n: int, d: int, sel: int,
              mult: float, seed: Optional[int]) -> SweepConfig:
-        cfg = ModelConfig(head_mode="cross_attn", d_model=d,
+        cfg = _model_config(head_mode="cross_attn", d_model=d,
                           n_heads=n_heads_for(d), slot_encoder_layers=sel,
                           decoder_layers=1, batch_size=batch_size)
         per_ex = train_flops_per_example(cfg)
@@ -681,7 +691,7 @@ def build_data_ladder(
     """
     law = lr_law or fit_lr_law()
     cap = wall_cap_sec if wall_cap_sec is not None else QOS_SHORT_SEC * WALL_MARGIN
-    cfg0 = ModelConfig(head_mode="cross_attn", d_model=d_model,
+    cfg0 = _model_config(head_mode="cross_attn", d_model=d_model,
                        n_heads=n_heads_for(d_model),
                        slot_encoder_layers=slot_encoder_layers,
                        decoder_layers=1, batch_size=batch_size)

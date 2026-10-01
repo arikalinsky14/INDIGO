@@ -66,6 +66,17 @@ worth chasing.
 future torch upgrade which fixes (or worsens) it does not silently change
 what we believe about the compute axis.
 
+Importability
+-------------
+This module, and everything it imports, must stay free of torch at import
+time. `scripts/fit_wall_model.py` and the rest of the compute-axis analysis
+depend on that: they run on a login node or any CPU-only box with no
+environment loaded. `src/materials_vocab.py` and `src/material_features.py`
+therefore import torch lazily, inside the functions that build tensors.
+`tests/` covers this; if you add a module-scope `import torch` anywhere in this
+import chain, that test fails and every wall-clock analysis stops running where
+it is meant to.
+
 Conventions
 -----------
 * FLOPs follow the `FlopCounterMode` convention: one matmul of shape

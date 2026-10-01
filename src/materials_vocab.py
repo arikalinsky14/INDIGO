@@ -41,7 +41,19 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-import torch
+# torch is imported lazily, inside the functions that build tensors.
+#
+# Everything the scaling analysis needs from this module is pure Python: the
+# vocabulary constants, the token arithmetic, the feature dimensions. Importing
+# torch at module scope made src/scaling/flops.py depend on it transitively,
+# despite that module documenting itself as torch-free, which meant no FLOP or
+# wall-clock analysis could run anywhere torch was not installed, including a
+# login node with no environment activated. Nothing else about these functions
+# changes: they import torch on first call.
+def _torch():
+    import torch
+    return torch
+
 
 from src.material_features import MaterialNK
 
@@ -195,7 +207,7 @@ def build_structure_matrix(
     if len(slot_indices) > MAX_LAYERS:
         raise ValueError(f"structure has {len(slot_indices)} layers, max is {MAX_LAYERS}")
 
-    matrix = torch.zeros(M_MAX, MAX_LAYERS, dtype=torch.float32)
+    matrix = _torch().zeros(M_MAX, MAX_LAYERS, dtype=_torch().float32)
     for layer_idx, (slot, thick) in enumerate(zip(slot_indices, thicknesses_nm)):
         if not (0 <= slot < M_MAX):
             raise ValueError(f"slot {slot} out of range [0, {M_MAX})")
@@ -239,8 +251,8 @@ _AB_SCALE: float = 128.0
 
 def normalize_lab(lab: List[float]) -> torch.Tensor:
     L, a, b = lab
-    return torch.tensor(
-        [L / _L_SCALE, a / _AB_SCALE, b / _AB_SCALE], dtype=torch.float32
+    return _torch().tensor(
+        [L / _L_SCALE, a / _AB_SCALE, b / _AB_SCALE], dtype=_torch().float32
     )
 
 
@@ -277,7 +289,7 @@ def build_output_mask(pool_size: int, device: Optional[torch.device] = None) -> 
     if not (1 <= pool_size <= M_MAX):
         raise ValueError(f"pool_size {pool_size} out of range [1, {M_MAX}]")
 
-    mask = torch.full((VOCAB_SIZE,), float("-inf"), dtype=torch.float32, device=device)
+    mask = _torch().full((VOCAB_SIZE,), float("-inf"), dtype=_torch().float32, device=device)
     # Valid layer tokens: slot ∈ [0, pool_size).
     valid_layer_count = pool_size * NUM_THICKNESSES
     mask[:valid_layer_count] = 0.0
@@ -304,7 +316,7 @@ def build_output_mask_batch(
 
     # Slot index for each token in the vocab. EOS gets a sentinel of -1
     # so the comparison below treats it as always valid.
-    token_slots = torch.arange(VOCAB_SIZE, device=device) // NUM_THICKNESSES
+    token_slots = _torch().arange(VOCAB_SIZE, device=device) // NUM_THICKNESSES
     token_slots[EOS_TOKEN] = -1  # EOS is always valid
 
     # Compare each example's pool size against every token's slot.
@@ -312,10 +324,10 @@ def build_output_mask_batch(
     valid = token_slots.unsqueeze(0) < pool_sizes_b           # [B, V]
     valid[:, EOS_TOKEN] = True                                # EOS always valid
 
-    mask = torch.where(
+    mask = _torch().where(
         valid,
-        torch.zeros((), dtype=torch.float32, device=device),
-        torch.full((), float("-inf"), dtype=torch.float32, device=device),
+        _torch().zeros((), dtype=_torch().float32, device=device),
+        _torch().full((), float("-inf"), dtype=_torch().float32, device=device),
     )
     return mask
 
@@ -363,7 +375,7 @@ if __name__ == "__main__":
           f"{'✓' if valid_count == expected_valid else '✗'}")
 
     # Vectorized mask
-    mask_batch = build_output_mask_batch(torch.tensor([1, 8, M_MAX]))
+    mask_batch = build_output_mask_batch(_torch().tensor([1, 8, M_MAX]))
     print(f"  batched mask shape: {tuple(mask_batch.shape)}")
     counts = (mask_batch == 0.0).sum(dim=1).tolist()
     expected = [
