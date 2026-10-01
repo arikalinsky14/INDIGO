@@ -361,6 +361,40 @@ def budget_for_examples(config, n_examples: float, **kw) -> float:
     return train_flops(config, n_examples, **kw)
 
 
+def effective_params(config, **kw) -> float:
+    """Effective parameters: the N that makes `C = 6 * N * D` exact.
+
+    The parameter count does not satisfy a constant-k compute law on INDIGO,
+    because the pointer head runs per (position, slot) and the slot encoder
+    runs over the pool rather than the sequence, so forward cost per example
+    grows more slowly than the parameter count. Over the sweep ladder
+    `C / (N * D)` falls from 306 to 218.
+
+    The standard fix is not to change the architecture but to change what is
+    called N. Porian et al. do exactly this: their `params` column is
+    `flops_per_token / 6` rather than a parameter count (`data.py:74`), and
+    their attention-inclusive variant `eff_params_att` is the same trick
+    applied again. Defining
+
+        N_eff = forward_flops_per_example / 2
+
+    makes `C_train = 3 * F * D = 6 * N_eff * D` hold identically, so the token
+    multiplier `D / N_eff` is well defined and the two exponents satisfy
+    `alpha + beta = 1` by construction instead of landing near it.
+
+    Two things to keep in mind before reporting in these units:
+
+    * `N_eff` is NOT a parameter count. On this ladder it is 36 to 49 times
+      the real one, so anything operational (memory, deployment size) has to
+      be translated back.
+    * `N_eff` is itself close to a power law in N, `N_eff ~ 98.9 * N^0.940`
+      with r^2 = 0.9999, so an exponent measured in one is the other's divided
+      by 0.940. Our pooled alpha is +0.923 in parameters and +0.983 in
+      effective parameters. Quote which one, always.
+    """
+    return forward_flops_per_example(config, **kw) / 2.0
+
+
 def tokens_per_example(mean_layers: float = DEFAULT_MEAN_LAYERS) -> float:
     """Supervised prediction targets per example: one per layer, plus EOS."""
     return mean_layers + 1.0

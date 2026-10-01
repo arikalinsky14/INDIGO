@@ -136,6 +136,12 @@
      "ci_high": -0.5667571832291092
     },
     "alpha_plus_beta": 1.0634285777484311,
+    "N_star_effective_params": {
+     "exponent": 0.9825653878021784,
+     "ci_low": 0.8657089493283353,
+     "ci_high": 1.0631242258363474,
+     "note": "alpha in units where C = 6 N D is exact"
+    },
     "exponent_draws": [
      0.948231445267717,
      0.8661082267045519,
@@ -479,6 +485,12 @@
      "ci_high": 0.35753635259714833
     },
     "alpha_plus_beta": 1.0511549902441157,
+    "N_star_effective_params": {
+     "exponent": 0.6876345626436094,
+     "ci_low": 0.3571947292381092,
+     "ci_high": 0.8699899999071308,
+     "note": "alpha in units where C = 6 N D is exact"
+    },
     "exponent_draws": [
      0.6905530566815332,
      0.5130467705691315,
@@ -822,6 +834,12 @@
      "ci_high": -0.5728255503740267
     },
     "alpha_plus_beta": 1.0650720556905549,
+    "N_star_effective_params": {
+     "exponent": 0.9960689209024568,
+     "ci_low": 0.8698128903871599,
+     "ci_high": 1.078980195161022,
+     "note": "alpha in units where C = 6 N D is exact"
+    },
     "exponent_draws": [
      0.9648731093715485,
      0.9010004816071299,
@@ -1165,6 +1183,12 @@
      "ci_high": -0.09759101202721303
     },
     "alpha_plus_beta": 1.058941333504249,
+    "N_star_effective_params": {
+     "exponent": 0.8751656017553455,
+     "ci_low": 0.609272109186409,
+     "ci_high": 1.0163968067128923,
+     "note": "alpha in units where C = 6 N D is exact"
+    },
     "exponent_draws": [
      0.8784621368103169,
      0.71982792665057,
@@ -1508,6 +1532,12 @@
      "ci_high": -0.40502668314827617
     },
     "alpha_plus_beta": 1.0543886469671093,
+    "N_star_effective_params": {
+     "exponent": 0.8655066723997341,
+     "ci_low": 0.7772376621485336,
+     "ci_high": 0.9339978859827098,
+     "note": "alpha in units where C = 6 N D is exact"
+    },
     "exponent_draws": [
      0.8271362092728307,
      0.8097746509867224,

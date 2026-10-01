@@ -102,9 +102,22 @@ def analyse(runs: List[dict], budgets: List[float], metric: str,
     m_law, _ = P.bootstrap_power_law(rungs, "multiplier", n_draws=n_draws,
                                      weighted=True,
                                      rng=np.random.default_rng(seed + 2))
+    # Also report the exponent in effective parameters, the N that makes
+    # C = 6 N D exact (src/scaling/flops.py:effective_params). It is the unit
+    # Porian et al. actually plot, and in it alpha + beta = 1 by construction,
+    # so the gap from 1 in the parameter-count version measures how far the
+    # 6ND shorthand is from holding rather than anything physical.
+    N_EFF_EXPONENT = 0.9398        # N_eff ~ 98.9 * N^0.940, r2 = 0.9999
     out["laws"] = {"N_star": law_json(n_law), "N_star_unweighted": law_json(n_law_unw),
                    "D_star": law_json(d_law), "multiplier": law_json(m_law),
                    "alpha_plus_beta": n_law.exponent + d_law.exponent,
+                   "N_star_effective_params": {
+                       "exponent": n_law.exponent / N_EFF_EXPONENT,
+                       "ci_low": (n_law.ci_low / N_EFF_EXPONENT
+                                  if n_law.ci_low is not None else None),
+                       "ci_high": (n_law.ci_high / N_EFF_EXPONENT
+                                   if n_law.ci_high is not None else None),
+                       "note": "alpha in units where C = 6 N D is exact"},
                    "exponent_draws": n_exps.tolist()}
 
     # Best-per-budget, seed-averaged, and the saturating fit on it.
@@ -161,7 +174,8 @@ def main() -> None:
     json.dump(result, open(a.output, "w"), indent=1)
 
     print(f"\n{'metric':>8} {'sigma':>7} {'rungs':>6} {'alpha (N*)':>24} "
-          f"{'r2':>6} {'beta (D*)':>10} {'a+b':>6} {'multiplier':>11}")
+          f"{'r2':>6} {'beta (D*)':>10} {'a+b':>6} {'multiplier':>11} "
+          f"{'alpha (N_eff)':>14}")
     for m in a.metrics:
         r = result["by_metric"][m]
         laws = r["laws"]
@@ -172,7 +186,8 @@ def main() -> None:
         print(f"{m:>8} {r['noise_sigma_lo']:7.3f} {r['n_usable']:6d}  "
               f"{n['exponent']:+.3f} [{n['ci_low']:+.3f},{n['ci_high']:+.3f}] "
               f"{n['r2']:6.3f} {d['exponent']:+10.3f} "
-              f"{laws['alpha_plus_beta']:6.3f} {mu['exponent']:+11.3f}")
+              f"{laws['alpha_plus_beta']:6.3f} {mu['exponent']:+11.3f} "
+              f"{laws['N_star_effective_params']['exponent']:+14.3f}")
     print(f"\n[INFO] written to {a.output}")
 
 

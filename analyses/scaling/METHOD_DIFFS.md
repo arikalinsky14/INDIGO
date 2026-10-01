@@ -268,6 +268,18 @@ sequence. `src/scaling/flops.py` computes C = 3 * F(N) * D analytically, and
 over this ladder C/(N*D) falls from 306 to 218, so a per-token count would be
 off by 36x to 51x with the error itself drifting 1.4x across the grid.
 
+**Effective parameters, and making C = 6ND exact.** The parameter count does
+not satisfy a constant-k compute law here, so `alpha + beta` lands near 1.06
+rather than on 1. The standard fix is not architectural: Porian et al. define
+their `params` column as `flops_per_token / 6` (`data.py:74`), so C = 6ND holds
+by construction. `src/scaling/flops.py:effective_params` does the same for
+INDIGO, `N_eff = forward_flops_per_example / 2`, and the fit reports the
+exponent in both units. Two cautions. `N_eff` is 36 to 49 times the parameter
+count on this ladder, so anything operational has to be translated back. And
+`N_eff ~ 98.9 * N^0.940` with r^2 = 0.9999, so the exponents differ by that
+factor: pooled alpha is +0.923 in parameters and +0.983 in effective
+parameters. Always say which.
+
 **The chroma stratification is ours.** Nothing in their method fits separate
 laws per difficulty stratum, and it is where INDIGO's most interpretable result
 lives: low chroma is the bucket with the cleanest law.
