@@ -112,11 +112,8 @@ set -euo pipefail
 # ============================================================================
 
 # Environment FIRST. Everything below shells out to python, and the cell list
-# in particular is computed before any task runs. With the activation further
-# down, both the batch-size lookup and the cell enumeration ran against the
-# system python: the lookup silently fell back to its default and the cell list
-# came back empty, so every array task exited with "no cells". The run
-# directory also has to be set before any relative path is used.
+# in particular is computed before any task runs.
+#
 # Under sbatch this is the submit directory; run by hand it is wherever you
 # already are, so --list works from a checkout without guessing a path.
 if [[ -n "${SLURM_SUBMIT_DIR:-}" ]]; then
@@ -128,9 +125,22 @@ if [[ ! -f scripts/lr_grid_cells.py ]]; then
     echo "run this from the INDIGO checkout (no scripts/lr_grid_cells.py here)" >&2
     exit 1
 fi
-module purge 2>/dev/null || true
-source "${CONDA_PREFIX:-$HOME/miniconda3}/etc/profile.d/conda.sh" 2>/dev/null || true
-conda activate "${CONDA_ENV:-indigo}" 2>/dev/null || true
+
+# -------------------- Environment Setup --------------------
+# Same two lines every other slurm in this repo uses. An earlier version of
+# this script invented a conda activation that does not exist on this cluster
+# and swallowed the failure with `|| true`, so the job ran against the system
+# python and died on `import torch` after the scheduler had already given it a
+# GPU. Failures here are fatal and loud.
+if command -v module >/dev/null 2>&1; then
+    module purge
+    module load python/pytorch_251_311_cu124
+fi
+if [[ -f "$HOME/envs/llm-env/bin/activate" ]]; then
+    source "$HOME/envs/llm-env/bin/activate"
+fi
+export TOKENIZERS_PARALLELISM=false
+
 mkdir -p job-outputs
 
 # Batch size comes from the sweep planner, never from a default here.
@@ -192,6 +202,17 @@ if [[ "${1:-}" == "--list" ]]; then
     exit 0
 fi
 
+# Everything past here trains, so torch has to be importable. Fail now rather
+# than after the scheduler has handed out a GPU and lr_tuning.py has loaded a
+# dataset.
+python3 -c 'import torch' 2>/dev/null || {
+    echo "[ERROR] torch is not importable after loading the environment." >&2
+    echo "        module: python/pytorch_251_311_cu124" >&2
+    echo "        venv:   $HOME/envs/llm-env" >&2
+    echo "        Failing before this job spends any more of the allocation." >&2
+    exit 1
+}
+
 TASK="${SLURM_ARRAY_TASK_ID:?submit as an array job; run with --list to see the cells}"
 if (( TASK >= N_TASKS )); then
     echo "task ${TASK} is past the ${N_TASKS} cells in this grid" >&2
@@ -207,15 +228,12 @@ read -r N_PARAMS LR_PRIOR LR_LO LR_HI <<< "$(python3 - "${D_MODEL}" \
     "${SLOT_ENCODER_LAYERS}" "${N_HEADS}" "${LR_SPAN}" <<'PYEOF'
 import sys
 sys.path.insert(0, ".")
-from src.model import ModelConfig
-from src.scaling.flops import n_params
+from src.scaling.flops import ArchSpec, n_params
 from src.scaling.configs import lr_for
 
 d_model, se, n_heads, span = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4])
-cfg = ModelConfig(feature_mode="raw_spectrum", encoder_hidden=128, encoder_out=64,
-                  encoder_dropout=0.1, d_model=d_model, n_layers=8, dropout=0.1,
-                  head_mode="cross_attn", n_heads=n_heads,
-                  slot_encoder_layers=se, decoder_layers=1)
+cfg = ArchSpec(d_model=d_model, n_heads=n_heads, head_mode="cross_attn",
+               slot_encoder_layers=se, decoder_layers=1)
 n = n_params(cfg)
 prior = lr_for(n)
 print(f"{n} {prior:.6e} {prior / span:.6e} {prior * span:.6e}")

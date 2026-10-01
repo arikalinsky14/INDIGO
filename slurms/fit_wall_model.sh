@@ -60,9 +60,21 @@ if [[ -z "${RUNS_ROOT}" && -z "${OBSERVATIONS}" ]]; then
     exit 1
 fi
 
-module purge 2>/dev/null || true
-source "${CONDA_PREFIX:-$HOME/miniconda3}/etc/profile.d/conda.sh" 2>/dev/null || true
-conda activate "${CONDA_ENV:-indigo}" 2>/dev/null || true
+# -------------------- Environment Setup --------------------
+# Same two lines every other slurm in this repo uses. An earlier version of
+# this script invented a conda activation that does not exist on this cluster
+# and swallowed the failure with `|| true`, so the job ran against the system
+# python and died on `import torch` after the scheduler had already given it a
+# GPU. Failures here are fatal and loud.
+if command -v module >/dev/null 2>&1; then
+    module purge
+    module load python/pytorch_251_311_cu124
+fi
+if [[ -f "$HOME/envs/llm-env/bin/activate" ]]; then
+    source "$HOME/envs/llm-env/bin/activate"
+fi
+export TOKENIZERS_PARALLELISM=false
+
 cd "${SLURM_SUBMIT_DIR:-$HOME/Github/INDIGO}"
 mkdir -p job-outputs
 
