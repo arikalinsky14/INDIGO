@@ -108,7 +108,19 @@ def main() -> None:
     p.add_argument("--fit", default="analyses/scaling/results/porian_fit.json")
     p.add_argument("--beta2", type=float, default=0.99)
     p.add_argument("--format", choices=("lines", "table"), default="lines")
-    p.add_argument("--rate", type=float, default=1301.0)
+    p.add_argument("--rate", type=float, default=204.0,
+                   help="examples per second. The default is the MEASURED "
+                        "median from the first stage-1 submission (227 step "
+                        "samples, min 13, median 204, max 395), not the 1301 "
+                        "the sweep planner assumes. Tuning cells run far "
+                        "slower than sweep runs: six array tasks stream the "
+                        "same shards at once and these models are input-bound, "
+                        "so concurrency costs more than model size does. "
+                        "Sizing stage 1 at 1301 under-estimated it by 6x and "
+                        "every cell hit the 6-hour wall.")
+    p.add_argument("--wall-hours", type=float, default=6.0,
+                   help="the --time the array will be submitted with, so the "
+                        "table can say which cells do not fit")
     p.add_argument("--n-lrs", type=int, default=7)
     a = p.parse_args()
 
@@ -129,6 +141,24 @@ def main() -> None:
               f"{c['D']:>12,} {c['D'] / c['n_params']:>9.2f} "
               f"{c['beta2']:>6g} {h:>7.1f}")
     print(f"\n{'':>4} {'total':<12} {'':>11} {'':>12} {'':>9} {'':>6} {total:>7.1f}")
+    # A cell that needs most of its wall will die on the tail, because the
+    # rate is a median and the slow end of the distribution is 15x below it.
+    # The first stage-1 submission was estimated at 0.9h per cell against a
+    # 6h wall and still hit the limit.
+    MARGIN = 0.6
+    hours = [a.n_lrs * c["D"] / a.rate / 3600 for c in cells]
+    at_risk = [h for h in hours if h > a.wall_hours * MARGIN]
+    if at_risk:
+        worst = max(hours)
+        need = int(worst / MARGIN) + 1
+        print(f"\n[WARN] {len(at_risk)} of {len(cells)} cells need more than "
+              f"{MARGIN:.0%} of the {a.wall_hours:g}h wall "
+              f"({worst:.1f}h for the largest at {a.rate:g} ex/s).")
+        print(f"       The rate is a MEDIAN and the slow tail runs 15x under "
+              f"it, so a cell sized near the wall will not finish.")
+        print(f"       Submit with --time={need:02d}:00:00 --qos=long, and "
+              f"throttle the array (--array=0-{len(cells) - 1}%2): these runs "
+              f"are input-bound, so concurrent cells slow each other down.")
 
 
 if __name__ == "__main__":

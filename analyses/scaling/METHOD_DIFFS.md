@@ -314,3 +314,46 @@ and configs finish early.
 **The chroma stratification is ours.** Nothing in their method fits separate
 laws per difficulty stratum, and it is where INDIGO's most interpretable result
 lives: low chroma is the bucket with the cleanest law.
+
+---
+
+## Stage 1, first submission: what it cost and what it showed
+
+Job 4123703, six cells, submitted at the sizing in this file's earlier version.
+Every cell hit the six-hour wall after completing two to four of its seven
+learning rates. Two separate problems, both worth recording before the next
+attempt.
+
+**Throughput was 6x below the planner's assumption.** 227 logged step samples
+give min 13, median 204, max 395 examples per second, against the 1301
+`EXAMPLES_PER_SEC` assumes and the 2171 the wall-model fit measured on the
+sweep's own runs. The models here are the same size or smaller, so this is not
+capacity: six array tasks were streaming the same shards at once, and these
+runs are input-bound. `scripts/lr_grid_cells.py --rate` now defaults to the
+measured 204 and the table warns when a cell needs more than 60% of its wall.
+
+**At D = 614,400 nothing learns, so the metric cannot rank learning rates.**
+Token accuracy sat at 0.164 to 0.183 across every trial, which is the EOS base
+rate (1/5.5 = 0.182), and training loss stayed near 6.5 from first step to
+last. The DeltaE values that did complete:
+
+| N | beta2 | lr | val DeltaE |
+|---|---|---|---|
+| 100,493 | 0.95 | 7.6e-5 | 28.8 |
+| 100,493 | 0.95 | 2.4e-4 | 32.4 |
+| 100,493 | 0.95 | 7.4e-4 | 24.8 |
+| 100,493 | 0.99 | 7.6e-5 | 30.6 |
+| 100,493 | 0.999 | 7.6e-5 | 37.4 |
+| 6,606,789 | 0.95 | 7.1e-6 | 27.0 |
+| 6,606,789 | 0.95 | 2.2e-5 | 26.6 |
+
+Non-monotone, no bowl, and spanning 25 to 37 on a metric whose seed noise is
+0.5. That is scatter around a model that has not learned, not an optimum. The
+tuning budget has to be large enough that DeltaE responds to the learning rate
+at all, which is why stage 2 tunes at each rung's own D* (3.4M to 6.1M
+examples) rather than at the historical 614,400.
+
+The two problems compound: stage 2 at the measured rate costs 207 GPU-hours,
+not 32. Resolve the throughput first. The sweep reached 2171 ex/s on the same
+data, so 204 is contention rather than a floor, and a single unthrottled cell
+is the measurement that settles it.
