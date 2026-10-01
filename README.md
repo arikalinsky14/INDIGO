@@ -33,7 +33,10 @@ INDIGO/
 │   ├── visualize_synthetic.py           # Sanity-check synthetic material distributions
 │   └── verify_optical_sim.py            # Cross-check new vs original optical sim
 │
-├── slurms/
+├── src/scaling/                         # compute-optimal study: grid, FLOPs, estimator
+├── analyses/scaling/                    # its README, method audit, plots, results
+│
+├── slurms/                              # every python entry point has a wrapper here
 │   ├── training.sh
 │   ├── evaluate.sh
 │   └── lr_tuning.sh
@@ -314,7 +317,15 @@ LR-search outputs are partitioned by head_mode:
 cross-attention sweeps live in separate subdirectories and never clobber
 each other.
 
-### Multi-N scaling-law fit (preferred for production-LR derivation)
+### Multi-N scaling-law fit (superseded; see the scaling study below)
+
+> **This is the workflow that produced the deployed law `lr(N) = 1.573 N^-0.567`,
+> and all three of its measurements fail the bracketing test: a 3-point grid
+> can never bracket an optimum, because its only interior point is the second
+> and the second-to-last point at once. It is kept here because it is what the
+> production checkpoint was trained under. For new work use the staged tuning
+> in `slurms/lr_grid.sh`, described in `analyses/scaling/README.md`.**
+
 
 For a single-pass production run on `N` rows, `lr_opt` scales as a power
 law in `N`: `log(lr_opt) = a + b * log(N)`. The clean way to fit this is to
@@ -362,4 +373,34 @@ bump `N_LRS` for a finer sweep:
 ```bash
 LR_MIN=5e-5 LR_MAX=5e-4 N_LRS=8 LIMIT_EXAMPLES=1000000 \
     sbatch slurms/lr_tuning.sh
+```
+
+---
+
+## Compute-optimal scaling study
+
+A 48-run IsoFLOP sweep asking what (N, D) split minimises ΔE₀₀ at fixed compute,
+and whether that split changes with chroma difficulty. Chinchilla's Approach 2
+with the corrections from [Porian et al. 2024](https://arxiv.org/abs/2406.19146).
+
+| | pooled ΔE₀₀ | cross-entropy | Chinchilla |
+|---|---|---|---|
+| N\* vs compute, α | **+0.923** [0.814, 0.999] | +0.813 [0.730, 0.878] | +0.50 |
+| examples per parameter, D\*/N\* | ∝ C^**−0.783** | ∝ C^−0.572 | flat |
+| usable rungs, of 6 | 5 | 4 | |
+
+Both metrics turn upward at C = 2.75e15, where the best pooled ΔE is 10.04.
+Measured compute is **not** 6ND here: `src/scaling/flops.py` computes it
+analytically and C/(N·D) falls from 306 to 218 across the ladder, because the
+head and embeddings dominate at small width.
+
+Everything about it lives in **`analyses/scaling/README.md`**: the full results,
+the audit against the authors' released code (`METHOD_DIFFS.md`), the known
+limitations, and the staged optimizer tuning that is set up and not yet run.
+Start there, and read `CLAUDE.md` for the short version.
+
+```bash
+MODE=dry-run sbatch slurms/scaling_fit.sh        # inspect the grid
+MODE=fit     sbatch slurms/scaling_fit.sh        # fit it
+STAGE=probe  sbatch --array=0-0 slurms/lr_grid.sh   # next thing to run
 ```

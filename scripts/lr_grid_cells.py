@@ -18,11 +18,17 @@ instead would be worse still: M = D/N would then vary as 1/N across the ladder,
 220x, and the fitted "lr(N)" would really be lr along a trajectory in M. That is
 the aspect-ratio confound again, in a different variable.
 
-So stage 2 tunes at the (N*, D*) pairs the sweep actually found: the points that
-determine the IsoFLOP minima. D* barely moves, so this is affordable, and it
-spans N by 61x. It is a one-dimensional path through (N, M), so it cannot
-separate the two exponents on its own; stage 3 varies M at fixed N for that,
-and the two together support the 2-D fit.
+So the learning-rate search is embedded in the IsoFLOP test itself: stage 2
+tunes EVERY model on the lowest few curves, which is where the parabolas are
+fitted and where a borrowed learning rate would move a minimum. Each of those
+points carries its own (N, M), and because a second rung shifts the intercept,
+the geometry separates the two exponents without a separate experiment. The
+upper rungs are then projected from the fitted law, and stage 3 checks that
+projection at the highest usable rung.
+
+How many curves to tune in full, against how many to project, is the second
+objective of the throughput probe: see the stage-"probe" block below for the
+cost and conditioning at two, three and four.
 
     python scripts/lr_grid_cells.py --stage 2
     python scripts/lr_grid_cells.py --stage 2 --format table
@@ -79,15 +85,36 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3) -> list[dict]:
             points_at[b][run["n_params"]] = run["passes"]
 
     if stage == "probe":
-        # One mid-ladder size, one learning rate, a short budget. The only
-        # question is examples per second.
+        # One mid-ladder size, one learning rate, a short budget. It measures
+        # examples per second, and that one number settles TWO things.
         #
-        # It exists because stage 1 was sized at the planner's 1301 ex/s and
-        # ran at a median of 204, so every cell hit its wall. The sweep itself
-        # reaches 2171 ex/s on the same shards, so the gap is contention or
-        # configuration rather than a floor, and the difference decides whether
-        # the rest of the tuning costs 20 GPU-hours or 200. Run it alone:
-        # --array=0-0, nothing else of yours queued.
+        # 1. WHETHER THE REST IS AFFORDABLE. Stage 1 was sized at the planner's
+        #    1301 ex/s and ran at a median of 204, so every cell hit its wall.
+        #    The sweep itself reaches 2171 ex/s on the same shards, so the gap
+        #    is contention or configuration rather than a floor.
+        #
+        # 2. HOW MANY IsoFLOP CURVES STAGE 2 TUNES IN FULL, the rest being
+        #    projected from the fitted law. Each added rung improves the
+        #    conditioning of the (N, M) fit and roughly doubles the cost:
+        #
+        #      rungs  cells   GPU-h @2171   GPU-h @204   cond   sd(b)  sd(c)  extrap
+        #          2     12          22.1        235.0    630   0.100  0.054   13/24
+        #          3     18          42.8        455.9    401   0.050  0.031    9/24
+        #          4     24          85.2        907.1    303   0.032  0.021    5/24
+        #
+        #    sd(b), sd(c) are the spreads of the recovered N and M exponents
+        #    over 2000 synthetic draws with 0.10 of noise in log-lr units, and
+        #    "extrap" counts the sweep's 24 distinct model sizes that fall
+        #    ABOVE the largest size tuned. So the fourth rung buys coverage as
+        #    well as conditioning, and coverage is the stronger argument: an
+        #    extrapolated size is a size whose learning rate is a guess.
+        #    At 2171 it tightens b 1.6x and halves the extrapolated sizes for
+        #    2x the compute, a real choice; at 204 even three rungs is 456
+        #    GPU-hours and the choice is three or nothing. Carry the answer
+        #    into stage 2 as --rungs (RUNGS in the SLURM wrapper).
+        #
+        # Run it ALONE: --array=0-0, nothing else of yours queued, or it
+        # measures contention rather than throughput.
         n, d, se = nearest_config(rungs_[len(rungs_) // 2]["n_star_median"])
         return [{"n_params": n, "d_model": d, "se": se, "D": 614_400,
                  "beta2": beta2}]
@@ -177,10 +204,16 @@ def main() -> None:
     p.add_argument("--beta2", type=float, default=0.99)
     p.add_argument("--rungs", type=int, default=3,
                    help="stage 2: how many of the LOWEST IsoFLOP curves to "
-                        "tune in full. Two is the minimum that separates the "
-                        "N and M exponents; three gives a condition number of "
-                        "401 against 630 at two. Above three the cost roughly "
-                        "doubles per rung for little extra conditioning.")
+                        "tune in full, the rest being projected from the "
+                        "fitted law. Two is the minimum that separates the N "
+                        "and M exponents (cond 630); three gives cond 401 at "
+                        "18 cells and 42.8 GPU-h at 2171 ex/s; four gives 303 "
+                        "at 24 cells and 85.2 GPU-h. THE PROBE DECIDES "
+                        "BETWEEN THREE AND FOUR: at 2171 ex/s the fourth rung "
+                        "tightens the fitted N exponent 1.6x and cuts the "
+                        "sweep sizes left to extrapolation from 9 of 24 to 5, "
+                        "for twice the compute; at 204 ex/s three rungs "
+                        "already costs 456 GPU-h and four is out of reach.")
     p.add_argument("--format", choices=("lines", "table"), default="lines")
     p.add_argument("--rate", type=float, default=204.0,
                    help="examples per second. The default is the MEASURED "

@@ -11,13 +11,32 @@ start rather than retrofitted. This README is the hand-off document: what
 the study asks, why it is set up the way it is, what the first attempt got
 wrong, and where every artefact lives.
 
+**Status, Oct 1 2026.** The 48-run IsoFLOP sweep is finished and analysed.
+The optimizer tuning that should have preceded it is set up and not yet run.
+
+| | pooled ΔE₀₀ | cross-entropy |
+|---|---|---|
+| N\* vs compute, α | **+0.923** [0.814, 0.999] | +0.813 [0.730, 0.878] |
+| same, in effective parameters | +0.983 [0.866, 1.063] | +0.866 [0.777, 0.934] |
+| examples per parameter, D\*/N\* | ∝ C^**−0.783** | ∝ C^−0.572 |
+| usable rungs, of 6 | 5 | 4 |
+
+Chinchilla is α = 0.50 with a flat multiplier. Both metrics turn upward at
+C = 2.75e15, where the best pooled ΔE is 10.04. Full numbers in *Results of
+the finished sweep* below; the audit against the authors' own code is
+`METHOD_DIFFS.md`; the live plan is *What is not settled* below and
+`CLAUDE.md`.
+
 ---
 
 ## What we are trying to answer
 
 1. **For a fixed compute budget C, what model size N\* minimises ΔE?**
-   Fit a parabola to (log N, val_de) at each budget, read off its minimum,
-   then fit a power law N\*(C) ∝ C^α across budgets. Same for D\*(C) ∝ C^β.
+   Interpolate (log N, val_de) at each budget, read off the argmin, then fit
+   a power law N\*(C) ∝ C^α across budgets. Same for D\*(C) ∝ C^β. The
+   interpolant is an Akima spline, not a parabola, for the reason in
+   `METHOD_DIFFS.md` item 1; `fit_scaling.py` keeps the parabola and
+   `fit_scaling_porian.py` is the one to quote.
 
 2. **Is the production checkpoint the right size for its budget?**
    Early indications are no, by a large factor. Sweep v1's best run reached
@@ -220,6 +239,18 @@ single epoch.
 fed back and the constants re-checked before the next one is sized. v1's
 model was wrong by 2× and nothing caught it until the runs were in.
 
+**That feedback has now been done**, on 90 checkpoint intervals from the
+finished sweep: the measured rate is **2171 ex/s**, so 1301 is conservative by
+about 1.7x, and the model needs no size term at all. See *Wall clock tracks
+examples, not FLOPs* below. The 1301 constant is left in place because it is
+conservative in the safe direction; a timed-out config costs a point on a
+parabola, an early finish costs nothing.
+
+**Tuning cells are a different regime and the sweep's rate does not transfer.**
+Six concurrent `lr_grid.sh` cells on the same shards measured a median of 204
+ex/s, 6x under the planner, and every cell hit its wall. Size tuning arrays
+from a measured rate and throttle them with `%2`.
+
 **Throttle concurrency with `%N`.** v1 ran all 20 tasks at once against the
 same parquet shards on shared `/ix1` and measured 246–2856 ex/s. These jobs
 compete for reads, so throttling should make configs finish early rather
@@ -321,7 +352,41 @@ that as a power limit, not as evidence the frontier is chroma-independent.**
   floor of 5.125 ΔE. That is explicitly a **non-detection with limited
   power**, not a verified safe depth.
 - `scripts/lr_tuning.py` — per-scale LR, selected on ΔE with the CE
-  divergence screen.
+  divergence screen. Also the worker for every tuning stage: it exposes
+  `--beta1/--beta2`, `--lr-schedule`, `--eval-fractions`, and it checks for an
+  existing result file **before** loading data or touching the GPU, so
+  re-submitting an array is free.
+
+**The Porian-faithful stack (added Oct 1)**
+- `src/scaling/porian.py`: the port of the authors' released analysis code.
+  `akima_argmin`, `fit_rung` with the seed-noise bootstrap, `power_law_fit` and
+  `bootstrap_power_law`, `saturating_fit`, and `nested_hparam_optimum` with the
+  `on_edge` bracketing test.
+- `scripts/fit_scaling_porian.py`: the CLI, writes `results/porian_fit.json`.
+  **This is the one to quote**; `fit_scaling.py` keeps the parabola for
+  continuity with wave 1.
+- `analyses/scaling/plot_porian.py`: their three panels (IsoFLOP curves, N\*(C),
+  multiplier). `--x-axis {flops,credits}`; the credit axis prints plain numbers
+  on its log ticks, and `--x-pad-left` widens the low-compute end so the
+  bottom curve shows its left descent.
+- `scripts/lr_grid_cells.py` + `slurms/lr_grid.sh`: the staged tuning. Cells
+  are derived from the sweep's own grid, never written by hand.
+- `scripts/fit_lr_law.py`: the 2-D law in (N, M), with the coverage report
+  that names every sweep size the law interpolates to and every one it reaches
+  past.
+- `analyses/scaling/plot_lr_sweep.py`: per-cell LR curves, starred green when
+  the optimum is bracketed and red when it is on an endpoint.
+- `scripts/fit_wall_model.py` + `slurms/fit_wall_model.sh`: seconds per
+  example against forward cost per example, with the permutation test that
+  decided there is no size term.
+- `METHOD_DIFFS.md`: the line-by-line audit against the authors' released
+  code. Read it before changing the estimator.
+
+**Torch-free requirement.** The whole analysis stack must import without
+torch, so it can run on an SMP node or a login shell. `flops.ArchSpec` is the
+duck-type stand-in for `ModelConfig`, and `tests/` enforces the rule. Never
+import `src.model` from an analysis script or a SLURM heredoc; this broke three
+times in one session.
 
 ---
 
@@ -377,6 +442,11 @@ env $COMMON BUDGETS="$BUD" sbatch --qos=long --time=12:00:00 --array=35-41%6 slu
 ---
 
 ## Wave-1 results (Sept 23-24) and what they changed
+
+**Superseded on the headline numbers by the finished sweep, two sections
+down.** Kept because the three corrections it forced are still in force, and
+because the data-ladder and corpus-sizing findings in it are not superseded by
+anything.
 
 **The geometry fix worked.** All 12 parabolas now open upward with R^2
 0.77-0.98, against v1's three-of-four refusals. N\* is inside the sampled
@@ -528,22 +598,346 @@ could not be fitted at all.
 
 ---
 
+## Results of the finished sweep (48 runs, Porian estimator)
+
+Regenerate every number here with
+
+```bash
+python scripts/fit_scaling_porian.py          # -> results/porian_fit.json
+python analyses/scaling/plot_porian.py        # -> results/porian_pooled.png
+```
+
+The estimator is a port of the authors' released code, not a reading of the
+paper: Akima interpolation in log-log with boundary rejection, a seed-noise
+bootstrap whose **median** is the observation, sigma inflated by
+`n_boot / n_valid`, and a 1/sigma^2-weighted power law in step 2. Weighted and
+unweighted exponents are both reported and agree to within 0.01 on every
+bucket except low chroma.
+
+### The headline exponents
+
+| bucket | usable rungs | alpha (weighted) | 95% interval | r^2 | D\*/N\* exponent | alpha in N_eff |
+|---|---|---|---|---|---|---|
+| **pooled ΔE** | 5 of 6 | **+0.923** | [+0.814, +0.999] | 0.997 | **−0.783** | +0.983 |
+| low chroma | 5 | +0.646 | [+0.336, +0.818] | 0.921 | −0.241 | +0.688 |
+| mid chroma | 5 | +0.936 | [+0.818, +1.014] | 0.999 | −0.807 | +0.996 |
+| high chroma | 5 | +0.823 | [+0.573, +0.955] | 0.956 | −0.586 | +0.875 |
+| cross-entropy | 4 | +0.813 | [+0.730, +0.878] | 0.996 | −0.572 | +0.866 |
+
+Chinchilla is alpha = 0.50 with a multiplier exponent of ~0. INDIGO is roughly
+twice the exponent on N and strongly negative on the multiplier: **examples
+per parameter falls as compute grows**, from D\*/N\* = 29.3 at C = 1e14 to 0.86
+at C = 8.3e15. Those are the same fact stated twice, since alpha + beta = 1 by
+construction.
+
+The last column is the exponent in **effective parameters**,
+`N_eff = forward_flops_per_example / 2`, the units in which C = 6·N_eff·D is
+an identity so alpha + beta is forced to exactly 1 rather than landing at 1.06.
+`N_eff ~ 98.9 N^0.940` with r^2 = 0.9999. Quote the parameter-count version as
+the headline, because that is a model size and N_eff is not, and always say
+which one is being quoted.
+
+### Per-rung detail, pooled ΔE
+
+| budget C | points | N\* (median of draws) | log sigma | valid draws | D\* | best ΔE at this budget | usable |
+|---|---|---|---|---|---|---|---|
+| 1.00e14 | 8 | 1.07e5 | 0.273 | 65% | 3.14e6 | 12.39 | yes |
+| 3.02e14 | 8 | 3.35e5 | 0.224 | 97% | 3.22e6 | 10.84 | yes |
+| 9.10e14 | 8 | 1.08e6 | 0.346 | 95% | 3.24e6 | 10.46 | yes |
+| **2.75e15** | 8 | 2.56e6 | 0.155 | 100% | 4.51e6 | **10.04** | yes |
+| 8.29e15 | 8 | 6.51e6 | 0.221 | 97% | 5.58e6 | 10.75 | yes |
+| 2.50e16 | 8 | n/a | n/a | n/a | n/a | 11.40 | **no, argmin on the boundary** |
+
+Every rung brackets its own optimum except the top one, whose interpolated
+argmin sits on the largest model sampled. That rejection is the estimator
+working as intended, and it is why alpha rests on five points rather than six.
+
+**Both metrics turn upward at C = 2.75e15.** Pooled ΔE goes 12.39, 10.84,
+10.46, **10.04**, 10.75, 11.40 across the six budgets, and CE does the same
+thing two decimal places down (6.144, 6.075, 6.042, **6.023**, 6.030, 6.035).
+A U shape in the best-achievable value at each budget is not what a scaling
+study expects to find, and it is the single most important open question in
+the study. The two candidate explanations are an un-tuned learning rate at the
+top (the law is extrapolated there, and it was never bracketed anywhere) and
+something real about the data or the task. Resolving it is what the optimizer
+tuning below is for.
+
+### Akima against the parabola, on the same 48 runs
+
+| | parabola (`fit_scaling.py`) | Akima (`fit_scaling_porian.py`) |
+|---|---|---|
+| usable rungs | 4 of 6 | **5 of 6** |
+| pooled alpha | +0.937 | +0.923 |
+| 95% interval | [+0.53, +1.42] | **[+0.81, +1.00]** |
+| noise-propagated fit | **4000 of 4000 draws refused** | survives |
+
+The point estimate barely moves. Its credibility moves enormously. The rescued
+rung is the bottom one, C = 1e14, whose parabola vertex fell below the smallest
+model sampled; the top rung is still rejected, now for the defensible reason
+that its argmin genuinely sits on the edge.
+
+### Chroma: suggestive, not established
+
+Low chroma at +0.646 against mid at +0.936 is the comparison of interest, and
+the intervals [+0.336, +0.818] and [+0.818, +1.014] **abut rather than
+separate**, touching at 0.818. Treat that as a power limit, not as a result in
+either direction, and note that the buckets are not independent observations:
+they are the same 48 runs with the ΔE distribution split three ways.
+
+Low chroma is still the best-behaved bucket in a different sense, as it was in
+wave 1: its seed noise is 0.388 ΔE against 1.625 for high chroma, and it is
+the only bucket whose top rung survives (N\* = 6.67e6 at C = 2.5e16).
+
+### The saturating fit: not identifiable, and that is informative
+
+`saturating_fit` fits `L(C) = logaddexp(a − alpha·log C, e)`, whose `exp(e)` is
+the floor no further compute buys past. It is the direct quantitative test of
+the pool-floor hypothesis.
+
+It does not identify. The form is monotonically decreasing, our curve turns
+upward at 2.75e15, and the four budgets on the descending branch cannot
+constrain three parameters: pooled returns alpha 0.671 at rmse 0.313 and
+`identified = False` rather than a floor of zero dressed up as a measurement.
+High chroma has only three usable descending budgets and does not fit at all.
+**Pinning the floor needs more budgets below 2.75e15**, which are the cheapest
+runs in the study.
+
+### Wall clock tracks examples, not FLOPs
+
+`scripts/fit_wall_model.py` fits seconds per example against forward cost per
+example over 90 checkpoint intervals from the finished sweep.
+
+| | |
+|---|---|
+| forward cost per example, spanned | 34x |
+| throughput, spanned | 1.9x |
+| correlation of log(s/example) with log F | r = +0.59 |
+| fitted size coefficient | 5.7e-13 s/FLOP, **p = 0.33** |
+
+The size term does not survive a permutation test once the observations are
+clustered by configuration (p = 0.058 treating intervals as independent, 0.33
+cluster-aware, and the cluster-aware one is the honest test). Throughput is
+not monotone in model size: 2451 ex/s at F = 4.9e7 against 1469 at F = 9.5e7
+and 2051 at F = 1.2e8, and repeats of one size scatter as much as the sizes
+differ.
+
+So these models are input-bound, as `estimate_wall_sec` assumes, and three
+things follow. **Wall clock tracks examples. Service units track examples. The
+credit axis of `plot_porian.py --x-axis credits` is a restatement of D.** A
+cost-optimal frontier distinct from the compute-optimal one does not exist
+here; the cost-optimal choice is simply the largest N the wall cap allows at
+the D you want. One side finding: measured throughput is **2171 ex/s** against
+the **1301** the planner assumes, so the ladder is sized conservatively by
+about 1.7x and configs finish early.
+
+The credit axis currently converts at 1.0 SU per GPU-hour
+(`su_rates_confirmed: false` in the fit artifact). Confirm the L40S rate with
+CRC before any credit figure leaves the group.
+
+### Epoch repetition is not why the top rung fails
+
+`EPOCH_CEILING` is 1.5, measured, and it is **not binding on this sweep**: 47
+of 48 runs are under one epoch and the deepest is 1.45. So the top rung's
+one-sidedness cannot be blamed on data repetition. It is the wall-clock floor
+from the section above, and the fact that the learning rate at those sizes is
+extrapolated from a law that was never bracketed.
+
+### Two sanity checks that look like failures and are not
+
+- **`val_acc` 0.173 to 0.176 everywhere** is the EOS base rate, 1/5.5 = 0.182.
+  Read `acc_noEOS`.
+- **`acc_noEOS` 0.001 to 0.005 everywhere.** These models essentially never get
+  an exact (slot, thickness) pair right, yet reach ΔE ~10 against ~28.6 for a
+  model emitting nothing usable. Being one thickness bin off costs little in
+  ΔE, so approximate correctness is what is being learned.
+
+---
+
+## What is not settled, and the plan
+
+**The learning rate the sweep ran on rests on three measurements, none of
+which bracketed its own optimum.** Under the authors' own `on_edge` test all
+three fail:
+
+| grid | points | span | optimum landed | bracketed? |
+|---|---|---|---|---|
+| 1e-4 to 3e-3 (d128) | 3 | 30x | middle point | no |
+| 1e-4 to 3e-3 (d256) | 3 | 30x | middle point | no |
+| 1e-4 to 5e-4 (d512) | 4 | 5x | lower bound | no |
+
+A three-point grid can never bracket, because its only interior point is the
+second and the second-to-last point at once. The deployed law
+`lr(N) = 1.573 N^-0.567` is fitted through those three. Batch size is fixed at
+256 by VRAM and deliberately not swept (`METHOD_DIFFS.md` item A). AdamW beta2
+has always been torch's 0.999; Porian's own data puts it at 0.95 at batch 256
+and reports that tuning it matters most at low batch size, which is the regime
+we train in.
+
+Run the stages in `slurms/lr_grid.sh` in order. Each gates the next, and the
+cell list for each comes from `scripts/lr_grid_cells.py`, derived from the
+sweep's own grid rather than written down by hand.
+
+**Stage `probe`.** 1 cell, 1 LR, <1 GPU-h, run alone. It measures examples per
+second, and that number settles two things.
+
+*First, whether the rest is affordable.* The first stage-1 submission ran at a
+median of 204 ex/s where the sweep reaches 2171 on the same shards, so the gap
+is contention rather than a floor, and which holds is the difference between 20
+GPU-hours and 200.
+
+*Second, how many IsoFLOP curves stage 2 tunes in full against how many are
+projected from the fitted law.* Each added rung improves the conditioning of
+the (N, M) design matrix and roughly doubles the cost:
+
+| rungs tuned | cells | GPU-h @2171 | GPU-h @204 | cond | sd(b) | sd(c) | sweep sizes extrapolated |
+|---|---|---|---|---|---|---|---|
+| 2 | 12 | 22.1 | 235.0 | 630 | 0.100 | 0.054 | 13 of 24 |
+| **3** (default) | **18** | **42.8** | **455.9** | **401** | **0.050** | **0.031** | **9 of 24** |
+| 4 | 24 | 85.2 | 907.1 | 303 | 0.032 | 0.021 | 5 of 24 |
+
+sd(b) and sd(c) are the spreads of the recovered N and M exponents over 2000
+synthetic draws at 0.10 of noise in log-lr units. The last column is the number
+of the sweep's 24 distinct model sizes that fall above the largest size tuned,
+so the fourth curve buys **coverage** as well as conditioning, and coverage is
+the stronger argument of the two: an extrapolated size is a size whose learning
+rate is a guess.
+
+At 2171 ex/s the fourth curve tightens the N exponent by 1.6x and halves the
+extrapolated sizes for twice the compute, which is a real judgement call; at
+204 ex/s three curves already costs 456 GPU-hours and four is out of reach, so
+the answer is three or nothing. Price both before committing:
+
+```bash
+STAGE=2 RUNGS=3 EXAMPLES_PER_SEC=<measured> bash slurms/lr_grid.sh --list
+STAGE=2 RUNGS=4 EXAMPLES_PER_SEC=<measured> bash slurms/lr_grid.sh --list
+```
+
+**Stage 1.** AdamW beta2 in {0.95, 0.99, 0.999} at both ends of the ladder, three
+LRs each, 6 cells, ~11 GPU-h at 2171 ex/s. Three rates rather than one because
+beta2 and the LR interact and a single fixed rate picks whichever beta2 suits
+it; three rather than seven because the question is whether the beta2 *ranking*
+is stable, not where the LR optimum is. **If the two ends disagree, beta2
+interacts with scale, the sequential staging does not hold, and the right move
+is to stop rather than carry a wrong constant forward.**
+
+**Stage 2. The LR search runs inside the IsoFLOP test.** Every model on
+the `RUNGS` lowest curves is tuned directly: at the default 3 that is 18 cells,
+~43 GPU-h. Not one representative point per rung, the whole curve, because the
+curve is what the interpolant runs through and a point whose LR was
+extrapolated moves the argmin as surely as one trained wrong.
+
+Each point carries its own (N, M), and that is what makes a law in both
+variables identifiable with no separate experiment. Within one rung C is fixed,
+so M = C/(kN^2) and log M = const − 2 log N: the columns are collinear (corr
+−0.9998, cond 9591) and only the combination b − 2c is recoverable. A second
+rung shifts the intercept and separates them.
+
+So the multiplier axis comes free from the IsoFLOP geometry. It needs no
+fractional-scoring trick and no constant learning rate to get it, which means
+the law is measured under the cosine schedule the sweep actually trains with.
+This is the one place the study knowingly diverges from Porian et al., and it
+is forced: they tune at a constant multiplier (M = 20.0 to 21.1 while
+parameters vary 42x), so a law in N alone is the right object for them. Ours
+cannot be, because D\*/N\* runs 29.3 to 0.86.
+
+**Stage 3.** The extrapolation check, 1 cell, ~5 GPU-h. The upper rungs get
+the fitted law rather than a measurement, so tune the compute-optimal point of
+the highest usable rung and compare what the law predicted against what that
+point actually wanted. It runs on the sweep's own cosine schedule, because a
+check of a configuration has to use that configuration. If the ratio is far
+from 1, the law does not reach and more rungs have to be tuned directly.
+
+**Then fit and apply.**
+
+```bash
+python scripts/fit_lr_law.py --results-dir outputs/lr_search/cross_attn \
+    --coverage-from analyses/scaling/results/isoflop_fit.json
+```
+
+This writes `results/lr_law_fit.json`, which `configs.py` picks up
+automatically; until it exists everything falls back to the old three-point law
+unchanged and the dry run says which is in force. Any cell whose optimum lands
+on a grid endpoint is **discarded** rather than averaged in, so widen `LR_SPAN`
+for those and re-run them. The coverage report lists every model size the sweep
+trains and whether the fitted law interpolates or extrapolates to it; the
+target is as few extrapolated sizes as the budget allows: 9 of 24 at three
+tuned curves, 5 at four. Zero is not reachable at any affordable number of
+rungs, which is why stage 3 exists.
+
+Where this study **does** do better than the paper it copies is at the small
+end. They fit their LR law over a window and extrapolate *above* it, which is
+reasonable when the configurations of interest are the large ones. INDIGO's
+ladder runs the other way: the smallest rungs, at 0.08M parameters, are both
+furthest from where anyone normally tunes and the most LR-sensitive, and they
+anchor the low-compute end of every IsoFLOP fit. Stage 2 tunes them densely and
+directly (`METHOD_DIFFS.md` item F).
+
+Then re-run the sweep into a **fresh `--out-root`**. A save directory is named
+for (budget, size, seed) only and carries no trace of the hyperparameters, so
+re-running over the old one would overwrite runs that are not comparable. The
+planner refuses by default and tops up instead.
+
+### What the first stage-1 submission cost, so it is not repeated
+
+Six cells, all six hit the six-hour wall after two to four of their seven
+learning rates. Two separate problems.
+
+**Throughput 6x below the planner's assumption.** 227 logged step samples: min
+13, median 204, max 395 ex/s, against 1301 assumed and 2171 measured on the
+sweep's own runs. Same sizes or smaller, so it is not capacity. Six array tasks
+were streaming the same shards at once and these runs are input-bound.
+`--rate` now defaults to the measured 204 and the table warns when a cell needs
+more than 60% of its wall.
+
+**At D = 614,400 nothing learns, so the metric cannot rank learning rates.**
+Token accuracy sat at 0.164 to 0.183, the EOS base rate, and training loss
+stayed near 6.5 from first step to last. The ΔE values that completed ran 24.8
+to 37.4, non-monotone, on a metric whose seed noise is 0.5: scatter around a
+model that has not learned, not an optimum. The sweep's own run at N = 81k
+needed D = 4.2M to reach ΔE 12.4. **Tune at D\*, not at the historical
+614,400.**
+
+---
+
 ## Known limitations
 
-1. **Lever arm.** Under `qos=short` the ladder reaches 4e15, which is 1.6
-   decades and well short of production's ~1e17. α is fitted over a
-   shorter range than is ideal, and extrapolating to production scale is
-   an extrapolation.
-2. **Chroma power.** See *Statistical power*. A null result on the
-   chroma-conditioned frontier is probably a power limit.
-3. **One seed per point**, apart from one repeat per rung. Init variance
-   is real: two identical d512 LR sweeps once gave val_de 41.30 versus
-   24.33 before seeding was fixed.
-4. **The epoch ceiling is a non-detection**, not a verified safe depth.
-5. **Production's architecture is unconfirmed here.** Whether prod is
-   17.5M or 69.6M parameters changes the headline ratio from 18× to 72×.
-   Resolve with
+Ordered by how much they threaten a published number.
+
+1. **The learning rate was never tuned at any of these scales.** Every run in
+   the sweep took its LR from a law fitted through three unbracketed
+   measurements. This is the one limitation that could move alpha itself, and
+   it is also the leading suspect for the upturn at 2.75e15. It is what the
+   staged tuning above exists to close, and nothing in the results section
+   should be published before it runs.
+2. **Alpha rests on five rungs over 83x in compute** (1e14 to 8.29e15), against
+   Porian's twelve over 2048x, and production sits at ~1e17, two decades past
+   the top. Reaching production scale from this fit is extrapolation. Rungs
+   *below* 1e14 are the cheapest in the study and would serve both this and
+   limitation 3.
+3. **The irreducible floor is not identified.** Only four budgets sit on the
+   descending branch, which cannot constrain a three-parameter saturating form.
+4. **Chroma is suggestive, not established.** Low at +0.646 and mid at +0.936
+   have intervals that abut at 0.818, and the buckets are not independent
+   observations. A null here is a power limit, not evidence of independence.
+5. **One seed per point**, apart from one repeat per rung. Those pairs are the
+   only error bar in the study, and they are what the noise model is calibrated
+   from. Init variance is real: two identical d512 LR sweeps once gave val_de
+   41.30 against 24.33 before seeding was fixed.
+6. **head_dim 32 differs from production's 64**, deliberately, for width
+   granularity. Internal consistency across the ladder is the right trade, but
+   it is a real architectural difference between the ladder and the checkpoint
+   the ladder is used to judge, and it already cost one comparison: v1's
+   standout d128/se3 at val_de 9.565 ran head_dim 64 and has not been
+   reproduced at head_dim 32 (10.820 at comparable D).
+7. **Aspect ratio is a band, not a policy.** 28 to 72, a 2.6x spread and not
+   monotone in width, against Porian's 1.6x drifting monotonically. Much
+   tighter than v1's disaster, looser than theirs, and the residual variation
+   is still a confound with N.
+8. **Production's architecture is unconfirmed here.** Whether prod is 17.5M or
+   69.6M parameters changes the headline ratio from 18x to 72x. Resolve with
    `cat data/checkpoints/prod_3ep_bs512_lr6e-5/step_13000/config.json`.
-6. **head_dim 32 differs from production's 64.** Deliberate, for width
-   granularity, but it is an architectural difference between the ladder
-   and the checkpoint the ladder is used to judge.
+9. **Batch size 256 may not match production's 512.** All 48 runs used 256 and
+   the optimal LR depends on it, so raising the constant means re-tuning and
+   re-running: existing runs would not be comparable to new ones.
+10. **The credit axis converts at an unconfirmed 1.0 SU per GPU-hour.** Fine
+    for internal comparison, not for publication.

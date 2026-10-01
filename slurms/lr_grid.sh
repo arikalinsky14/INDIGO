@@ -73,10 +73,37 @@ set -euo pipefail
 # aspect-ratio confound again, in a different variable.
 #
 #   STAGE=probe  one cell, ONE learning rate.          1 cell,  <1 GPU-h
-#            Measures examples per second and nothing else. The first stage-1
+#            Measures examples per second. Two decisions ride on it.
+#
+#            FIRST, whether the rest is affordable at all. The first stage-1
 #            submission ran at a median of 204 ex/s where the sweep reaches
 #            2171 on the same shards, and which of those holds decides whether
-#            everything below costs 20 GPU-hours or 200. Run it alone.
+#            everything below costs 20 GPU-hours or 200.
+#
+#            SECOND, HOW MANY IsoFLOP CURVES STAGE 2 TUNES IN FULL, with the
+#            remaining rungs projected from the fitted law instead. Every
+#            added rung improves the conditioning of the (N, M) fit and
+#            roughly doubles the cost:
+#
+#              rungs  cells   GPU-h @2171   GPU-h @204   cond   sd(b)  sd(c)  extrap
+#                  2     12          22.1        235.0    630   0.100  0.054   13/24
+#                  3     18          42.8        455.9    401   0.050  0.031    9/24
+#                  4     24          85.2        907.1    303   0.032  0.021    5/24
+#
+#            sd(b) and sd(c) are the spreads of the recovered N and M
+#            exponents over 2000 synthetic draws at 0.10 of noise in log-lr
+#            units. "extrap" counts the sweep's 24 distinct model sizes
+#            falling ABOVE the largest size tuned, so the fourth curve buys
+#            coverage as well as conditioning, and coverage is the stronger
+#            argument: an extrapolated size is a size whose learning rate is
+#            a guess. At 2171 ex/s it tightens the N exponent 1.6x and halves
+#            the extrapolated sizes for twice the compute, which is a real
+#            judgement call; at 204 ex/s three curves already costs 456
+#            GPU-hours and four is out of reach, so the answer is three or
+#            nothing. Carry it into stage 2 as RUNGS=.
+#
+#            Run it ALONE: --array=0-0 and nothing else of yours queued, or
+#            it measures contention rather than throughput.
 #
 #   STAGE=1  beta2 at both ends of the sweep's ladder.  6 cells, ~11 GPU-h
 #            Does beta2 matter, and does its optimum move with scale? Their
@@ -96,7 +123,8 @@ set -euo pipefail
 #            another. The sweep's own run at that model size needed D = 4.2M
 #            to reach DeltaE 12.4.
 #
-#   STAGE=2  EVERY model on the lowest 3 curves.      18 cells, ~43 GPU-h
+#   STAGE=2  EVERY model on the lowest RUNGS curves.  18 cells, ~43 GPU-h
+#            (RUNGS=3 by default; the probe decides 3 vs 4, see above)
 #            The LR search runs INSIDE the IsoFLOP test. Not one point per
 #            rung: the whole curve, because the curve is what the parabola is
 #            fitted through, and a point whose LR was extrapolated moves the
@@ -130,13 +158,19 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 #
 #   STAGE=probe sbatch --array=0-0 --time=02:00:00 slurms/lr_grid.sh
-#   # read the ex/s off the log, then size the rest:
+#
+#   # read the ex/s off the log. It sizes everything below AND decides how
+#   # many curves stage 2 tunes, so price both before committing:
 #   STAGE=1 EXAMPLES_PER_SEC=<measured> bash slurms/lr_grid.sh --list
+#   STAGE=2 RUNGS=3 EXAMPLES_PER_SEC=<measured> bash slurms/lr_grid.sh --list
+#   STAGE=2 RUNGS=4 EXAMPLES_PER_SEC=<measured> bash slurms/lr_grid.sh --list
+#
 #   STAGE=1 sbatch --array=0-5%2 --time=<from the table> slurms/lr_grid.sh
 #   python scripts/fit_lr_law.py --results-dir outputs/lr_search/cross_attn
 #
-#   # then, with BETA2_WINNER set to what stage 1 picked:
-#   STAGE=2 BETA2_WINNER=0.99 sbatch --array=0-17%2 --time=11:00:00 \
+#   # then, with BETA2_WINNER set to what stage 1 picked and RUNGS set to what
+#   # the probe justified (3 -> --array=0-17, 4 -> --array=0-23):
+#   STAGE=2 RUNGS=3 BETA2_WINNER=0.99 sbatch --array=0-17%2 --time=11:00:00 \
 #       --qos=long slurms/lr_grid.sh
 #   STAGE=3 BETA2_WINNER=0.99 sbatch --array=0-0 --time=11:00:00 \
 #       --qos=long slurms/lr_grid.sh
@@ -199,6 +233,10 @@ case "${STAGE}" in
 esac
 FIT="${FIT:-analyses/scaling/results/porian_fit.json}"
 BETA2_WINNER="${BETA2_WINNER:-0.99}"
+# How many of the lowest IsoFLOP curves stage 2 tunes in full. The rest are
+# projected from the fitted law. The throughput probe decides 3 against 4: see
+# the stage table at the top of this file.
+RUNGS="${RUNGS:-3}"
 
 LR_SPAN="${LR_SPAN:-30}"
 N_LRS="${N_LRS:-7}"
@@ -211,21 +249,27 @@ OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/${HEAD_MODE}}"
 # cell into its wall. Raise it once a probe shows the contention is gone.
 EXAMPLES_PER_SEC="${EXAMPLES_PER_SEC:-204}"
 
-# Stage 3 varies the multiplier inside ONE run by scoring at fractions of it,
-# which is only valid with a constant LR; lr_tuning.py refuses it otherwise.
-if [[ "${STAGE}" == "3" ]]; then
-    LR_SCHEDULE="${LR_SCHEDULE:-constant}"
-    EVAL_FRACTIONS="${EVAL_FRACTIONS-0.03125 0.1 0.3333}"
-else
-    LR_SCHEDULE="${LR_SCHEDULE:-cosine}"
-    EVAL_FRACTIONS="${EVAL_FRACTIONS-}"
-fi
+# Every stage trains on the schedule the SWEEP uses, cosine, because the law
+# is applied to sweep runs and a learning rate means something different under
+# a schedule whose shape depends on total steps.
+#
+# This is a change from an earlier design in which stage 3 got the multiplier
+# axis by scoring one constant-LR run at fractions of its dataset. That trick
+# is no longer needed: stage 2 tunes whole IsoFLOP curves, so every cell
+# already carries its own (N, M) and the multiplier axis comes free from the
+# geometry. Stage 3 is now the extrapolation CHECK, and it has to run under
+# the sweep's own schedule or it is not checking the sweep's configuration.
+# EVAL_FRACTIONS is still honoured if set, and lr_tuning.py refuses it unless
+# LR_SCHEDULE=constant is set with it.
+LR_SCHEDULE="${LR_SCHEDULE:-cosine}"
+EVAL_FRACTIONS="${EVAL_FRACTIONS-}"
 
 # Cells come from scripts/lr_grid_cells.py, not from a ladder written here,
 # because stage 2's cells are DERIVED from the sweep's own compute-optimal
 # points. See that script's docstring for why they have to be.
 mapfile -t CELL_LINES < <(python3 scripts/lr_grid_cells.py \
-    --stage "${STAGE}" --fit "${FIT}" --beta2 "${BETA2_WINNER}")
+    --stage "${STAGE}" --fit "${FIT}" --beta2 "${BETA2_WINNER}" \
+    --rungs "${RUNGS}")
 N_TASKS=${#CELL_LINES[@]}
 if (( ! N_TASKS )); then
     echo "no cells for STAGE=${STAGE}." >&2
@@ -242,8 +286,9 @@ cell_of() {   # $1 = task index -> sets D_MODEL, SLOT_ENCODER_LAYERS, LIMIT_EXAM
 
 if [[ "${1:-}" == "--list" ]]; then
     python3 scripts/lr_grid_cells.py --stage "${STAGE}" --fit "${FIT}" \
-        --beta2 "${BETA2_WINNER}" --format table --n-lrs "${N_LRS}" \
-        --rate "${EXAMPLES_PER_SEC}"
+        --beta2 "${BETA2_WINNER}" --rungs "${RUNGS}" --format table \
+        --n-lrs "${N_LRS}" --rate "${EXAMPLES_PER_SEC}" \
+        --wall-hours "${WALL_HOURS:-6}"
     echo
     echo "batch size ${BATCH_SIZE};  submit with --array=0-$((N_TASKS - 1))"
     exit 0

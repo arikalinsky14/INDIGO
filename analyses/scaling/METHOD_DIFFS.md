@@ -203,14 +203,30 @@ wrong, but it is an uncontrolled difference, and it interacts with the missing
 D term: under cosine the schedule's shape depends on total steps, so the same
 LR means something different at different D. Under a constant LR it does not.
 
-### D. No D term in the LR law
+### D. No D term in the LR law  **(the one place we knowingly diverge)**
 
-Covered at length in the meeting doc. Theirs is arguably not a "law in N" at
-all: they tune at the configurations they then use, so whatever D dependence
-exists is absorbed into each tuned optimum. We extrapolate one N-only law to
-configurations never tuned at, spanning 9x in D at fixed N. Stage 3 of `slurms/lr_grid.sh` plus the 2-D fit in `scripts/fit_lr_law.py`
-measures the exponent, and `tuned_lr_for(n, d)` prefers the two-dimensional law
-over the one-dimensional one wherever the dataset size is known.
+Theirs is arguably not a "law in N" at all: they tune at the configurations
+they then use, so whatever D dependence exists is absorbed into each tuned
+optimum. We extrapolated one N-only law to configurations never tuned at,
+spanning 9x in D at fixed N.
+
+They can get away with a law in N because they tune at a CONSTANT multiplier:
+M = 20.0 to 21.1 while parameters vary 42x. INDIGO cannot, because D*/N* runs
+29.3 to 0.86 across our budgets.
+
+The fix is to put the learning-rate search INSIDE the IsoFLOP test. Stage 2 of
+`slurms/lr_grid.sh` tunes every model on the lowest few curves, so each tuned
+cell carries its own (N, M) and the 2-D fit in `scripts/fit_lr_law.py` is
+identifiable from the sweep's own geometry. Within one rung C is fixed, so
+log M = const - 2 log N and the columns are collinear (corr -0.9998, cond
+9591); a second rung shifts the intercept and separates them, three give cond
+401 and recover both exponents to 0.05 and 0.03 under 0.10 of log-lr noise.
+
+Two consequences worth stating. The multiplier axis needs no fractional-scoring
+trick and no constant learning rate, so the law is measured under the cosine
+schedule the sweep actually trains with. And `tuned_lr_for(n, d)` prefers the
+two-dimensional law over the one-dimensional one wherever the dataset size is
+known.
 
 ### E. Budget count and spacing
 
@@ -218,7 +234,7 @@ over the one-dimensional one wherever the dataset size is known.
 Adding rungs *below* 1e14 is cheap and would serve both this and the
 saturating-floor fit in item 8.
 
-### F. Coverage of the small rungs  **(we now do better than they do)**
+### F. Coverage of the small rungs  **(better than theirs at the small end, worse at the large)**
 
 They fit the learning-rate law over a window of model sizes and extrapolate
 ABOVE it. That is reasonable when the configurations you care about are the
@@ -227,11 +243,16 @@ parameters, are both the furthest from where anyone normally tunes and the most
 sensitive to learning rate, and they anchor the low-compute end of every
 IsoFLOP fit.
 
-So stage 2's ladder SPANS the sweep's own range, 0.08M to 17.8M, rather than
-sitting inside it, and `scripts/fit_lr_law.py --coverage-from` lists every
-distinct model size the sweep trains and says whether the fitted law
-interpolates or reaches past the tuned range, and by how far. The target is
-zero extrapolated sizes.
+So stage 2 tunes the low rungs DENSELY and completely rather than sampling one
+point per rung, and `scripts/fit_lr_law.py --coverage-from` lists every distinct
+model size the sweep trains and says whether the fitted law interpolates or
+reaches past the tuned range, and by how far.
+
+Zero extrapolated sizes is not reachable at any affordable number of rungs, and
+the earlier version of this file claimed otherwise. Tuning the lowest three
+curves covers 15 of the sweep's 24 distinct sizes and leaves 9 above the tuned
+range; four curves leaves 5. That trade is the second objective of the
+throughput probe, and stage 3 is the check on whatever is left extrapolated.
 
 The learning-rate grid is also centred per cell on the prior rather than being
 one fixed window, because small models want much higher learning rates than
@@ -353,7 +374,9 @@ tuning budget has to be large enough that DeltaE responds to the learning rate
 at all, which is why stage 2 tunes at each rung's own D* (3.4M to 6.1M
 examples) rather than at the historical 614,400.
 
-The two problems compound: stage 2 at the measured rate costs 207 GPU-hours,
-not 32. Resolve the throughput first. The sweep reached 2171 ex/s on the same
-data, so 204 is contention rather than a floor, and a single unthrottled cell
-is the measurement that settles it.
+The two problems compound: stage 2 as now designed costs 42.8 GPU-hours at the
+sweep's 2171 ex/s and 455.9 at the measured 204. Resolve the throughput first.
+The sweep reached 2171 ex/s on the same data, so 204 is contention rather than
+a floor, and a single unthrottled cell is the measurement that settles it. That
+same number also decides whether three or four IsoFLOP curves get tuned, the
+rest being projected: see the stage table in `slurms/lr_grid.sh`.

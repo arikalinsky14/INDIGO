@@ -62,10 +62,29 @@ torch's 0.999; Porian's data puts it at 0.95 at batch 256.
 Run the stages in `slurms/lr_grid.sh` in order. Each gates the next.
 
 **0. `STAGE=probe`** — one cell, one LR, <1 GPU-h. Measures examples per
-second and nothing else. Run it ALONE. The first stage-1 submission ran at a
-median of 204 ex/s where the sweep reaches 2171 on the same shards, and which
-holds decides whether the rest costs 20 GPU-hours or 200. Feed the answer back
-as `EXAMPLES_PER_SEC=` before sizing anything.
+second. Run it ALONE, nothing else of yours queued, or it measures contention.
+Two decisions ride on the number, and both are the point of the stage:
+
+- **Is the rest affordable?** The first stage-1 submission ran at a median of
+  204 ex/s where the sweep reaches 2171 on the same shards. Feed the answer
+  back as `EXAMPLES_PER_SEC=` before sizing anything.
+- **How many IsoFLOP curves does stage 2 tune in full, and how many are
+  projected from the fitted law?** Each added rung improves the conditioning of
+  the (N, M) fit and roughly doubles the cost:
+
+  | rungs | cells | GPU-h @2171 | GPU-h @204 | cond | sd(b) | sd(c) | sizes extrap. |
+  |---|---|---|---|---|---|---|---|
+  | 2 | 12 | 22.1 | 235.0 | 630 | 0.100 | 0.054 | 13 of 24 |
+  | **3** | **18** | **42.8** | **455.9** | **401** | **0.050** | **0.031** | **9 of 24** |
+  | 4 | 24 | 85.2 | 907.1 | 303 | 0.032 | 0.021 | 5 of 24 |
+
+  sd(b), sd(c) are the spreads of the recovered N and M exponents over 2000
+  synthetic draws at 0.10 of noise in log-lr units; the last column counts the
+  sweep's distinct model sizes falling above the largest size tuned, so the
+  fourth curve buys coverage as well as conditioning. At 2171 it tightens the N
+  exponent 1.6x and halves the extrapolated sizes for twice the compute, a
+  judgement call worth making on the measured rate; at 204 three curves already
+  costs 456 GPU-h and four is out of reach. Pass the answer as `RUNGS=`.
 
 **1. `STAGE=1`** — β₂ ∈ {0.95, 0.99, 0.999} at both ends of the ladder, three
 LRs each, 6 cells, ~11 GPU-h at 2171 ex/s. Three rates rather than one because
@@ -75,7 +94,8 @@ disagree, β₂ interacts with scale and the sequential staging below does not
 hold: stop and reconsider rather than carrying a wrong constant forward.
 
 **2. `STAGE=2`** — **the LR search runs inside the IsoFLOP test.** Every model
-on the three lowest curves is tuned directly, 18 cells, ~43 GPU-h at 2171 ex/s.
+on the `RUNGS` lowest curves is tuned directly; at the default 3 that is 18
+cells, ~43 GPU-h at 2171 ex/s.
 Not one representative point per rung: the whole curve, because the curve is
 what the parabola is fitted through, and a point whose LR was extrapolated
 moves the minimum as surely as one trained wrong.
@@ -85,9 +105,10 @@ without a separate experiment. Within ONE rung C is fixed, so M = C/(kN²) and
 log M = const − 2 log N: the columns are collinear (corr −0.9998) and only the
 combination b − 2c is recoverable. A second rung shifts the intercept and
 separates them. At three rungs the design matrix has condition number 401, and
-on synthetic data with 10% noise on log lr\* it recovers both exponents to
-±0.05 and ±0.03. Two rungs would do (cond 630); above three the cost roughly
-doubles per rung for little extra conditioning.
+on synthetic data with 0.10 of noise in log-lr units it recovers both exponents
+to ±0.05 and ±0.03. Two rungs would do at a pinch (cond 630, ±0.10 and ±0.05).
+A fourth is the live question the probe decides, per the table in stage 0: it
+is a genuine improvement rather than a rounding one, and it costs twice.
 
 So the multiplier axis comes free from the IsoFLOP geometry. It needs no
 fractional-scoring trick and no constant learning rate to get it, which means
@@ -115,7 +136,9 @@ Writes `analyses/scaling/results/lr_law_fit.json`, which `configs.py` picks up
 automatically. Until that file exists everything falls back to the old
 three-point law unchanged, and the dry run says which is in force. The coverage
 report lists every model size the sweep trains and whether the fitted law
-interpolates or extrapolates to it; the target is zero extrapolated sizes.
+interpolates or extrapolates to it; 9 of 24 are extrapolated at three tuned
+curves, 5 at four, and zero is not reachable at any affordable number of rungs.
+That is what stage 3 checks.
 
 Then re-run the sweep into a **fresh `--out-root`**. A save directory is named
 for (budget, size, seed) only and carries no trace of the hyperparameters, so
