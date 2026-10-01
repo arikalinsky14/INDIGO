@@ -370,11 +370,17 @@ def effective_params(config, **kw) -> float:
     grows more slowly than the parameter count. Over the sweep ladder
     `C / (N * D)` falls from 306 to 218.
 
-    The standard fix is not to change the architecture but to change what is
-    called N. Porian et al. do exactly this: their `params` column is
-    `flops_per_token / 6` rather than a parameter count (`data.py:74`), and
-    their attention-inclusive variant `eff_params_att` is the same trick
-    applied again. Defining
+    The fix is not to change the architecture but to change what is called N.
+    Be precise about what Porian et al. actually do here, because it is easy to
+    overstate. Their `params` column is `flops_per_token / 6`, but for their
+    architecture `flops_per_token = 6 * params_active_precise`, so that is an
+    IDENTITY and their headline N is a plain parameter count. The effective
+    parameter move appears only in their attention-accounting variant,
+    `eff_params_att = flops_per_token_att / 6`, which is a supplementary figure
+    and worth just 1.10x to 1.22x over their ladder. So they report both, with
+    the parameter count as the headline, in a case where the two barely differ.
+
+    INDIGO's gap is not 1.2x, it is 36x to 49x. Defining
 
         N_eff = forward_flops_per_example / 2
 

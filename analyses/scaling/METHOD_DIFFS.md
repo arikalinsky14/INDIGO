@@ -270,15 +270,30 @@ off by 36x to 51x with the error itself drifting 1.4x across the grid.
 
 **Effective parameters, and making C = 6ND exact.** The parameter count does
 not satisfy a constant-k compute law here, so `alpha + beta` lands near 1.06
-rather than on 1. The standard fix is not architectural: Porian et al. define
-their `params` column as `flops_per_token / 6` (`data.py:74`), so C = 6ND holds
-by construction. `src/scaling/flops.py:effective_params` does the same for
-INDIGO, `N_eff = forward_flops_per_example / 2`, and the fit reports the
-exponent in both units. Two cautions. `N_eff` is 36 to 49 times the parameter
-count on this ladder, so anything operational has to be translated back. And
-`N_eff ~ 98.9 * N^0.940` with r^2 = 0.9999, so the exponents differ by that
-factor: pooled alpha is +0.923 in parameters and +0.983 in effective
-parameters. Always say which.
+rather than on 1.
+
+Their `params` column is `flops_per_token / 6`, but since
+`flops_per_token = 6 * params_active_precise` for their architecture, that is an
+identity and their headline N is a plain parameter count. Effective parameters
+appear only in their attention-accounting variant, `eff_params_att`, a
+supplementary figure worth 1.10x to 1.22x across their ladder. They report both
+in a case where the two barely differ.
+
+Ours differ by 36x to 49x. `src/scaling/flops.py:effective_params` defines
+`N_eff = forward_flops_per_example / 2`, which makes C = 6 N_eff D an identity
+and forces `alpha + beta = 1`, and the fit reports the exponent in both units:
+pooled alpha is +0.923 in parameters, +0.983 in effective parameters
+(`N_eff ~ 98.9 * N^0.940`, r^2 = 0.9999). Keep the parameter count as the
+headline, since it is a model size and the effective one is not, and always say
+which is being quoted.
+
+**Whether wall clock tracks either of them is a separate question**, and the one
+that decides if a cost-optimal frontier exists apart from the compute-optimal
+one. `estimate_wall_sec` has no model-size term at all; forward cost per example
+spans 164x across the ladder while sweep v1 measured a 12x throughput spread,
+so the assumption is plausible but untested. `scripts/fit_wall_model.py` fits
+`elapsed = startup + D/rate + c * F(N) * D` against finished runs and says which
+term earns its place.
 
 **The chroma stratification is ours.** Nothing in their method fits separate
 laws per difficulty stratum, and it is where INDIGO's most interpretable result
