@@ -37,7 +37,7 @@ import math
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -105,6 +105,10 @@ class LRSearchResult:
     # than a constant and has to travel with the result.
     beta1: float = 0.9
     beta2: float = 0.999
+    lr_schedule: str = "cosine"
+    #: DeltaE at fractions of the run, for the token-multiplier axis. Only
+    #: populated under a constant LR, where a prefix is a valid shorter run.
+    mid_run: Optional[List[dict]] = None
 
     @property
     def diverged(self) -> bool:
@@ -174,6 +178,8 @@ def train_with_lr(
     de_simulator=None,
     seed: int = 42,
     betas: Tuple[float, float] = (0.9, 0.999),
+    lr_schedule: str = "cosine",
+    eval_fractions: Optional[Sequence[float]] = None,
 ) -> LRSearchResult:
     # Re-seed before EVERY trial, not once for the sweep. Seeding once would
     # give trial 1 one initialisation, trial 2 another, and so on -- so the
@@ -211,6 +217,56 @@ def train_with_lr(
     best_val_epoch = 0
     global_step = 0
 
+    # Mid-run DeltaE, which is how the multiplier axis gets measured.
+    #
+    # Porian et al. read each sweep run's logged loss curve at 90 fractions of
+    # its length to get the optimum at 90 token multipliers from ONE run. That
+    # is only valid because their tuned arm holds the learning rate CONSTANT:
+    # with no decay, a prefix of a run IS a complete shorter run. Under cosine
+    # the prefix has not decayed and is not comparable to a run scheduled for
+    # that shorter horizon, so the trick silently measures the wrong thing.
+    # Hence the refusal below rather than a warning.
+    mid_run: List[dict] = []
+    eval_every_steps = 0
+    if eval_fractions:
+        if lr_schedule != "constant":
+            raise ValueError(
+                "--eval-fractions needs --lr-schedule constant. Slicing a run "
+                "at a fraction of its length only yields a valid shorter run "
+                "when the LR does not decay; under cosine the prefix sits at a "
+                "higher LR than a run scheduled for that horizon would end at.")
+        targets = sorted({max(1, int(round(f * total_steps)))
+                          for f in eval_fractions if 0 < f < 1})
+        eval_every_steps = targets[0] if targets else 0
+
+        def _mid_run_eval(step: int, last_loss: float, current_lr: float) -> None:
+            if step not in targets or not (de_examples and de_limit > 0):
+                return
+            was_training = model.training
+            model.eval()
+            r = evaluate_delta_e(model, de_examples, device, limit=de_limit,
+                                 simulator=de_simulator)
+            if was_training:
+                model.train()
+            mid_run.append({
+                "step": int(step),
+                "examples": int(step * batch_size),
+                "fraction": step / total_steps,
+                "train_loss": float(last_loss),
+                "lr": float(current_lr),
+                "val_de": r.get("delta_e_median"),
+                "val_de_p95": r.get("delta_e_p95"),
+            })
+            if verbose:
+                print(f"      [mid-run] step {step}/{total_steps} "
+                      f"({step / total_steps:.0%}): "
+                      f"dE={r.get('delta_e_median')}", flush=True)
+
+        # run_one_epoch fires the hook every save_every steps, so ask for the
+        # coarsest spacing that still lands on every target, and filter inside
+        # the hook. Their GCD is that spacing.
+        eval_every_steps = math.gcd(*targets) if len(targets) > 1 else targets[0]
+
     for epoch in range(epochs):
         epoch_out = run_one_epoch(
             model=model,
@@ -220,12 +276,15 @@ def train_with_lr(
             total_steps=total_steps,
             base_lr=lr,
             warmup_fraction=warmup_fraction,
+            lr_schedule=lr_schedule,
             grad_clip=grad_clip,
             log_every=log_every,
             verbose=verbose,
             global_step_start=global_step,
             loss_fn=loss_fn,
             bf16=bf16,
+            save_every=eval_every_steps or None,
+            checkpoint_hook=_mid_run_eval if eval_every_steps else None,
         )
         global_step = epoch_out["global_step"]
         avg_train_loss = epoch_out["avg_loss"]
@@ -282,6 +341,8 @@ def train_with_lr(
         de_result=de_result,
         beta1=betas[0],
         beta2=betas[1],
+        lr_schedule=lr_schedule,
+        mid_run=mid_run or None,
     )
 
 
@@ -310,6 +371,8 @@ def lr_tuning(
     selection_metric: str = "delta_e",
     seed: int = 42,
     betas: Tuple[float, float] = (0.9, 0.999),
+    lr_schedule: str = "cosine",
+    eval_fractions: Optional[Sequence[float]] = None,
 ) -> Tuple[float, List[LRSearchResult]]:
     lrs = np.logspace(np.log10(lr_min), np.log10(lr_max), n_lrs)
     print(f"\n{'=' * 70}")
@@ -340,6 +403,7 @@ def lr_tuning(
             packed_tf=packed_tf, bf16=bf16,
             de_examples=de_examples, de_limit=de_limit,
             de_simulator=de_simulator, seed=seed, betas=betas,
+            lr_schedule=lr_schedule, eval_fractions=eval_fractions,
         )
         results.append(result)
         de_str = ("" if result.final_val_de is None
@@ -452,6 +516,20 @@ def main() -> None:
                         help="Stream dataset shard-by-shard (recommended at "
                              "production scale; the legacy mode OOMs).")
 
+    parser.add_argument("--lr-schedule", choices=("cosine", "constant"),
+                        default="cosine",
+                        help="LR schedule for each trial. Porian et al.'s "
+                             "tuned arm uses constant, and report that careful "
+                             "decay is not essential to the scaling law. It "
+                             "must MATCH what the sweep trains with, or the "
+                             "fitted law does not transfer. Default stays "
+                             "cosine, which is what the sweep uses today.")
+    parser.add_argument("--eval-fractions", type=float, nargs="+", default=None,
+                        help="also score DeltaE at these fractions of the run, "
+                             "giving the token-multiplier axis from one run "
+                             "instead of one run per multiplier. Requires "
+                             "--lr-schedule constant: a cosine prefix is not a "
+                             "valid shorter run.")
     parser.add_argument("--skip-existing", action="store_true",
                         help="exit successfully if this cell's results file "
                              "already exists. Makes re-submitting an array "
@@ -543,7 +621,9 @@ def main() -> None:
     _out_dir = resolve_output_dir(args.output_dir, args.head_mode)
     _pattern = (f"lr_search_ep{args.epochs}_lim*"
                 f"_d{args.d_model}_se{args.slot_encoder_layers}"
-                f"_bs{args.batch_size}_b2{args.beta2:g}.json")
+                f"_bs{args.batch_size}_b2{args.beta2:g}"
+                + ("" if args.lr_schedule == "cosine" else f"_{args.lr_schedule}")
+                + ".json")
     _existing = sorted(_out_dir.glob(_pattern))
     if _existing:
         if args.skip_existing:
@@ -628,6 +708,8 @@ def main() -> None:
 
     optimal_lr, results = lr_tuning(
         betas=(args.beta1, args.beta2),
+        lr_schedule=args.lr_schedule,
+        eval_fractions=args.eval_fractions,
         epochs=args.epochs,
         train_dataset=train_dataset, val_dataset=val_dataset,
         config=config, device=device,
@@ -690,7 +772,8 @@ def main() -> None:
     # sweep the per-config tuning protocol needs.
     tag = (f"ep{args.epochs}_lim{n_train}"
            f"_d{args.d_model}_se{args.slot_encoder_layers}"
-           f"_bs{args.batch_size}_b2{args.beta2:g}")
+           f"_bs{args.batch_size}_b2{args.beta2:g}"
+           + ("" if args.lr_schedule == "cosine" else f"_{args.lr_schedule}"))
     results_file = output_dir / f"lr_search_{tag}.json"
     # Never silently replace a finished sweep. The grid is submitted as an
     # array and arrays get resubmitted, so a clobber here would quietly
@@ -729,6 +812,8 @@ def main() -> None:
             "batch_size": args.batch_size,
             "beta1": args.beta1,
             "beta2": args.beta2,
+            "lr_schedule": args.lr_schedule,
+            "eval_fractions": args.eval_fractions,
             "weight_decay": args.weight_decay,
             "grad_clip": args.grad_clip,
             "warmup_fraction": args.warmup_fraction,

@@ -72,9 +72,21 @@ set -euo pipefail
 #            rungs are the ones most sensitive to learning rate, so they get
 #            measured rather than predicted.
 #
-#   STAGE=3  the dataset-size axis at one mid size.      3 cells,  ~37 GPU-h
-#            Gives the D exponent the deployed law omits. Dominated by the 24M
-#            cell; run it last, and only once stage 2 looks sane.
+#   STAGE=3  the dataset-size axis at one mid size.      1 cell,   ~31 GPU-h
+#            Gives the D exponent the deployed law omits. ONE run at the
+#            largest D, scored at fractions of its length, rather than one run
+#            per D. That is how Porian et al. get 90 token multipliers out of
+#            each sweep run: they read the logged loss curve at 90 fractions.
+#            It only works under a CONSTANT learning rate, where a prefix of a
+#            run is a complete shorter run; under cosine the prefix has not
+#            decayed and is not comparable. Hence LR_SCHEDULE=constant below,
+#            and lr_tuning.py refuses the combination otherwise.
+#
+#            NOTE this makes stage 3 measure the D dependence under a constant
+#            LR while the sweep trains with cosine. Their tuned arm uses
+#            constant for both. Decide which the sweep should use before
+#            trusting the D exponent; EVAL_FRACTIONS= (empty) falls back to
+#            separate runs per D under cosine, at ~37 GPU-h.
 #
 # About 46 GPU-h in total, against the 566 runs behind their laws.
 #
@@ -113,8 +125,11 @@ case "${STAGE}" in
      D_LADDER_D="${D_LADDER:-614400}"
      B2_LADDER_D="${BETA2_LADDER:-0.99}" ;;
   3) N_LADDER_D="${N_LADDER:-160:3}"
-     D_LADDER_D="${D_LADDER:-614400 4000000 24000000}"
-     B2_LADDER_D="${BETA2_LADDER:-0.99}" ;;
+     D_LADDER_D="${D_LADDER:-24000000}"
+     B2_LADDER_D="${BETA2_LADDER:-0.99}"
+     LR_SCHEDULE="${LR_SCHEDULE:-constant}"
+     # 0.6M, 2M, 4M, 10M of the 24M run, plus the end.
+     EVAL_FRACTIONS="${EVAL_FRACTIONS-0.0256 0.0833 0.1667 0.4167}" ;;
   custom) N_LADDER_D="${N_LADDER:?set N_LADDER for STAGE=custom}"
      D_LADDER_D="${D_LADDER:?set D_LADDER}"
      B2_LADDER_D="${BETA2_LADDER:?set BETA2_LADDER}" ;;
@@ -137,6 +152,8 @@ esac
 LR_SPAN="${LR_SPAN:-30}"
 N_LRS="${N_LRS:-7}"
 SELECTION_METRIC="${SELECTION_METRIC:-delta_e}"
+LR_SCHEDULE="${LR_SCHEDULE:-cosine}"
+EVAL_FRACTIONS="${EVAL_FRACTIONS-}"
 HEAD_MODE="${HEAD_MODE:-cross_attn}"
 DATA_DIR="${DATA_DIR:-/ix1/ohinder/ajk245/Github/INDIGO/data/train}"
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/${HEAD_MODE}}"
@@ -235,6 +252,8 @@ echo "   batch size          ${BATCH_SIZE}  (fixed; from configs.DEFAULT_BATCH_S
 echo "   AdamW beta2         ${BETA2}"
 echo "   LR grid             ${N_LRS} points, ${LR_MIN} to ${LR_MAX}"
 echo "   selection metric    ${SELECTION_METRIC}"
+echo "   LR schedule         ${LR_SCHEDULE}"
+[[ -n "${EVAL_FRACTIONS}" ]] && echo "   mid-run evals at    ${EVAL_FRACTIONS} of the run"
 echo "=================================================================="
 
 module purge 2>/dev/null || true
@@ -257,6 +276,8 @@ srun python scripts/lr_tuning.py \
     --selection-metric "${SELECTION_METRIC}" \
     --lr-min "${LR_MIN}" --lr-max "${LR_MAX}" --n-lrs "${N_LRS}" \
     --beta1 "${BETA1:-0.9}" --beta2 "${BETA2}" \
+    --lr-schedule "${LR_SCHEDULE}" \
+    ${EVAL_FRACTIONS:+--eval-fractions ${EVAL_FRACTIONS}} \
     --feature-mode raw_spectrum \
     --encoder-hidden 128 --encoder-out 64 --encoder-dropout 0.1 \
     --d-model "${D_MODEL}" --n-layers "${N_LAYERS:-8}" --dropout 0.1 \
