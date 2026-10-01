@@ -76,15 +76,32 @@ def cells_for(stage, fit_path: str, beta2: float) -> list[dict]:
                  "beta2": beta2}]
 
     if stage == 1:
-        # Both ends of the ladder the SWEEP uses, not of every achievable
-        # shape: achievable_sizes runs out to 121M parameters, seven times
-        # anything this study trains, and tuning beta2 there would answer a
-        # question nobody asked.
-        lo, hi = sweep_n_range(fit)
-        picks = [nearest_config(lo), nearest_config(hi)]
-        return [{"n_params": n, "d_model": d, "se": se,
-                 "D": 614_400, "beta2": b}
-                for (n, d, se) in picks for b in STAGE1_BETA2]
+        # beta2, at both ends of the ladder the SWEEP uses. (Not of every
+        # achievable shape: achievable_sizes runs to 121M parameters, seven
+        # times anything this study trains.)
+        #
+        # Each beta2 gets its own small spread of learning rates rather than
+        # one shared value, because the two interact: comparing beta2 at a
+        # single fixed LR can pick whichever beta2 happens to suit that LR.
+        # Porian et al. collapse beta2 by taking the best cell over LR, which
+        # needs the grid. Three rates is enough to see whether the beta2
+        # ranking is STABLE across LR, which is the question here; finding the
+        # LR optimum itself is stage 2's job, with seven.
+        #
+        # And they run at the rung's own D*, not at the historical 614,400.
+        # The first attempt used that smaller budget and nothing learned:
+        # accuracy sat at the EOS base rate for every trial and DeltaE came
+        # back as scatter between 25 and 37, so no beta2 could be ranked
+        # against another.
+        rungs_ = [r for r in fit["by_metric"]["pooled"]["rungs"] if r.get("usable")]
+        ends = [rungs_[0], rungs_[-1]]
+        out = []
+        for r in ends:
+            n, d, se = nearest_config(r["n_star_median"])
+            D = int(round(r["d_star"] * 1.1 / 1000) * 1000)
+            out.extend({"n_params": n, "d_model": d, "se": se, "D": D,
+                        "beta2": b} for b in STAGE1_BETA2)
+        return out
 
     rungs = [r for r in fit["by_metric"]["pooled"]["rungs"] if r.get("usable")]
     if not rungs:
@@ -144,7 +161,9 @@ def main() -> None:
 
     stage = a.stage if a.stage == "probe" else int(a.stage)
     cells = cells_for(stage, a.fit, a.beta2)
-    n_lrs = 1 if stage == "probe" else a.n_lrs
+    # Stage 1 ranks beta2; stage 2 locates the LR optimum. Different jobs,
+    # different grid widths.
+    n_lrs = {"probe": 1, 1: 3}.get(stage, a.n_lrs)
     if a.format == "lines":
         for c in cells:
             print(f"{c['d_model']} {c['se']} {c['D']} {c['beta2']:g}")

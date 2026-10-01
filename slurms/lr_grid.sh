@@ -72,16 +72,29 @@ set -euo pipefail
 # fitted "lr(N)" would really be lr along a trajectory in M. That is the
 # aspect-ratio confound again, in a different variable.
 #
-#   STAGE=1  beta2 at both ends of the sweep's ladder.  6 cells,  ~6 GPU-h
+#   STAGE=probe  one cell, ONE learning rate.          1 cell,  <1 GPU-h
+#            Measures examples per second and nothing else. The first stage-1
+#            submission ran at a median of 204 ex/s where the sweep reaches
+#            2171 on the same shards, and which of those holds decides whether
+#            everything below costs 20 GPU-hours or 200. Run it alone.
+#
+#   STAGE=1  beta2 at both ends of the sweep's ladder.  6 cells, ~11 GPU-h
 #            Does beta2 matter, and does its optimum move with scale? Their
 #            data says it tracks BATCH SIZE, which we hold fixed, so one value
 #            should serve; this checks that on our model.
 #
-#   STAGE=2  the sweep's own compute-optimal points.    5 cells,  ~32 GPU-h
-#            One cell per rung at its (N*, D*), the points that actually
-#            determine the IsoFLOP minima. Spans N by 66x and M from 34 to
-#            0.93, which is the real trajectory rather than an artefact of
-#            holding something fixed. D* barely moves, so this is affordable.
+#            THREE learning rates per cell, not seven. beta2 and the learning
+#            rate interact, so comparing beta2 at one fixed rate can pick
+#            whichever beta2 suits that rate; three is enough to see whether
+#            the beta2 RANKING is stable across them. Locating the optimum
+#            itself is stage 2's job.
+#
+#            At each rung's own D*, not the historical 614,400. The first
+#            attempt used that smaller budget and nothing learned: accuracy sat
+#            at the EOS base rate for every trial and DeltaE came back as
+#            scatter from 25 to 37, so no beta2 could be ranked against
+#            another. The sweep's own run at that model size needed D = 4.2M
+#            to reach DeltaE 12.4.
 #
 #   STAGE=3  the multiplier axis at one fixed N.        1 cell,   ~15 GPU-h
 #            Stage 2 is a one-dimensional path through (N, M), so it cannot
@@ -95,8 +108,10 @@ set -euo pipefail
 # Usage
 # ---------------------------------------------------------------------------
 #
-#   STAGE=1 bash slurms/lr_grid.sh --list        # cells and cost, submits nothing
-#   STAGE=1 sbatch --array=0-5 slurms/lr_grid.sh
+#   STAGE=probe sbatch --array=0-0 --time=02:00:00 slurms/lr_grid.sh
+#   # read the ex/s off the log, then size the rest:
+#   STAGE=1 EXAMPLES_PER_SEC=<measured> bash slurms/lr_grid.sh --list
+#   STAGE=1 sbatch --array=0-5%2 --time=<from the table> slurms/lr_grid.sh
 #   python scripts/fit_lr_law.py --results-dir outputs/lr_search/cross_attn
 #
 #   # then, with BETA2_WINNER set to what stage 1 picked:
@@ -154,7 +169,12 @@ fi
 
 STAGE="${STAGE:-1}"
 # The probe runs ONE learning rate; every other stage runs the full grid.
-[[ "${STAGE}" == "probe" ]] && N_LRS=1
+# Grid width is per stage: the probe times one run, stage 1 ranks beta2 across
+# a small spread of learning rates, stage 2 locates the optimum.
+case "${STAGE}" in
+  probe) N_LRS=1 ;;
+  1)     N_LRS="${N_LRS:-3}" ;;
+esac
 FIT="${FIT:-analyses/scaling/results/porian_fit.json}"
 BETA2_WINNER="${BETA2_WINNER:-0.99}"
 
