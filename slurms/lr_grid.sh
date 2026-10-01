@@ -300,14 +300,17 @@ DATA_DIR="${DATA_DIR:-/ix1/ohinder/ajk245/Github/INDIGO/data/train}"
 # and stage 3's single-rate runs are IsoFLOP points, not tuning evidence.
 STAGE2_DIR="${STAGE2_DIR:-outputs/lr_search/${HEAD_MODE}}"
 case "${STAGE}" in
+  probe) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/probe/${HEAD_MODE}}" ;;
   check) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/check/${HEAD_MODE}}" ;;
   3)     OUTPUT_DIR="${OUTPUT_DIR:-outputs/isoflop_tuned/${HEAD_MODE}}" ;;
   *)     OUTPUT_DIR="${OUTPUT_DIR:-${STAGE2_DIR}}" ;;
 esac
-# MEASURED on the first stage-1 submission (median of 227 step samples), not
-# the 1301 the sweep planner assumes. Sizing against 1301 is what put every
-# cell into its wall. Raise it once a probe shows the contention is gone.
-EXAMPLES_PER_SEC="${EXAMPLES_PER_SEC:-204}"
+# MEASURED by the shard-aligned probe (job 4125957, d120/se4, D = 614,400):
+# median 2156 ex/s over 24 step samples, harmonic mean 2033. The harmonic mean
+# is the one that sizes wall time, since time per example is what adds up. The
+# same probe without shard alignment (job 4125615) ran at ~340 and timed out,
+# and the first stage-1 submission at 204: the old figure was I/O, not a floor.
+EXAMPLES_PER_SEC="${EXAMPLES_PER_SEC:-2033}"
 
 # Every stage trains on the schedule the SWEEP uses, cosine, because the law
 # is applied to sweep runs and a learning rate means something different under
@@ -407,6 +410,12 @@ LR_MAX="${LR_MAX:-${LR_HI}}"
 # A cell that carries its own rate trains at exactly that rate, once.
 if [[ "${CELL_LR}" != "-" ]]; then
     LR_MIN="${CELL_LR}"; LR_MAX="${CELL_LR}"; N_LRS=1
+elif (( N_LRS == 1 )); then
+    # One point of logspace(lo, hi, 1) is lo, prior/LR_SPAN, not the prior.
+    # The first shard-aligned probe trained at 2.0e-5 that way and learned
+    # nothing (DeltaE 41). Harmless for a throughput number, but a run should
+    # train at the rate it says it does.
+    LR_MIN="${LR_PRIOR}"; LR_MAX="${LR_PRIOR}"
 fi
 
 echo "=================================================================="

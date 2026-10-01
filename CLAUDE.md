@@ -178,8 +178,12 @@ carries its `stage` for cross-boundary comparisons.
 Tuning cells did not: a 3.4M-example subset scattered over all 8,000 shards made
 each trial stream the whole 40M-row corpus, an I/O amplification of about
 40M/D. That predicts 11.6x at the first stage-1 submission's D against 10.6x
-observed (204 vs 2171 ex/s), so **re-run the probe** before sizing anything at
-204.
+observed (204 vs 2171 ex/s). **Confirmed by the probe, Oct 1**: the same cell
+(d120/se4, D = 614,400) ran at ~340 ex/s and timed out without shard alignment
+(job 4125615), and at a median of 2156, harmonic mean 2033, with it (job
+4125957). Everything is now sized at 2033, so the tables' 2171 column is the one
+that applies, give or take 7%. The probe trains at the prior LR and writes to
+`outputs/lr_search/probe/`, outside what the LR fit reads.
 
 ### Hard-won lessons, do not relearn these
 

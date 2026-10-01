@@ -333,16 +333,14 @@ def main() -> None:
                         "array. table: cells with cost. count: how many "
                         "cells, which stage 3 can answer before its learning "
                         "rates exist.")
-    p.add_argument("--rate", type=float, default=204.0,
+    p.add_argument("--rate", type=float, default=2033.0,
                    help="examples per second. The default is the MEASURED "
-                        "median from the first stage-1 submission (227 step "
-                        "samples, min 13, median 204, max 395), not the 1301 "
-                        "the sweep planner assumes. Tuning cells run far "
-                        "slower than sweep runs: six array tasks stream the "
-                        "same shards at once and these models are input-bound, "
-                        "so concurrency costs more than model size does. "
-                        "Sizing stage 1 at 1301 under-estimated it by 6x and "
-                        "every cell hit the 6-hour wall.")
+                        "harmonic mean of the shard-aligned probe (job "
+                        "4125957: median 2156, harmonic mean 2033), which "
+                        "matches the sweep's 2171. The 204 the first stage-1 "
+                        "submission ran at was I/O: without shard alignment "
+                        "every trial streamed the whole corpus, and the same "
+                        "probe without it (job 4125615) ran at ~340.")
     p.add_argument("--wall-hours", type=float, default=6.0,
                    help="the --time the array will be submitted with, so the "
                         "table can say which cells do not fit")
