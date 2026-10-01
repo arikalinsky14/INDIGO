@@ -169,10 +169,16 @@ def main() -> None:
     p.add_argument("--emit-config", type=int, default=None)
     p.add_argument("--local", action="store_true")
     p.add_argument("--dispatch", action="store_true")
-    p.add_argument("--allow-existing-out-root", action="store_true",
-                   help="dispatch even though --out-root already holds "
-                        "run directories for these configs. Only for "
-                        "deliberately topping up a sweep.")
+    p.add_argument("--legacy-widths", action="store_true",
+                   help="plan on the width grid the completed 48-run sweep "
+                        "used (steps of HEAD_DIM only). The default is now the "
+                        "finer grid, steps of 8 below 128, which puts more "
+                        "points on each rung's descending branch. Use this "
+                        "only to re-emit that original ladder exactly.")
+    p.add_argument("--rerun-existing", action="store_true",
+                   help="re-run and OVERWRITE configs that already have a "
+                        "directory under --out-root. Default is to skip them, "
+                        "so adding points to an existing sweep is safe.")
     args = p.parse_args()
 
     cap = (args.max_wall_hours * 3600 * WALL_MARGIN
@@ -185,7 +191,8 @@ def main() -> None:
     else:
         grid = build_grid(args.budgets, span=args.span, points=args.points,
                           batch_size=args.batch_size, corpus=args.corpus,
-                          wall_cap_sec=cap, repeat_seeds=args.repeat_seeds)
+                          wall_cap_sec=cap, repeat_seeds=args.repeat_seeds,
+                          legacy_widths=args.legacy_widths)
 
     if args.n_configs:
         print(len(grid))
@@ -230,23 +237,31 @@ def main() -> None:
     print(f"\n{len(cmds)} configs:\n")
     for c in cmds:
         print("  " + " ".join(c))
-    # A re-run with different hyperparameters writes to the SAME save_dir,
-    # because the directory name is derived from (budget, d_model, layers,
-    # seed) and carries no trace of the learning rate, batch size or beta2.
-    # Dispatching into an OUT_ROOT that already holds runs would overwrite
-    # finished ones with runs that are not comparable to them.
-    existing = [c for c in grid
-                if Path(f"{args.out_root}/{c.name}_s{args.seed}").exists()]
-    if existing and args.dispatch and not args.allow_existing_out_root:
-        raise SystemExit(
-            f"\n[ERROR] {len(existing)} of {len(grid)} configs already have a "
-            f"directory under {args.out_root}, for example\n"
-            f"          {args.out_root}/{existing[0].name}_s{args.seed}\n"
-            f"        A save directory is named for (budget, size, seed) only, "
-            f"so re-running with tuned hyperparameters would overwrite the old "
-            f"runs with ones that are NOT comparable to them.\n"
-            f"        Use a fresh --out-root for the re-tuned sweep, or pass "
-            f"--allow-existing-out-root if you really mean to add to this one.")
+    # A save_dir is named for (budget, size, seed) and carries no trace of the
+    # learning rate, batch size or beta2, so dispatching over an existing run
+    # would replace it with one that is NOT comparable to it. Default is to
+    # top up: dispatch the configs that have no directory yet and leave the
+    # rest alone. That makes adding points to an existing rung safe, which is
+    # exactly what densifying a curve's left branch needs.
+    done = [i for i, c in enumerate(grid)
+            if Path(f"{args.out_root}/{c.name}_s{args.seed}").exists()]
+    if done:
+        print(f"\n{len(done)} of {len(grid)} configs already have a directory "
+              f"under {args.out_root} and will be SKIPPED:")
+        for i in done[:5]:
+            print(f"    {grid[i].name}_s{args.seed}")
+        if len(done) > 5:
+            print(f"    ... and {len(done) - 5} more")
+        if args.rerun_existing:
+            print("  --rerun-existing was passed: they will be re-run and "
+                  "OVERWRITTEN.")
+        else:
+            cmds = [c for i, c in enumerate(cmds) if i not in set(done)]
+            print(f"  {len(cmds)} new config(s) left to dispatch. Pass "
+                  f"--rerun-existing to redo the finished ones instead.")
+    if not cmds:
+        print("\nNothing new to dispatch.")
+        return
 
     if args.dispatch:
         print(f"\nDispatching {len(cmds)}...")

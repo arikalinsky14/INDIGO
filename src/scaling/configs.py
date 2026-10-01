@@ -287,10 +287,19 @@ def tuned_laws() -> Optional[dict]:
     if isinstance(two_d, dict) and two_d.get("status") == "ok":
         out["lr_vs_n_and_d"] = (float(two_d["coef"]), float(two_d["n_exponent"]),
                                 float(two_d["d_exponent"]))
-    b2 = [c.get("beta2_star") for c in fit.get("configs", [])
-          if c.get("usable") and c.get("beta2_star") is not None]
-    if b2:
-        out["beta2"] = float(Counter(b2).most_common(1)[0][0])
+    tuned = [(c["n_params"], c["beta2_star"]) for c in fit.get("configs", [])
+             if c.get("usable") and c.get("beta2_star") is not None
+             and c.get("n_params")]
+    if tuned:
+        out["beta2"] = float(Counter(v for _, v in tuned).most_common(1)[0][0])
+        # Keep the per-size picks so beta2_for can step rather than assume one
+        # global winner. Collapsed to one entry per size, best-of if a size was
+        # tuned at several dataset sizes.
+        per_n = {}
+        for n_p, v in tuned:
+            per_n.setdefault(int(n_p), []).append(float(v))
+        out["beta2_by_n"] = sorted(
+            (n_p, Counter(vs).most_common(1)[0][0]) for n_p, vs in per_n.items())
     return out or None
 
 
@@ -319,24 +328,71 @@ def batch_size_for(n: float, default: int = DEFAULT_BATCH_SIZE) -> int:
 
 
 def beta2_for(n: float, default: float = 0.999) -> float:
-    """Tuned AdamW beta2. Default 0.999 is torch's, and what INDIGO has always
-    run; Porian et al. report it matters at the small batch sizes we use."""
+    """Tuned AdamW beta2 for a model size.
+
+    beta2 is CATEGORICAL, so it is never fitted as a power law and never
+    extrapolated. Porian et al. minimise it out and report the winner; we do
+    the same. When every tuned configuration picked the same value, that value
+    is used everywhere. When they disagree, the nearest tuned configuration in
+    log-N wins, which is a step function rather than an extrapolation: outside
+    the tuned range it returns the nearest end's value and nothing is invented.
+
+    Default 0.999 is torch's, and what INDIGO has always run.
+    """
     laws = tuned_laws()
-    return laws["beta2"] if laws and "beta2" in laws else default
+    if not laws:
+        return default
+    by_n = laws.get("beta2_by_n")
+    if by_n:
+        return float(min(by_n, key=lambda kv: abs(math.log(kv[0] / max(n, 1.0))))[1])
+    return laws.get("beta2", default)
+
+
+#: Head dims the ladder may use, largest first. HEAD_DIM is the default; the
+#: smaller ones exist only so narrow models stay reachable.
+HEAD_DIMS = (HEAD_DIM, 16, 8)
 
 
 def n_heads_for(d_model: int) -> int:
-    """Head count under the ladder's fixed-head-dim policy.
+    """Head count under the ladder's head-dim policy.
 
     Single source of truth: SweepConfig carries the result, so the planner and
     the emitted training command cannot drift apart on model shape. They did
     drift in v1, where two call sites each open-coded d_model // 64.
-    """
-    return max(1, d_model // HEAD_DIM)
 
+    Head dim is exactly param- and FLOP-neutral (src/scaling/flops.py), so
+    letting it drop to 16 or 8 for narrow models cannot perturb the compute
+    axis. It buys width steps of 8 instead of 32 at the bottom of the ladder,
+    which is where they are needed: at the lowest budget N* sits barely above
+    the smallest model the aspect band admits, so without finer steps that
+    rung's descending branch has a single point on it.
+    """
+    for hd in HEAD_DIMS:
+        if d_model >= hd and d_model % hd == 0:
+            return d_model // hd
+    return 1
+
+
+#: Width grid, steps of 8 below 128 and HEAD_DIM above it. This is the DEFAULT.
+#: Head dim is exactly param- and FLOP-neutral (src/scaling/flops.py), so a
+#: narrow model can use a smaller one and stay on the same compute axis, and
+#: n_heads_for picks the largest that divides the width.
+#:
+#: Why the small end needs to be dense: at the lowest budget N* sits only 1.3x
+#: above the smallest model the aspect band admits, so a 32-wide step leaves a
+#: single point on that rung's descending branch. Steps of 8 put two there, and
+#: roughly triple the count below N* on every other rung.
+DEFAULT_D_MODELS: Tuple[int, ...] = tuple(
+    sorted({8 * k for k in range(1, 17)} | {HEAD_DIM * k for k in range(1, 33)}))
+
+#: The grid the completed 48-run sweep was planned on, steps of HEAD_DIM only.
+#: Kept so that sweep stays exactly reproducible: a different width grid
+#: changes which shape wins each target N, so re-planning on this one is the
+#: only way to re-emit that ladder. Pass --legacy-widths.
+LEGACY_D_MODELS: Tuple[int, ...] = tuple(HEAD_DIM * k for k in range(1, 33))
 
 def achievable_sizes(
-    d_models: Sequence[int] = tuple(HEAD_DIM * k for k in range(1, 33)),
+    d_models: Sequence[int] = DEFAULT_D_MODELS,
     depths: Sequence[int] = tuple(range(1, 13)),
     decoder_layers: int = 1,
     aspect_min: float = ASPECT_MIN,
@@ -499,6 +555,7 @@ def build_grid(
     lr_law: Optional[Tuple[float, float]] = None,
     wall_cap_sec: Optional[float] = None,
     repeat_seeds: Optional[Sequence[int]] = None,
+    legacy_widths: bool = False,
 ) -> List[SweepConfig]:
     """One IsoFLOP rung per budget, `points` sizes spanning `span` x in N.
 
@@ -519,7 +576,8 @@ def build_grid(
     config per rung.
     """
     law = lr_law or fit_lr_law()
-    sizes = achievable_sizes()
+    sizes = achievable_sizes(
+        d_models=LEGACY_D_MODELS if legacy_widths else DEFAULT_D_MODELS)
     grid: List[SweepConfig] = []
 
     def make(budget: float, target: float, n: int, d: int, sel: int,
@@ -716,7 +774,7 @@ def max_feasible_budget(span: float = DEFAULT_SPAN,
     the wall clock is within `span` of the largest useful one, and the rung can
     no longer show curvature.
     """
-    sizes = achievable_sizes()
+    sizes = achievable_sizes(d_models=DEFAULT_D_MODELS)
     lo, hi = 1e12, 1e19
     for _ in range(120):
         mid = math.sqrt(lo * hi)
