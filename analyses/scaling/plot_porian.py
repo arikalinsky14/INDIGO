@@ -33,6 +33,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.scaling import porian as P                      # noqa: E402
@@ -54,6 +55,31 @@ def style(ax):
     ax.tick_params(colors=INK2, labelsize=9)
     ax.grid(True, color="#ebeae5", linewidth=0.8, which="both")
     ax.set_axisbelow(True)
+
+
+def plain_log_ticks(ax) -> None:
+    """Plain decimal labels on a log axis: 1, 2, 5 rather than 10^0.
+
+    Service units span well under a decade here, so every tick is a power of
+    ten only in the sense that matplotlib says so. Printing 10^0 for "one
+    service unit" is noise on an axis whose whole purpose is being readable to
+    someone holding an allocation.
+    """
+    def fmt(v, _pos):
+        if v <= 0:
+            return ""
+        if v >= 100:
+            return f"{v:,.0f}"
+        if v >= 10:
+            return f"{v:.0f}"
+        if v >= 1:
+            return f"{v:g}"
+        return f"{v:.2f}".rstrip("0").rstrip(".")
+
+    for axis in (ax.xaxis,):
+        axis.set_major_formatter(FuncFormatter(fmt))
+        axis.set_minor_formatter(FuncFormatter(fmt))
+    ax.tick_params(axis="x", which="minor", labelsize=8)
 
 
 def value_of(run, metric):
@@ -213,6 +239,8 @@ def main() -> None:
     ax.plot(grid, anchor, ls=(0, (5, 3)), color=REF, linewidth=1.8, zorder=2,
             label=r"Chinchilla  $\alpha$ = 0.50")
     ax.set_xscale("log"); ax.set_yscale("log")
+    if use_credits:
+        plain_log_ticks(ax)
     ax.set_xlabel(xlabel, color=INK2, fontsize=9.5)
     ax.set_ylabel(r"$N^*$ (parameters)", color=INK2, fontsize=9.5)
     ax.set_title(rf"B.  $\alpha$ = {n_law.exponent:+.3f}  "
@@ -232,6 +260,8 @@ def main() -> None:
     ax.plot(grid, np.full_like(grid, mult[0]), ls=(0, (5, 3)), color=REF,
             linewidth=1.8, zorder=1, label="Chinchilla: flat")
     ax.set_xscale("log"); ax.set_yscale("log")
+    if use_credits:
+        plain_log_ticks(ax)
     ax.set_xlabel(xlabel, color=INK2, fontsize=9.5)
     ax.set_ylabel(r"$D^*/N^*$ (examples per parameter)", color=INK2, fontsize=9.5)
     ax.set_title("C.  Examples per parameter falls with compute", color=INK,
