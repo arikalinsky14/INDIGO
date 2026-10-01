@@ -252,7 +252,9 @@ Zero extrapolated sizes is not reachable at any affordable number of rungs, and
 the earlier version of this file claimed otherwise. Tuning the lowest three
 curves covers 15 of the sweep's 24 distinct sizes and leaves 9 above the tuned
 range; four curves leaves 5. That trade is the second objective of the
-throughput probe, and stage 3 is the check on whatever is left extrapolated.
+throughput probe. Stage `check` tests the law at one upper-rung point, and
+stage 3 then trains every upper-rung point once at the law's rate, so the
+learning rate is the only extrapolated quantity in the final IsoFLOP.
 
 The learning-rate grid is also centred per cell on the prior rather than being
 one fixed window, because small models want much higher learning rates than

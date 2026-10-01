@@ -853,29 +853,66 @@ is forced: they tune at a constant multiplier (M = 20.0 to 21.1 while
 parameters vary 42x), so a law in N alone is the right object for them. Ours
 cannot be, because D\*/N\* runs 29.3 to 0.86.
 
-**Stage 3.** The extrapolation check, 1 cell, ~6 GPU-h. The upper rungs get
-the fitted law rather than a measurement, so tune the compute-optimal point of
-the highest usable rung and compare what the law predicted against what that
-point actually wanted. It runs on the sweep's own cosine schedule, because a
-check of a configuration has to use that configuration. If the ratio is far
-from 1, the law does not reach and more rungs have to be tuned directly.
-
-**Then fit and apply.**
+Then fit the law:
 
 ```bash
 python scripts/fit_lr_law.py --results-dir outputs/lr_search/cross_attn \
     --coverage-from analyses/scaling/results/isoflop_fit.json
 ```
 
-This writes `results/lr_law_fit.json`, which `configs.py` picks up
-automatically; until it exists everything falls back to the old three-point law
-unchanged and the dry run says which is in force. Any cell whose optimum lands
-on a grid endpoint is **discarded** rather than averaged in, so widen `LR_SPAN`
-for those and re-run them. The coverage report lists every model size the sweep
-trains and whether the fitted law interpolates or extrapolates to it; the
-target is as few extrapolated sizes as the budget allows: 9 of 24 at three
-tuned curves, 5 at four. Zero is not reachable at any affordable number of
-rungs, which is why stage 3 exists.
+It writes `analyses/scaling/results/lr_law_fit.json`, lr(N, D) = a N^b D^c,
+which `configs.py` picks up automatically; until it exists everything falls
+back to the old three-point law and the dry run says which is in force. Any
+cell whose optimum lands on a grid endpoint is **discarded**, so widen
+`LR_SPAN` for those and re-run them. The coverage report lists every sweep size
+and whether the law interpolates or extrapolates to it: 9 of 24 are
+extrapolated at three tuned curves, 5 at four, and zero is not reachable at any
+affordable number of rungs.
+
+**Stage `check`**: the extrapolation check, 1 cell, ~6 GPU-h, run BEFORE
+stage 3 spends anything. Tune the compute-optimal point of the highest usable
+rung in full and compare what the law predicted against what that point wanted.
+It writes to `outputs/lr_search/check/`, so the law is never fitted on the point
+that tests it. If the ratio is far from 1, the law does not reach: tune one more
+rung directly (`RUNGS` + 1) rather than spend stage 3 on rates that are guesses.
+
+**Stage 3**: finish the IsoFLOP, 30 cells, ~61 GPU-h at 2171 ex/s. Every
+(N, D) point of the remaining curves, repeat seeds included, trained once at the
+learning rate the law gives for that point's own N and D. **The learning rate is
+the only extrapolated quantity**: β₂ is stage 1's winner and the grid is the
+first sweep's, point for point. It also runs the lower rungs' repeat seeds, at
+the rate stage 2 picked for their seed-42 twin, so every seed cluster sits at
+one learning rate. The default includes the 2.5e16 rung (8 cells, ~28 GPU-h).
+`--list` prices it before stage 2 exists; it refuses to run until the law does.
+
+**Stages 2 and 3 together are the final IsoFLOP figure.** Stage 2's winning
+trial at each lower-rung point is that point's run; nothing is re-run.
+
+```bash
+python scripts/collect_isoflop.py --beta2 <winner> --rungs 3
+python scripts/fit_scaling_porian.py \
+    --fit analyses/scaling/results/isoflop_tuned.json \
+    --output analyses/scaling/results/porian_fit_tuned.json
+python analyses/scaling/plot_porian.py \
+    --fit analyses/scaling/results/isoflop_tuned.json \
+    --output analyses/scaling/results/porian_pooled_tuned.png
+```
+
+The collector writes the same schema as `isoflop_fit.json`, so the estimator
+and plots are reused unchanged; fed the first sweep's own values it reproduces
+that sweep's exponents exactly. It refuses any point not run like the rest
+(shard alignment, β₂, epochs, seed) unless `--allow-mixed`. One asymmetry is
+recorded, not hidden: a stage-2 point is the best of seven noisy ΔE readings
+and a stage-3 point is one reading, so the lower rungs sit slightly optimistic.
+That shifts whole rungs, not points within one, so N*(C) is unaffected; each run
+carries its `stage` for cross-boundary comparisons.
+
+**Every stage now passes `--limit-shard-aligned`**, as the sweep always did.
+Tuning cells did not: a 3.4M-example subset scattered over all 8,000 shards made
+each trial stream the whole 40M-row corpus, an I/O amplification of about
+40M/D. That predicts 11.6x at the first stage-1 submission's D against 10.6x
+observed (204 vs 2171 ex/s), so **re-run the probe** before sizing anything at
+204.
 
 Where this study **does** do better than the paper it copies is at the small
 end. They fit their LR law over a window and extrapolate *above* it, which is
@@ -884,11 +921,6 @@ ladder runs the other way: the smallest rungs, at 0.08M parameters, are both
 furthest from where anyone normally tunes and the most LR-sensitive, and they
 anchor the low-compute end of every IsoFLOP fit. Stage 2 tunes them densely and
 directly (`METHOD_DIFFS.md` item F).
-
-Then re-run the sweep into a **fresh `--out-root`**. A save directory is named
-for (budget, size, seed) only and carries no trace of the hyperparameters, so
-re-running over the old one would overwrite runs that are not comparable. The
-planner refuses by default and tops up instead.
 
 ### What the first stage-1 submission cost, so it is not repeated
 

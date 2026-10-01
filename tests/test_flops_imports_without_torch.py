@@ -42,11 +42,20 @@ grid = build_grid([1e14])
 assert grid and grid[0].n_params > 0 and grid[0].lr > 0
 
 import subprocess
-for stage in (1, 2, 3):
+for stage in ("probe", "1", "2", "check"):
     r = subprocess.run([sys.executable, "scripts/lr_grid_cells.py",
-                        "--stage", str(stage)], capture_output=True, text=True)
+                        "--stage", stage], capture_output=True, text=True)
     assert r.returncode == 0, f"stage {stage}: {r.stderr}"
     assert r.stdout.strip(), f"stage {stage} emitted no cells"
+# Stage 3 cannot emit runnable cells until stage 2 is fitted, by design, but it
+# must still price itself before then: that is what --list is for.
+for fmt in ("table", "count"):
+    r = subprocess.run([sys.executable, "scripts/lr_grid_cells.py",
+                        "--stage", "3", "--format", fmt],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, f"stage 3 {fmt}: {r.stderr}"
+    assert r.stdout.strip(), f"stage 3 {fmt} printed nothing"
+import scripts.collect_isoflop      # noqa: F401
 
 # And the wall-model analysis end to end.
 import importlib.util

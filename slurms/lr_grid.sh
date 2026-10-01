@@ -147,14 +147,45 @@ set -euo pipefail
 #            21.1 while parameters vary 42x), so a law in N alone is right for
 #            them. Ours cannot be, since D*/N* runs 29.3 to 0.86.
 #
-#   STAGE=3  the extrapolation check.                   1 cell,  ~6 GPU-h
-#            The upper rungs get the fitted law rather than a measurement.
-#            Tune the compute-optimal point of the highest usable rung and
+#   STAGE=check  the extrapolation check.               1 cell,  ~6 GPU-h
+#            Run between 2 and 3, before stage 3 spends anything. Stage 3
+#            trusts the fitted law at every upper-rung point, so tune the
+#            compute-optimal point of the highest usable rung in full and
 #            compare predicted against measured. If the ratio is far from 1,
-#            the law does not reach and more rungs need tuning directly.
+#            the law does not reach: tune one more rung directly (RUNGS + 1)
+#            instead of spending stage 3 on rates that are guesses. Writes to
+#            outputs/lr_search/check/, so the law is never fitted on the point
+#            that tests it.
 #
-# About 78 GPU-h in total at 2171 ex/s, startup and evals included, against
-# the 566 runs behind their laws.
+#   STAGE=3  finish the IsoFLOP.                       30 cells, ~61 GPU-h
+#            Every (N, D) point of the remaining curves, repeat seeds
+#            included, trained ONCE at the learning rate the fitted law gives
+#            for that point's own N and D. The LR is the only thing
+#            extrapolated: beta2 is stage 1's winner and the grid is the
+#            sweep's. Also the lower rungs' repeat seeds, at the rate stage 2
+#            picked for their seed-42 twin, so every seed cluster sits at one
+#            LR. Writes to outputs/isoflop_tuned/.
+#
+#            Stages 2 and 3 together ARE the final IsoFLOP figure: stage 2's
+#            winning trial at each lower-rung point is that point's run.
+#            scripts/collect_isoflop.py assembles them and refuses any point
+#            not run like the rest (shard alignment, beta2, epochs, seed).
+#
+#            The default 30 includes the 2.5e16 rung (8 cells, ~28 GPU-h),
+#            whose argmin sat on the boundary in the first sweep. Its largest
+#            run is 58M example-passes, 1.45 epochs, ~8 h at 2171 ex/s.
+#
+# About 140 GPU-h in total at 2171 ex/s (probe 0.6, stage 1 15, stage 2 57,
+# check 6, stage 3 61), startup and evals included, against the 566 runs
+# behind their laws.
+#
+# Every stage passes --limit-shard-aligned, as the sweep's training.py runs
+# always have. Earlier tuning cells did not: a 3.4M-example subset scattered
+# over all 8,000 shards made each trial stream the entire 40M-row corpus, an
+# I/O amplification of roughly 40M/D. That is the likeliest explanation for
+# the first stage-1 submission's 204 ex/s against the sweep's 2171 (11.6x
+# predicted at D = 3.45M, 10.6x observed), so the probe should now be re-run
+# before anything is sized at 204.
 #
 # ---------------------------------------------------------------------------
 # Usage
@@ -163,23 +194,31 @@ set -euo pipefail
 #   STAGE=probe sbatch --array=0-0 --time=02:00:00 slurms/lr_grid.sh
 #
 #   # read the ex/s off the log. It sizes everything below AND decides how
-#   # many curves stage 2 tunes, so price both before committing:
+#   # many curves stage 2 tunes, so price both before committing. --list works
+#   # for every stage before it can run, stage 3 included:
 #   STAGE=1 EXAMPLES_PER_SEC=<measured> bash slurms/lr_grid.sh --list
 #   STAGE=2 RUNGS=3 EXAMPLES_PER_SEC=<measured> bash slurms/lr_grid.sh --list
-#   STAGE=2 RUNGS=4 EXAMPLES_PER_SEC=<measured> bash slurms/lr_grid.sh --list
+#   STAGE=3 RUNGS=3 EXAMPLES_PER_SEC=<measured> bash slurms/lr_grid.sh --list
 #
 #   STAGE=1 sbatch --array=0-5%2 --time=<from the table> slurms/lr_grid.sh
-#   python scripts/fit_lr_law.py --results-dir outputs/lr_search/cross_attn
 #
 #   # then, with BETA2_WINNER set to what stage 1 picked and RUNGS set to what
 #   # the probe justified (3 -> --array=0-17, 4 -> --array=0-23):
-#   STAGE=2 RUNGS=3 BETA2_WINNER=0.99 sbatch --array=0-17%2 --time=11:00:00 \
-#       --qos=long slurms/lr_grid.sh
-#   STAGE=3 BETA2_WINNER=0.99 sbatch --array=0-0 --time=11:00:00 \
-#       --qos=long slurms/lr_grid.sh
-#
+#   STAGE=2 RUNGS=3 BETA2_WINNER=0.99 sbatch --array=0-17%2 \
+#       --time=<from the table> slurms/lr_grid.sh
 #   python scripts/fit_lr_law.py --results-dir outputs/lr_search/cross_attn \
 #       --coverage-from analyses/scaling/results/isoflop_fit.json
+#
+#   STAGE=check BETA2_WINNER=0.99 sbatch --array=0-0 \
+#       --time=<from the table> slurms/lr_grid.sh
+#
+#   # only if the check passes; RUNGS must be the value stage 2 ran with:
+#   STAGE=3 RUNGS=3 BETA2_WINNER=0.99 sbatch --array=0-29%2 \
+#       --time=<from the table> slurms/lr_grid.sh
+#   python scripts/collect_isoflop.py --beta2 0.99 --rungs 3
+#   python scripts/fit_scaling_porian.py \
+#       --fit analyses/scaling/results/isoflop_tuned.json \
+#       --output analyses/scaling/results/porian_fit_tuned.json
 #
 # Any cell whose optimum lands on a grid endpoint is DISCARDED by the fit, not
 # averaged in. Widen LR_SPAN for those cells and re-run them.
@@ -242,6 +281,7 @@ STAGE="${STAGE:-1}"
 case "${STAGE}" in
   probe) N_LRS=1 ;;
   1)     N_LRS="${N_LRS:-3}"; LR_SPAN="${LR_SPAN:-4}" ;;
+  3)     N_LRS=1 ;;                 # one rate per point, given by the cell
 esac
 FIT="${FIT:-analyses/scaling/results/porian_fit.json}"
 BETA2_WINNER="${BETA2_WINNER:-0.99}"
@@ -255,7 +295,15 @@ N_LRS="${N_LRS:-7}"
 SELECTION_METRIC="${SELECTION_METRIC:-delta_e}"
 HEAD_MODE="${HEAD_MODE:-cross_attn}"
 DATA_DIR="${DATA_DIR:-/ix1/ohinder/ajk245/Github/INDIGO/data/train}"
-OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/${HEAD_MODE}}"
+# Stages probe, 1 and 2 share the directory fit_lr_law.py reads. The check and
+# stage 3 get their own: the check must not be fitted into the law it tests,
+# and stage 3's single-rate runs are IsoFLOP points, not tuning evidence.
+STAGE2_DIR="${STAGE2_DIR:-outputs/lr_search/${HEAD_MODE}}"
+case "${STAGE}" in
+  check) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/check/${HEAD_MODE}}" ;;
+  3)     OUTPUT_DIR="${OUTPUT_DIR:-outputs/isoflop_tuned/${HEAD_MODE}}" ;;
+  *)     OUTPUT_DIR="${OUTPUT_DIR:-${STAGE2_DIR}}" ;;
+esac
 # MEASURED on the first stage-1 submission (median of 227 step samples), not
 # the 1301 the sweep planner assumes. Sizing against 1301 is what put every
 # cell into its wall. Raise it once a probe shows the contention is gone.
@@ -276,37 +324,43 @@ EXAMPLES_PER_SEC="${EXAMPLES_PER_SEC:-204}"
 LR_SCHEDULE="${LR_SCHEDULE:-cosine}"
 EVAL_FRACTIONS="${EVAL_FRACTIONS-}"
 
-# Cells come from scripts/lr_grid_cells.py, not from a ladder written here,
-# because stage 2's cells are DERIVED from the sweep's own compute-optimal
-# points. See that script's docstring for why they have to be.
-mapfile -t CELL_LINES < <(python3 scripts/lr_grid_cells.py \
-    --stage "${STAGE}" --fit "${FIT}" --beta2 "${BETA2_WINNER}" \
-    --rungs "${RUNGS}")
-N_TASKS=${#CELL_LINES[@]}
-if (( ! N_TASKS )); then
-    echo "no cells for STAGE=${STAGE}." >&2
-    echo "  scripts/lr_grid_cells.py produced nothing. Run it directly to see" >&2
-    echo "  why; the usual cause is the environment not being active, or" >&2
-    echo "  FIT=${FIT} missing." >&2
-    exit 1
-fi
+CELL_ARGS=(--stage "${STAGE}" --fit "${FIT}" --beta2 "${BETA2_WINNER}"
+           --rungs "${RUNGS}" --stage2-dir "${STAGE2_DIR}")
 
-cell_of() {   # $1 = task index -> sets D_MODEL, SLOT_ENCODER_LAYERS, LIMIT_EXAMPLES, BETA2
-    read -r D_MODEL SLOT_ENCODER_LAYERS LIMIT_EXAMPLES BETA2 \
-        <<< "${CELL_LINES[$1]}"
-}
-
+# --list prices the stage, so it must work BEFORE the stage can run: stage 3's
+# learning rates do not exist until stage 2 is fitted, but its cells and cost
+# do. It therefore asks for a table and a count, never the runnable lines.
 if [[ "${1:-}" == "--list" ]]; then
-    python3 scripts/lr_grid_cells.py --stage "${STAGE}" --fit "${FIT}" \
-        --beta2 "${BETA2_WINNER}" --rungs "${RUNGS}" --format table \
+    python3 scripts/lr_grid_cells.py "${CELL_ARGS[@]}" --format table \
         --n-lrs "${N_LRS}" --rate "${EXAMPLES_PER_SEC}" \
         --val-examples "${LIMIT_VAL_EXAMPLES:-10000}" \
         --de-examples "${LIMIT_DE_EXAMPLES:-2048}" \
         --wall-hours "${WALL_HOURS:-6}"
+    N_TASKS="$(python3 scripts/lr_grid_cells.py "${CELL_ARGS[@]}" --format count)"
     echo
     echo "batch size ${BATCH_SIZE};  submit with --array=0-$((N_TASKS - 1))"
     exit 0
 fi
+
+# Cells come from scripts/lr_grid_cells.py, not from a ladder written here,
+# because they are DERIVED from the sweep's own grid. See that script's
+# docstring for why they have to be.
+mapfile -t CELL_LINES < <(python3 scripts/lr_grid_cells.py "${CELL_ARGS[@]}")
+N_TASKS=${#CELL_LINES[@]}
+if (( ! N_TASKS )); then
+    echo "no cells for STAGE=${STAGE}." >&2
+    echo "  scripts/lr_grid_cells.py produced nothing. Run it directly to see" >&2
+    echo "  why; the usual causes are the environment not being active," >&2
+    echo "  FIT=${FIT} missing, or for stage 3 the LR law not fitted yet." >&2
+    exit 1
+fi
+
+# One line per cell: d_model, slot layers, examples per epoch, beta2, epochs,
+# seed, and a fixed learning rate or "-" for "search the grid around the prior".
+cell_of() {   # $1 = task index
+    read -r D_MODEL SLOT_ENCODER_LAYERS LIMIT_EXAMPLES BETA2 EPOCHS SEED CELL_LR \
+        <<< "${CELL_LINES[$1]}"
+}
 
 # Everything past here trains, so torch has to be importable. Fail now rather
 # than after the scheduler has handed out a GPU and lr_tuning.py has loaded a
@@ -325,9 +379,12 @@ if (( TASK >= N_TASKS )); then
     exit 1
 fi
 cell_of "${TASK}"
-# Head dim 32, matching the sweep ladder (src/scaling/configs.py:HEAD_DIM).
-N_HEADS=$(( D_MODEL / 32 ))
-(( N_HEADS < 1 )) && N_HEADS=1
+# Head count from the sweep's own policy, so a cell is the same model the
+# sweep trains. Integer division by 32 agreed with it on every multiple of 32
+# but gave d40 one 40-wide head where the sweep gives it five of 8.
+N_HEADS="$(python3 -c 'import sys; sys.path.insert(0, ".")
+from src.scaling.configs import n_heads_for; print(n_heads_for(int(sys.argv[1])))' \
+    "${D_MODEL}")"
 
 # Centre the LR window on the prior for THIS model size.
 read -r N_PARAMS LR_PRIOR LR_LO LR_HI <<< "$(python3 - "${D_MODEL}" \
@@ -347,13 +404,18 @@ PYEOF
 )"
 LR_MIN="${LR_MIN:-${LR_LO}}"
 LR_MAX="${LR_MAX:-${LR_HI}}"
+# A cell that carries its own rate trains at exactly that rate, once.
+if [[ "${CELL_LR}" != "-" ]]; then
+    LR_MIN="${CELL_LR}"; LR_MAX="${CELL_LR}"; N_LRS=1
+fi
 
 echo "=================================================================="
 echo " STAGE ${STAGE}, cell ${TASK} of ${N_TASKS}"
 echo "   d_model / se        ${D_MODEL} / ${SLOT_ENCODER_LAYERS}  (n_heads ${N_HEADS})"
 echo "   N (parameters)      ${N_PARAMS}"
 echo "   prior lr            ${LR_PRIOR}  (centre of the grid)"
-echo "   D (examples)        ${LIMIT_EXAMPLES}"
+echo "   D (examples)        ${LIMIT_EXAMPLES} x ${EPOCHS} epoch(s)"
+echo "   seed                ${SEED}"
 echo "   batch size          ${BATCH_SIZE}  (fixed; from configs.DEFAULT_BATCH_SIZE)"
 echo "   AdamW beta2         ${BETA2}"
 echo "   LR grid             ${N_LRS} points, ${LR_MIN} to ${LR_MAX}"
@@ -371,8 +433,8 @@ OVERWRITE_FLAG="--skip-existing"
 
 srun python scripts/lr_tuning.py \
     --data-dir "${DATA_DIR}" \
-    --epochs 1 \
-    --limit-examples "${LIMIT_EXAMPLES}" \
+    --epochs "${EPOCHS}" --seed "${SEED}" \
+    --limit-examples "${LIMIT_EXAMPLES}" --limit-shard-aligned \
     --limit-val-examples "${LIMIT_VAL_EXAMPLES:-10000}" \
     --limit-de-examples "${LIMIT_DE_EXAMPLES:-2048}" \
     --selection-metric "${SELECTION_METRIC}" \
@@ -392,6 +454,13 @@ srun python scripts/lr_tuning.py \
     "${OVERWRITE_FLAG}" \
     --log-every 100 --streaming --bf16 --plot
 
-echo "[INFO] STAGE ${STAGE} cell ${TASK} done. Fit once the stage has landed:"
-echo "  python scripts/fit_lr_law.py --results-dir ${OUTPUT_DIR} \\"
-echo "      --coverage-from analyses/scaling/results/isoflop_fit.json"
+echo "[INFO] STAGE ${STAGE} cell ${TASK} done."
+if [[ "${STAGE}" == "3" ]]; then
+    echo "  Once stage 3 has landed, assemble and fit the final IsoFLOP:"
+    echo "  python scripts/collect_isoflop.py --stage2-dir ${STAGE2_DIR} \\"
+    echo "      --stage3-dir ${OUTPUT_DIR} --beta2 ${BETA2_WINNER} --rungs ${RUNGS}"
+else
+    echo "  Fit once the stage has landed:"
+    echo "  python scripts/fit_lr_law.py --results-dir ${OUTPUT_DIR} \\"
+    echo "      --coverage-from analyses/scaling/results/isoflop_fit.json"
+fi

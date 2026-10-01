@@ -485,6 +485,17 @@ def plot_lr_search(results: List[LRSearchResult], output_path: Path, epochs: int
     print(f"[INFO] Plot saved to {output_path}")
 
 
+def _seed_suffix(seed: int) -> str:
+    """Filename suffix for a non-default seed.
+
+    Repeat seeds of one IsoFLOP point share every other part of the tag, so
+    without this they would land on one file and --skip-existing would treat
+    the second seed as already done. Seed 42 keeps the historical name so
+    existing results are still found.
+    """
+    return "" if seed == 42 else f"_s{seed}"
+
+
 def resolve_output_dir(output_dir: Optional[str], head_mode: str) -> Path:
     """Where this run's results land. Shared by the pre-flight existence check
     and the writer, so the two cannot disagree about which file to look for."""
@@ -515,6 +526,18 @@ def main() -> None:
                         default=False,
                         help="Stream dataset shard-by-shard (recommended at "
                              "production scale; the legacy mode OOMs).")
+    parser.add_argument("--limit-shard-aligned",
+                        action=argparse.BooleanOptionalAction, default=False,
+                        help="Take --limit-examples (and the validation "
+                             "slice) as WHOLE shards, exactly as the sweep's "
+                             "training.py runs do. Without it the subset is "
+                             "the first N rows of a global shuffle, scattered "
+                             "over every shard, and a streaming read touches "
+                             "all of them: at D = 3.4M of a 40M corpus that "
+                             "reads the whole corpus to yield 8.6%% of it. "
+                             "Also what makes a tuning cell's training data "
+                             "and DeltaE slice the same kind of sample as a "
+                             "sweep run's.")
 
     parser.add_argument("--lr-schedule", choices=("cosine", "constant"),
                         default="cosine",
@@ -623,7 +646,7 @@ def main() -> None:
                 f"_d{args.d_model}_se{args.slot_encoder_layers}"
                 f"_bs{args.batch_size}_b2{args.beta2:g}"
                 + ("" if args.lr_schedule == "cosine" else f"_{args.lr_schedule}")
-                + ".json")
+                + _seed_suffix(args.seed) + ".json")
     _existing = sorted(_out_dir.glob(_pattern))
     if _existing:
         if args.skip_existing:
@@ -650,11 +673,13 @@ def main() -> None:
     train_dataset = FlexThinFilmDataset(
         data_dir, seed=args.seed, split="train", verbose=True,
         limit_examples=args.limit_examples, streaming=args.streaming,
+        limit_shard_aligned=args.limit_shard_aligned,
     )
     print(f"[INFO] Loading validation data...")
     val_dataset = FlexThinFilmDataset(
         data_dir, seed=args.seed, split="validation", verbose=True,
         limit_examples=args.limit_val_examples, streaming=args.streaming,
+        limit_shard_aligned=args.limit_shard_aligned,
     )
 
     config = ModelConfig(
@@ -773,7 +798,8 @@ def main() -> None:
     tag = (f"ep{args.epochs}_lim{n_train}"
            f"_d{args.d_model}_se{args.slot_encoder_layers}"
            f"_bs{args.batch_size}_b2{args.beta2:g}"
-           + ("" if args.lr_schedule == "cosine" else f"_{args.lr_schedule}"))
+           + ("" if args.lr_schedule == "cosine" else f"_{args.lr_schedule}")
+           + _seed_suffix(args.seed))
     results_file = output_dir / f"lr_search_{tag}.json"
     # Never silently replace a finished sweep. The grid is submitted as an
     # array and arrays get resubmitted, so a clobber here would quietly
@@ -792,6 +818,8 @@ def main() -> None:
     with open(results_file, "w") as f:
         json.dump({
             "epochs": args.epochs,
+            "seed": args.seed,
+            "limit_shard_aligned": args.limit_shard_aligned,
             "optimal_lr": optimal_lr,
             "selection_metric": args.selection_metric,
             "optimal_val_de": best_result.final_val_de,
