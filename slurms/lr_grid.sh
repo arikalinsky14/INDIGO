@@ -56,39 +56,40 @@ set -euo pipefail
 # FORCE=1 only when you mean to redo a cell.
 #
 # ---------------------------------------------------------------------------
-# Stages
+# Stages, and why stage 2 is not a fixed-D ladder
 # ---------------------------------------------------------------------------
 #
-#   STAGE=1  beta2, at a small and a large model size.   6 cells,  ~4.7 GPU-h
-#            Answers two things: does beta2 move the result at all, and does
-#            its optimum move with scale. If it is flat, later stages pin one
-#            value and nothing is lost.
+# Porian et al. tune at a CONSTANT token multiplier: across a 42x range in
+# parameters their sweep holds M = tokens/params between 20.0 and 21.1. N and M
+# are decoupled by construction, so a law in N alone is the right object for
+# them, and their compute-optimal M is itself ~constant, so one M covers the
+# whole study.
 #
-#   STAGE=2  the model-size ladder at the winning beta2. 6 cells,  ~4.7 GPU-h
-#            The sizes SPAN the sweep's full ladder, 0.08M to 17.8M, so the
-#            fitted law interpolates for every rung instead of extrapolating
-#            down to the small ones. This is the difference from Porian et
-#            al., who fit a window and extrapolate above it; our smallest
-#            rungs are the ones most sensitive to learning rate, so they get
-#            measured rather than predicted.
+# INDIGO cannot borrow that. Our compute-optimal multiplier is NOT constant:
+# D*/N* runs 29.3 down to 0.86 across our budgets, a 34x range, and the 48
+# sweep runs occupy M from 0.28 to 52. Tuning at a fixed D would be worse than
+# useless, because M = D/N would then vary as 1/N across the ladder, 220x: the
+# fitted "lr(N)" would really be lr along a trajectory in M. That is the
+# aspect-ratio confound again, in a different variable.
 #
-#   STAGE=3  the dataset-size axis at one mid size.      1 cell,   ~31 GPU-h
-#            Gives the D exponent the deployed law omits. ONE run at the
-#            largest D, scored at fractions of its length, rather than one run
-#            per D. That is how Porian et al. get 90 token multipliers out of
-#            each sweep run: they read the logged loss curve at 90 fractions.
-#            It only works under a CONSTANT learning rate, where a prefix of a
-#            run is a complete shorter run; under cosine the prefix has not
-#            decayed and is not comparable. Hence LR_SCHEDULE=constant below,
-#            and lr_tuning.py refuses the combination otherwise.
+#   STAGE=1  beta2 at both ends of the sweep's ladder.  6 cells,  ~6 GPU-h
+#            Does beta2 matter, and does its optimum move with scale? Their
+#            data says it tracks BATCH SIZE, which we hold fixed, so one value
+#            should serve; this checks that on our model.
 #
-#            NOTE this makes stage 3 measure the D dependence under a constant
-#            LR while the sweep trains with cosine. Their tuned arm uses
-#            constant for both. Decide which the sweep should use before
-#            trusting the D exponent; EVAL_FRACTIONS= (empty) falls back to
-#            separate runs per D under cosine, at ~37 GPU-h.
+#   STAGE=2  the sweep's own compute-optimal points.    5 cells,  ~32 GPU-h
+#            One cell per rung at its (N*, D*), the points that actually
+#            determine the IsoFLOP minima. Spans N by 66x and M from 34 to
+#            0.93, which is the real trajectory rather than an artefact of
+#            holding something fixed. D* barely moves, so this is affordable.
 #
-# About 46 GPU-h in total, against the 566 runs behind their laws.
+#   STAGE=3  the multiplier axis at one fixed N.        1 cell,   ~15 GPU-h
+#            Stage 2 is a one-dimensional path through (N, M), so it cannot
+#            separate the two exponents on its own. This varies M by 29x at
+#            fixed N, inside ONE run, by scoring at fractions of it. Together
+#            the two stages support the 2-D fit lr(N, M).
+#
+# About 53 GPU-h in total, against the 566 runs behind their laws.
 #
 # ---------------------------------------------------------------------------
 # Usage
@@ -98,15 +99,16 @@ set -euo pipefail
 #   STAGE=1 sbatch --array=0-5 slurms/lr_grid.sh
 #   python scripts/fit_lr_law.py --results-dir outputs/lr_search/cross_attn
 #
-#   STAGE=2 BETA2_LADDER=0.99 sbatch --array=0-5 slurms/lr_grid.sh
-#   STAGE=3 BETA2_LADDER=0.99 sbatch --array=0-2 --qos=long --time=12:00:00 \
+#   # then, with BETA2_WINNER set to what stage 1 picked:
+#   STAGE=2 BETA2_WINNER=0.99 sbatch --array=0-4 slurms/lr_grid.sh
+#   STAGE=3 BETA2_WINNER=0.99 sbatch --array=0-0 --qos=long --time=20:00:00 \
 #       slurms/lr_grid.sh
 #
 #   python scripts/fit_lr_law.py --results-dir outputs/lr_search/cross_attn \
 #       --coverage-from analyses/scaling/results/isoflop_fit.json
 #
 # Any cell whose optimum lands on a grid endpoint is DISCARDED by the fit, not
-# averaged in. Widen LR_MIN/LR_MAX for those cells and re-run them.
+# averaged in. Widen LR_SPAN for those cells and re-run them.
 # ============================================================================
 
 # Batch size comes from the sweep planner, never from a default here.
@@ -115,96 +117,46 @@ from src.scaling.configs import DEFAULT_BATCH_SIZE; print(DEFAULT_BATCH_SIZE)' \
     2>/dev/null || echo 256)}"
 
 STAGE="${STAGE:-1}"
-case "${STAGE}" in
-  # Smallest and largest rungs of the sweep ladder.
-  1) N_LADDER_D="${N_LADDER:-32:1 416:7}"
-     D_LADDER_D="${D_LADDER:-614400}"
-     B2_LADDER_D="${BETA2_LADDER:-0.95 0.99 0.999}" ;;
-  # Spans the sweep's ladder end to end: 0.08M, 0.23M, 0.77M, 2.5M, 6.6M, 17.8M.
-  2) N_LADDER_D="${N_LADDER:-32:1 64:2 128:2 192:4 288:5 416:7}"
-     D_LADDER_D="${D_LADDER:-614400}"
-     B2_LADDER_D="${BETA2_LADDER:-0.99}" ;;
-  3) N_LADDER_D="${N_LADDER:-160:3}"
-     D_LADDER_D="${D_LADDER:-24000000}"
-     B2_LADDER_D="${BETA2_LADDER:-0.99}"
-     LR_SCHEDULE="${LR_SCHEDULE:-constant}"
-     # 0.6M, 2M, 4M, 10M of the 24M run, plus the end.
-     EVAL_FRACTIONS="${EVAL_FRACTIONS-0.0256 0.0833 0.1667 0.4167}" ;;
-  custom) N_LADDER_D="${N_LADDER:?set N_LADDER for STAGE=custom}"
-     D_LADDER_D="${D_LADDER:?set D_LADDER}"
-     B2_LADDER_D="${BETA2_LADDER:?set BETA2_LADDER}" ;;
-  *) echo "STAGE must be 1, 2, 3 or custom (got '${STAGE}')" >&2; exit 1 ;;
-esac
+FIT="${FIT:-analyses/scaling/results/porian_fit.json}"
+BETA2_WINNER="${BETA2_WINNER:-0.99}"
 
-# The LR grid is CENTRED PER CELL on the current law's prediction, rather than
-# being one fixed window for every model size. A fixed window has to be wide
-# enough for the smallest model, which wants a much higher LR than the largest,
-# and with only a handful of points a wide window resolves nothing. Centring
-# keeps the span per cell narrow enough to resolve while still bracketing.
-#
-# The prior is the existing lr_for(N). It is poorly determined, which is why we
-# are re-tuning, but it is right to within a factor of a few, and the span
-# below covers a factor of LR_SPAN either side of it. Porian et al. use a fixed
-# window of 7.5e-4 to 4.8e-2 across all their sizes; ours moves with N instead,
-# and if a cell still lands on an endpoint the fit discards it and says so.
-#
-# Set LR_MIN and LR_MAX explicitly to override the centring for a re-run.
 LR_SPAN="${LR_SPAN:-30}"
 N_LRS="${N_LRS:-7}"
 SELECTION_METRIC="${SELECTION_METRIC:-delta_e}"
-LR_SCHEDULE="${LR_SCHEDULE:-cosine}"
-EVAL_FRACTIONS="${EVAL_FRACTIONS-}"
 HEAD_MODE="${HEAD_MODE:-cross_attn}"
 DATA_DIR="${DATA_DIR:-/ix1/ohinder/ajk245/Github/INDIGO/data/train}"
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/${HEAD_MODE}}"
 EXAMPLES_PER_SEC="${EXAMPLES_PER_SEC:-1301}"
 
-read -r -a N_CELLS  <<< "${N_LADDER_D}"
-read -r -a D_CELLS  <<< "${D_LADDER_D}"
-read -r -a B2_CELLS <<< "${B2_LADDER_D}"
-N_D=${#D_CELLS[@]}; N_B2=${#B2_CELLS[@]}
-N_TASKS=$(( ${#N_CELLS[@]} * N_D * N_B2 ))
+# Stage 3 varies the multiplier inside ONE run by scoring at fractions of it,
+# which is only valid with a constant LR; lr_tuning.py refuses it otherwise.
+if [[ "${STAGE}" == "3" ]]; then
+    LR_SCHEDULE="${LR_SCHEDULE:-constant}"
+    EVAL_FRACTIONS="${EVAL_FRACTIONS-0.03125 0.1 0.3333}"
+else
+    LR_SCHEDULE="${LR_SCHEDULE:-cosine}"
+    EVAL_FRACTIONS="${EVAL_FRACTIONS-}"
+fi
 
-cell_of() {   # $1 = task index -> sets N_SPEC, LIMIT_EXAMPLES, BETA2
-    local t="$1"
-    BETA2="${B2_CELLS[$(( t % N_B2 ))]}";        t=$(( t / N_B2 ))
-    LIMIT_EXAMPLES="${D_CELLS[$(( t % N_D ))]}"; t=$(( t / N_D ))
-    N_SPEC="${N_CELLS[${t}]}"
+# Cells come from scripts/lr_grid_cells.py, not from a ladder written here,
+# because stage 2's cells are DERIVED from the sweep's own compute-optimal
+# points. See that script's docstring for why they have to be.
+mapfile -t CELL_LINES < <(python3 scripts/lr_grid_cells.py \
+    --stage "${STAGE}" --fit "${FIT}" --beta2 "${BETA2_WINNER}")
+N_TASKS=${#CELL_LINES[@]}
+(( N_TASKS )) || { echo "no cells for STAGE=${STAGE}" >&2; exit 1; }
+
+cell_of() {   # $1 = task index -> sets D_MODEL, SLOT_ENCODER_LAYERS, LIMIT_EXAMPLES, BETA2
+    read -r D_MODEL SLOT_ENCODER_LAYERS LIMIT_EXAMPLES BETA2 \
+        <<< "${CELL_LINES[$1]}"
 }
 
 if [[ "${1:-}" == "--list" ]]; then
-    echo "STAGE ${STAGE}: ${N_TASKS} cells, batch size ${BATCH_SIZE}"
-    echo "  submit with --array=0-$((N_TASKS - 1))"
-    printf '%5s  %-12s  %12s  %7s  %12s  %11s  %9s\n' \
-        idx model D beta2 N "LR window" GPU-h
-    total=0
-    for ((i = 0; i < N_TASKS; i++)); do
-        cell_of "${i}"
-        h=$(awk -v d="${LIMIT_EXAMPLES}" -v n="${N_LRS}" -v r="${EXAMPLES_PER_SEC}" \
-                'BEGIN{printf "%.2f", n*d/r/3600}')
-        total=$(awk -v a="${total}" -v b="${h}" 'BEGIN{print a+b}')
-        dm="${N_SPEC%%:*}"; se="${N_SPEC##*:}"
-        nh=$(( dm / 32 )); (( nh < 1 )) && nh=1
-        read -r np pr lo hi <<< "$(python3 - "${dm}" "${se}" "${nh}" "${LR_SPAN}" <<'PYEOF'
-import sys
-sys.path.insert(0, ".")
-from src.model import ModelConfig
-from src.scaling.flops import n_params
-from src.scaling.configs import lr_for
-d_model, se, n_heads, span = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4])
-cfg = ModelConfig(feature_mode="raw_spectrum", encoder_hidden=128, encoder_out=64,
-                  encoder_dropout=0.1, d_model=d_model, n_layers=8, dropout=0.1,
-                  head_mode="cross_attn", n_heads=n_heads,
-                  slot_encoder_layers=se, decoder_layers=1)
-n = n_params(cfg); prior = lr_for(n)
-print(f"{n} {prior:.2e} {prior / span:.1e} {prior * span:.1e}")
-PYEOF
-)"
-        printf '%5d  %-12s  %12s  %7s  %12s  %11s  %9s\n' "${i}" \
-            "d${dm}/se${se}" "${LIMIT_EXAMPLES}" "${BETA2}" "${np}" \
-            "${lo}-${hi}" "${h}"
-    done
-    printf '\n%s\n' "estimated total: ${total} GPU-h at ${EXAMPLES_PER_SEC} ex/s"
+    python3 scripts/lr_grid_cells.py --stage "${STAGE}" --fit "${FIT}" \
+        --beta2 "${BETA2_WINNER}" --format table --n-lrs "${N_LRS}" \
+        --rate "${EXAMPLES_PER_SEC}"
+    echo
+    echo "batch size ${BATCH_SIZE};  submit with --array=0-$((N_TASKS - 1))"
     exit 0
 fi
 
@@ -214,8 +166,6 @@ if (( TASK >= N_TASKS )); then
     exit 1
 fi
 cell_of "${TASK}"
-D_MODEL="${N_SPEC%%:*}"
-SLOT_ENCODER_LAYERS="${N_SPEC##*:}"
 # Head dim 32, matching the sweep ladder (src/scaling/configs.py:HEAD_DIM).
 N_HEADS=$(( D_MODEL / 32 ))
 (( N_HEADS < 1 )) && N_HEADS=1
