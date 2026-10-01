@@ -72,7 +72,8 @@ def load_cells(results_dir: Path, metric: str) -> List[dict]:
     return out
 
 
-def tune_per_config(cells: List[dict]) -> List[dict]:
+def tune_per_config(cells: List[dict],
+                    batch_size_swept: bool = False) -> List[dict]:
     """Nested minimisation per (model size, dataset size), as they do."""
     groups = {}
     for c in cells:
@@ -80,7 +81,8 @@ def tune_per_config(cells: List[dict]) -> List[dict]:
     rows = []
     for (n, D), group in sorted(groups.items()):
         try:
-            o = nested_hparam_optimum(group, n)
+            o = nested_hparam_optimum(group, n,
+                                     batch_size_swept=batch_size_swept)
         except ValueError as exc:
             print(f"[WARN] N={n:,} D={D}: {exc}")
             continue
@@ -131,6 +133,59 @@ def fit_2d(rows: List[dict]) -> dict:
             "n_points": int(A.shape[0])}
 
 
+def report_coverage(law_coef: float, law_exp: float, window: List[dict],
+                    fit_json: str) -> dict:
+    """Which of the sweep's rungs does the fitted law actually cover?
+
+    A power law fitted over one range and applied outside it is an
+    extrapolation, and the sweep's SMALLEST rungs are both the most sensitive
+    to learning rate and the furthest from where anyone usually tunes. This
+    lists every distinct model size the sweep trains and says whether the law
+    interpolates for it or reaches past the tuned range, and by how far.
+    """
+    try:
+        with open(fit_json) as fh:
+            sweep = json.load(fh)
+    except (OSError, ValueError) as exc:
+        print(f"\n[WARN] could not read {fit_json} for the coverage check: {exc}")
+        return {"status": f"unreadable: {exc}"}
+
+    sizes = sorted({int(r["n_params"]) for r in sweep.get("runs", [])})
+    if not sizes:
+        return {"status": "no runs in the fit artifact"}
+    lo = min(r["n_params"] for r in window)
+    hi = max(r["n_params"] for r in window)
+
+    print(f"\nCoverage against the sweep's ladder "
+          f"({len(sizes)} distinct sizes, tuned range {lo:,} to {hi:,}):")
+    rows, n_extrap = [], 0
+    for n in sizes:
+        if n < lo:
+            where, factor = "below", lo / n
+        elif n > hi:
+            where, factor = "above", n / hi
+        else:
+            where, factor = "covered", 1.0
+        if where != "covered":
+            n_extrap += 1
+        rows.append({"n_params": n, "coverage": where, "factor": factor,
+                     "lr": float(law_coef * n ** law_exp)})
+    for r in rows:
+        mark = ("covered" if r["coverage"] == "covered"
+                else f"{r['coverage']} by {r['factor']:.1f}x")
+        print(f"   N={r['n_params']:>10,}   lr = {r['lr']:.3e}   {mark}")
+    if n_extrap:
+        print(f"\n   {n_extrap} of {len(sizes)} sizes fall outside the tuned "
+              f"range. Add those sizes to STAGE=2's N_LADDER and re-run rather "
+              f"than trusting the extrapolation; the small rungs are where the "
+              f"learning rate matters most.")
+    else:
+        print(f"\n   Every size the sweep trains is inside the tuned range. "
+              f"The law interpolates everywhere and extrapolates nowhere.")
+    return {"status": "ok", "n_sizes": len(sizes), "n_extrapolated": n_extrap,
+            "tuned_min": lo, "tuned_max": hi, "sizes": rows}
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -143,13 +198,23 @@ def main() -> None:
                         "held out so the extrapolation can be checked")
     p.add_argument("--target-params", type=float, default=None,
                    help="extrapolate the fitted law to this model size")
+    p.add_argument("--coverage-from", default=None,
+                   help="a fit_scaling.py artifact. Reports, for every model "
+                        "size the sweep trains, whether the fitted law "
+                        "interpolates or extrapolates to it.")
+    p.add_argument("--batch-size-swept", action="store_true",
+                   help="treat batch size as a tuned axis. Off by default: on "
+                        "INDIGO it is a VRAM decision held fixed at "
+                        "configs.DEFAULT_BATCH_SIZE, so a single value is "
+                        "deliberate rather than an axis that failed to "
+                        "bracket.")
     p.add_argument("--output", default="analyses/scaling/results/lr_law_fit.json")
     a = p.parse_args()
 
     cells = load_cells(Path(a.results_dir), a.metric)
     if not cells:
         sys.exit(f"no usable lr_search JSONs under {a.results_dir}")
-    rows = tune_per_config(cells)
+    rows = tune_per_config(cells, batch_size_swept=a.batch_size_swept)
     if not rows:
         sys.exit("no configuration produced a tuned optimum")
 
@@ -196,7 +261,15 @@ def main() -> None:
                          "n_in_window": len(window)}}
 
     if len(window) >= 2:
-        for key, name in (("lr_star", "lr"), ("bs_star", "bs")):
+        keys = [("lr_star", "lr")] + ([("bs_star", "bs")] if a.batch_size_swept
+                                      else [])
+        if not a.batch_size_swept:
+            held = sorted({r["bs_star"] for r in window})
+            print(f"\nBatch size held fixed at {', '.join(f'{b:g}' for b in held)}"
+                  f" (VRAM decision, not tuned). No bs(N) law is fitted.")
+            result["bs_vs_n"] = {"status": "held fixed by design",
+                                 "values": [float(b) for b in held]}
+        for key, name in keys:
             if len({r[key] for r in window}) < 2:
                 print(f"\n[WARN] {name} is constant across the window; no law fitted")
                 result[f"{name}_vs_n"] = {"status": "constant across the window"}
@@ -218,6 +291,9 @@ def main() -> None:
                 print(f"   extrapolated to N = {a.target_params:,.0f}: "
                       f"{law(a.target_params):.4g}")
                 result.setdefault("extrapolated", {})[name] = float(law(a.target_params))
+            if name == "lr" and a.coverage_from:
+                result["coverage"] = report_coverage(
+                    law.coef, law.exponent, window, a.coverage_from)
     else:
         print(f"\n[WARN] only {len(window)} bracketed configs in the window; "
               f"no laws fitted")

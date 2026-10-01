@@ -69,6 +69,11 @@ def main() -> None:
     p.add_argument("--x-axis", choices=["flops", "credits"], default="flops")
     p.add_argument("--su-per-gpu-hour", type=float, default=None)
     p.add_argument("--bootstrap-iters", type=int, default=P.BOOTSTRAP_ITERS)
+    p.add_argument("--x-pad-left", type=float, default=2.2,
+                   help="extra room to the left of the smallest model in "
+                        "panel A, as a factor on N. The lowest budget's left "
+                        "branch is otherwise flush against the axis.")
+    p.add_argument("--x-pad-right", type=float, default=1.25)
     p.add_argument("--output", default=None)
     a = p.parse_args()
 
@@ -91,6 +96,16 @@ def main() -> None:
     good = [r for r in rungs if r.usable]
     if len(good) < 2:
         sys.exit(f"only {len(good)} usable rungs for metric {a.metric}")
+
+    # A rung with no models below its N* has no descending branch to show, and
+    # its minimum rests on the interpolation rather than on data either side.
+    thin = [(r.budget, int(np.sum(r.n_vals < r.n_star_median))) for r in good]
+    for budget, n_left in thin:
+        if n_left < 2:
+            print(f"[WARN] C = {budget:.3g} has only {n_left} model(s) below "
+                  f"N*, so its left branch is barely sampled. Two more "
+                  f"configs below N* at that budget are the cheapest runs in "
+                  f"the study.")
 
     credits = (CreditModel(su_per_gpu_hour=a.su_per_gpu_hour)
                if a.su_per_gpu_hour else CreditModel())
@@ -161,6 +176,13 @@ def main() -> None:
             ax.plot([r.n_star], [r.y_star], "x", color=col, markersize=9,
                     markeredgewidth=2, zorder=4)
     ax.set_xscale("log")
+    # Breathing room on the left. The lowest budget's descending branch runs
+    # right into the spine otherwise, because only one model was sampled below
+    # its N*. Padding makes the shape readable; it does not add data, and the
+    # real fix is sampling two smaller configs at that budget.
+    n_lo = min(r.n_vals.min() for r in rungs)
+    n_hi = max(r.n_vals.max() for r in rungs)
+    ax.set_xlim(n_lo / a.x_pad_left, n_hi * a.x_pad_right)
     ax.set_xlabel("N (parameters)", color=INK2, fontsize=9.5)
     ax.set_ylabel(f"val {label}", color=INK2, fontsize=9.5)
     ax.set_title("A.  IsoFLOP curves, Akima interpolated", color=INK,

@@ -452,8 +452,8 @@ class HParamOptimum:
 
 def nested_hparam_optimum(cells: Sequence[Dict[str, float]], n_params: int,
                           value_key: str = "value",
-                          interp_multiplier: int = INTERP_MULTIPLIER
-                          ) -> HParamOptimum:
+                          interp_multiplier: int = INTERP_MULTIPLIER,
+                          batch_size_swept: bool = True) -> HParamOptimum:
     """Their `get_interpolated_hparams_dfs`, for one model size.
 
     `cells` are the sweep's (lr, batch_size, beta2, value) records. The
@@ -470,6 +470,13 @@ def nested_hparam_optimum(cells: Sequence[Dict[str, float]], n_params: int,
 
     Both stages carry their `on_edge` flag, and `usable` requires both to have
     bracketed.
+
+    `batch_size_swept=False` says the batch size is a deliberate constant, not
+    an axis that failed to bracket. On INDIGO it is a VRAM decision rather than
+    a tuning one: the largest batch the card holds maximises throughput, and
+    these models are input-bound. The nesting then collapses to beta2 and the
+    learning rate, and `bs_on_edge` stays False so a one-value axis does not
+    reject every configuration.
     """
     by_bs: Dict[float, List[Dict[str, float]]] = collections_defaultdict(list)
     for c in cells:
@@ -503,8 +510,15 @@ def nested_hparam_optimum(cells: Sequence[Dict[str, float]], n_params: int,
     if not bs_list:
         raise ValueError(f"N={n_params}: no batch size had two learning rates")
 
+    if not batch_size_swept or len(bs_list) == 1:
+        # Batch size is held fixed on purpose. Take the single cell's optimum
+        # and do not call its axis unbracketed.
+        j = int(np.argmin(val_at_bs))
+        return HParamOptimum(n_params, lr_at_bs[j], bs_list[j], beta_at_bs[j],
+                             val_at_bs[j], edge_at_bs[j], False, len(cells))
+
     if len(bs_list) < 3:
-        # One or two batch sizes cannot bracket; report the better and say so.
+        # Two batch sizes cannot bracket a minimum between them.
         j = int(np.argmin(val_at_bs))
         return HParamOptimum(n_params, lr_at_bs[j], bs_list[j], beta_at_bs[j],
                              val_at_bs[j], edge_at_bs[j], True, len(cells))

@@ -184,7 +184,21 @@ MEASURED_LR: List[Tuple[int, float]] = [
 #   (b) Worse, N was confounded with SHAPE. See ASPECT_* below.
 DEFAULT_SPAN = 10.0
 DEFAULT_POINTS = 6
-DEFAULT_BATCH_SIZE = 256
+# Batch size is NOT a tuned axis on INDIGO. It is a VRAM decision: the largest
+# batch the card holds, because these models are input-bound rather than
+# GPU-bound (see slurms/scaling_sweep.sh on measured throughput), so a bigger
+# batch buys throughput and nothing else is traded away. Porian et al. tune it
+# because their optimum moves; ours is pinned by hardware.
+#
+# It must be the SAME value in the sweep and in the learning-rate grid, since
+# the optimal LR depends on it. slurms/lr_grid.sh reads this constant rather
+# than carrying its own default, so the two cannot drift apart.
+#
+# CAUTION: the completed 48-run sweep ran at 256, which is what this constant
+# has always been. If production now runs 512, raising this re-tunes and
+# re-runs against a different batch size, and the existing runs are NOT
+# comparable to the new ones. Change it deliberately, with a fresh OUT_ROOT.
+DEFAULT_BATCH_SIZE = int(os.environ.get("SWEEP_BATCH_SIZE", 256))
 
 # Aspect ratio (d_model / slot_encoder_layers), and the reason v1 failed.
 #
@@ -296,14 +310,12 @@ def tuned_lr_for(n: float, d: Optional[float] = None) -> Optional[float]:
 
 
 def batch_size_for(n: float, default: int = DEFAULT_BATCH_SIZE) -> int:
-    """Tuned batch size, snapped to a power of two. Falls back to the fixed
-    DEFAULT_BATCH_SIZE, which is what every INDIGO run has used so far."""
-    laws = tuned_laws()
-    if not laws or "bs_vs_n" not in laws:
-        return default
-    a, b = laws["bs_vs_n"]
-    raw = a * n ** b
-    return int(2 ** round(math.log2(max(raw, 1.0))))
+    """Batch size for a config. Constant by design; see DEFAULT_BATCH_SIZE.
+
+    Kept as a function so the call sites read the same either way, and so a
+    future decision to tune it has one place to change.
+    """
+    return default
 
 
 def beta2_for(n: float, default: float = 0.999) -> float:

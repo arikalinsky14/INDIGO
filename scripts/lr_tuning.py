@@ -421,6 +421,19 @@ def plot_lr_search(results: List[LRSearchResult], output_path: Path, epochs: int
     print(f"[INFO] Plot saved to {output_path}")
 
 
+def resolve_output_dir(output_dir: Optional[str], head_mode: str) -> Path:
+    """Where this run's results land. Shared by the pre-flight existence check
+    and the writer, so the two cannot disagree about which file to look for."""
+    if output_dir:
+        return Path(output_dir)
+    # Partition by head_mode so MLP and cross_attn runs do not share files:
+    # the fitters read one head's results at a time.
+    try:
+        return find_repo_root() / "outputs" / "lr_search" / head_mode
+    except Exception:
+        return Path("./outputs/lr_search") / head_mode
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Find optimal LR for INDIGO")
     parser.add_argument("--data-dir", type=str, required=True)
@@ -439,6 +452,12 @@ def main() -> None:
                         help="Stream dataset shard-by-shard (recommended at "
                              "production scale; the legacy mode OOMs).")
 
+    parser.add_argument("--skip-existing", action="store_true",
+                        help="exit successfully if this cell's results file "
+                             "already exists. Makes re-submitting an array "
+                             "safe.")
+    parser.add_argument("--force", action="store_true",
+                        help="overwrite an existing results file for this cell")
     parser.add_argument("--beta1", type=float, default=0.9,
                         help="AdamW beta1")
     parser.add_argument("--beta2", type=float, default=0.999,
@@ -515,6 +534,31 @@ def main() -> None:
                              "Pass --no-verbose to silence.")
 
     args = parser.parse_args()
+
+    # Check for an existing result BEFORE loading data or touching the GPU.
+    # The grid is submitted as a SLURM array and arrays get resubmitted, so
+    # the point of --skip-existing is to spend nothing on a cell that is
+    # already done. Globbing the example count rather than pinning it keeps
+    # this honest when shard alignment nudges n_train off --limit-examples.
+    _out_dir = resolve_output_dir(args.output_dir, args.head_mode)
+    _pattern = (f"lr_search_ep{args.epochs}_lim*"
+                f"_d{args.d_model}_se{args.slot_encoder_layers}"
+                f"_bs{args.batch_size}_b2{args.beta2:g}.json")
+    _existing = sorted(_out_dir.glob(_pattern))
+    if _existing:
+        if args.skip_existing:
+            print(f"[INFO] {_existing[0].name} already exists and "
+                  f"--skip-existing was passed. Nothing to do.")
+            return
+        if not args.force:
+            raise SystemExit(
+                f"[ERROR] this cell has already been run:\n"
+                f"          {_existing[0]}\n"
+                f"        Pass --skip-existing to leave it alone (safe when "
+                f"re-submitting an array), or --force to overwrite it. "
+                f"Refusing to silently replace a finished sweep.")
+        print(f"[WARN] overwriting {_existing[0]} because --force was passed")
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Device: {device}")
 
@@ -634,16 +678,7 @@ def main() -> None:
               f"-- CE/DeltaE disagree on this sweep.")
     print("=" * 70)
 
-    if args.output_dir:
-        output_dir = Path(args.output_dir)
-    else:
-        # Partition by head_mode so MLP and cross_attn runs don't share files —
-        # fit_lr_scaling.py reads one head's results at a time.
-        try:
-            repo_root = find_repo_root()
-            output_dir = repo_root / "outputs" / "lr_search" / args.head_mode
-        except Exception:
-            output_dir = Path("./outputs/lr_search") / args.head_mode
+    output_dir = resolve_output_dir(args.output_dir, args.head_mode)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Tag output filenames with the train-subset size so multi-N runs
@@ -657,6 +692,20 @@ def main() -> None:
            f"_d{args.d_model}_se{args.slot_encoder_layers}"
            f"_bs{args.batch_size}_b2{args.beta2:g}")
     results_file = output_dir / f"lr_search_{tag}.json"
+    # Never silently replace a finished sweep. The grid is submitted as an
+    # array and arrays get resubmitted, so a clobber here would quietly
+    # destroy GPU-hours of someone else's cell. --force to overwrite,
+    # --skip-existing to make a resubmission a no-op.
+    if results_file.exists():
+        if args.skip_existing:
+            print(f"[INFO] {results_file} exists; --skip-existing, nothing to do")
+            return
+        if not args.force:
+            raise SystemExit(
+                f"[ERROR] {results_file} already exists.\n"
+                f"        Pass --skip-existing to leave it alone (safe for "
+                f"re-running an array), or --force to overwrite it.")
+        print(f"[WARN] overwriting {results_file} because --force was passed")
     with open(results_file, "w") as f:
         json.dump({
             "epochs": args.epochs,

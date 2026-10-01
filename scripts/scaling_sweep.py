@@ -169,6 +169,10 @@ def main() -> None:
     p.add_argument("--emit-config", type=int, default=None)
     p.add_argument("--local", action="store_true")
     p.add_argument("--dispatch", action="store_true")
+    p.add_argument("--allow-existing-out-root", action="store_true",
+                   help="dispatch even though --out-root already holds "
+                        "run directories for these configs. Only for "
+                        "deliberately topping up a sweep.")
     args = p.parse_args()
 
     cap = (args.max_wall_hours * 3600 * WALL_MARGIN
@@ -226,6 +230,24 @@ def main() -> None:
     print(f"\n{len(cmds)} configs:\n")
     for c in cmds:
         print("  " + " ".join(c))
+    # A re-run with different hyperparameters writes to the SAME save_dir,
+    # because the directory name is derived from (budget, d_model, layers,
+    # seed) and carries no trace of the learning rate, batch size or beta2.
+    # Dispatching into an OUT_ROOT that already holds runs would overwrite
+    # finished ones with runs that are not comparable to them.
+    existing = [c for c in grid
+                if Path(f"{args.out_root}/{c.name}_s{args.seed}").exists()]
+    if existing and args.dispatch and not args.allow_existing_out_root:
+        raise SystemExit(
+            f"\n[ERROR] {len(existing)} of {len(grid)} configs already have a "
+            f"directory under {args.out_root}, for example\n"
+            f"          {args.out_root}/{existing[0].name}_s{args.seed}\n"
+            f"        A save directory is named for (budget, size, seed) only, "
+            f"so re-running with tuned hyperparameters would overwrite the old "
+            f"runs with ones that are NOT comparable to them.\n"
+            f"        Use a fresh --out-root for the re-tuned sweep, or pass "
+            f"--allow-existing-out-root if you really mean to add to this one.")
+
     if args.dispatch:
         print(f"\nDispatching {len(cmds)}...")
         for c in cmds:

@@ -162,35 +162,38 @@ floor of zero as though it were measured. Pinning the floor needs more budgets
 
 ## Differences that remain open
 
-### A. Batch size  **(now implemented, awaiting the run)**
+### A. Batch size  **(deliberately not adopted)**
 
-They sweep 5 to 7 batch sizes per model size, spanning 64x, and minimise over
-that axis before fitting. INDIGO fixed `batch_size = 256` everywhere and never
-looked, so a moving optimum was a scale-dependent handicap of unknown sign.
+They sweep 5 to 7 batch sizes per model size and minimise over that axis. We do
+not, and will not: on INDIGO batch size is a VRAM decision rather than a tuning
+one. These models are input-bound rather than GPU-bound, so the largest batch
+the card holds maximises throughput and nothing is traded away. Their optimum
+moves with scale because theirs is a real tuning axis; ours is pinned by
+hardware.
 
-`nested_hparam_optimum` now does their nested minimisation: beta2 collapses
-first, then the learning rate within each batch size, then the batch size
-across them, carrying the inner optimum out by interpolation rather than
-re-reading a grid cell. `scripts/fit_lr_law.py` fits `bs(N)` alongside `lr(N)`,
-and `batch_size_for()` in `src/scaling/configs.py` supplies it to the sweep.
+What matters instead is that ONE value is used everywhere, since the optimal
+learning rate depends on it. `src/scaling/configs.py:DEFAULT_BATCH_SIZE` is the
+single source of truth and `slurms/lr_grid.sh` reads it rather than carrying
+its own default, so a law tuned at one batch size can never be applied at
+another.
 
-Critically, D is held fixed **in examples** while batch size varies, so steps
-adjust and every cell sees the same data. That matches their design: within a
-model size their token budget is constant to within 1% across all 64 to 112
-cells. Varying batch size at fixed *steps* instead would change D and confound
-the two axes.
+**Open question for the sweep itself.** All 48 runs used **256**. If production
+runs 512, the sweep is not matched to production, and raising the constant
+means re-tuning and re-running: existing runs would not be comparable to new
+ones. `SWEEP_BATCH_SIZE` overrides it, and the sweep refuses to dispatch into
+an output root that already holds runs.
 
-### B. AdamW beta2  **(now implemented, awaiting the run)**
+### B. AdamW beta2  **(adopted; awaiting the run)**
 
 They sweep {0.95, 0.99, 0.999} and report that tuning beta2 is **essential at
 lower batch sizes**. INDIGO ran torch's default of 0.999, the top of that
-range, at batch 256, which is the small end of their grid: exactly the regime
-they flag.
+range, at a batch size that sits at the small end of their grid: exactly the
+regime they flag.
 
 Neither `lr_tuning.py` nor `training.py` exposed the betas at all. Both do now,
-the grid sweeps beta2 as its own axis, and `beta2_for()` supplies the tuned
-value. Stage 1 of `slurms/lr_grid.sh` exists to answer whether it moves: if it
-is flat, stages 2 and 3 drop to one value and get three times cheaper.
+beta2 is a swept axis, and `beta2_for()` supplies the tuned value to the sweep.
+Stage 1 of `slurms/lr_grid.sh` runs it at the smallest and largest rungs, which
+answers both whether it matters and whether its optimum moves with scale.
 
 ### C. Constant LR versus cosine decay
 
@@ -215,19 +218,38 @@ over the one-dimensional one wherever the dataset size is known.
 Adding rungs *below* 1e14 is cheap and would serve both this and the
 saturating-floor fit in item 8.
 
-### F. Aspect ratio policy
+### F. Coverage of the small rungs  **(we now do better than they do)**
+
+They fit the learning-rate law over a window of model sizes and extrapolate
+ABOVE it. That is reasonable when the configurations you care about are the
+large ones. INDIGO's ladder runs the other way: the smallest rungs, at 0.08M
+parameters, are both the furthest from where anyone normally tunes and the most
+sensitive to learning rate, and they anchor the low-compute end of every
+IsoFLOP fit.
+
+So stage 2's ladder SPANS the sweep's own range, 0.08M to 17.8M, rather than
+sitting inside it, and `scripts/fit_lr_law.py --coverage-from` lists every
+distinct model size the sweep trains and says whether the fitted law
+interpolates or reaches past the tuned range, and by how far. The target is
+zero extrapolated sizes.
+
+The learning-rate grid is also centred per cell on the prior rather than being
+one fixed window, because small models want much higher learning rates than
+large ones and a single window wide enough for both resolves neither.
+
+### G. Aspect ratio policy
 
 Theirs drifts 32 to 50 monotonically with width, a 1.6x spread. Ours is a band
 of 28 to 72, a 2.6x spread, not monotone. Tighter than sweep v1's disaster, but
 looser than theirs, and the residual variation is still a confound with N.
 
-### G. Checkpoint selection
+### H. Checkpoint selection
 
 They checkpoint at pre-specified FLOP values and evaluate there. We take the
 final checkpoint of each run. Ours is the stricter reading of an IsoFLOP point
 and should stay, but it is a difference.
 
-### H. Metric
+### I. Metric
 
 They fit validation cross-entropy. We fit ΔE00 median, deliberately, because
 CE and ΔE are decoupled on INDIGO. This is correct for us, but it means our
