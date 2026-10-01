@@ -287,13 +287,29 @@ pooled alpha is +0.923 in parameters, +0.983 in effective parameters
 headline, since it is a model size and the effective one is not, and always say
 which is being quoted.
 
-**Whether wall clock tracks either of them is a separate question**, and the one
-that decides if a cost-optimal frontier exists apart from the compute-optimal
-one. `estimate_wall_sec` has no model-size term at all; forward cost per example
-spans 164x across the ladder while sweep v1 measured a 12x throughput spread,
-so the assumption is plausible but untested. `scripts/fit_wall_model.py` fits
-`elapsed = startup + D/rate + c * F(N) * D` against finished runs and says which
-term earns its place.
+**Whether wall clock tracks either of them is a separate question**, and it is
+now measured. `scripts/fit_wall_model.py` fits seconds per example against
+forward cost per example over 90 checkpoint intervals from the finished sweep:
+
+| | |
+|---|---|
+| forward cost per example, spanned | 34x |
+| throughput, spanned | 1.9x |
+| correlation of log(s/example) with log(F) | r = +0.59 |
+| fitted size coefficient | 5.7e-13 s/FLOP, **p = 0.33** |
+
+The size term does not survive a permutation test, throughput is not monotone
+in model size (2451 ex/s at F = 4.9e7 against 1469 at F = 9.5e7 and 2051 at
+F = 1.2e8), and repeats of one size scatter as much as the sizes differ. These
+models are input-bound, as `estimate_wall_sec` assumes: **wall clock tracks
+examples, service units track examples, and the credit axis is a restatement of
+D.** A cost-optimal frontier separate from the compute-optimal one does not
+exist here; the cost-optimal choice is simply the largest N the wall cap allows
+at the D you want.
+
+One actionable side finding: measured throughput is about 2171 ex/s against the
+1301 the planner assumes, so the ladder is sized conservatively by roughly 1.7x
+and configs finish early.
 
 **The chroma stratification is ours.** Nothing in their method fits separate
 laws per difficulty stratum, and it is where INDIGO's most interpretable result
