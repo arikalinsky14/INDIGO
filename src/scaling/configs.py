@@ -52,23 +52,26 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-# ModelConfig is imported LAZILY, inside the four helpers that build one.
-#
-# src/model.py imports torch at module scope, and importing it here made this
-# module, and every analysis that reads the compute axis, require torch. That
-# is what broke scripts/fit_wall_model.py on a login node: a two-parameter
-# least squares over some JSON files died with ModuleNotFoundError before doing
-# any work. tests/test_flops_imports_without_torch.py locks this down.
-def _model_config(**kw):
-    from src.model import ModelConfig
-    return ModelConfig(**kw)
 
 from src.scaling.flops import (
+    ArchSpec,
     n_params,
     train_flops_per_example,
     tokens_per_example,
     DEFAULT_MEAN_LAYERS,
 )
+
+# Model shapes are described with flops.ArchSpec, not src.model.ModelConfig.
+#
+# ModelConfig lives in a module that imports torch, so building one to count
+# parameters pulled the whole training stack into analyses that only read JSON.
+# Making the IMPORT lazy was not enough: achievable_sizes() builds a config on
+# every call, so `lr_grid_cells.py --list` still died on a login node with
+# ModuleNotFoundError. ArchSpec carries exactly the fields flops.py reads and
+# copies ModelConfig's defaults; tests/test_archspec_matches_modelconfig.py
+# fails if the two ever drift, since a silent mismatch would move every
+# parameter count in the ladder.
+_model_config = ArchSpec
 
 # ---------------------------------------------------------------------------
 # Measured constants. Every one of these came off a real run; none is guessed.

@@ -31,7 +31,24 @@ import src.scaling.flops            # noqa: F401
 import src.scaling.configs          # noqa: F401
 import src.scaling.porian           # noqa: F401
 
-# And the thing this exists for: the wall-model analysis end to end.
+# Importing is not enough. achievable_sizes() builds a model shape on every
+# call, and when that was a ModelConfig it needed torch at CALL time even
+# though the import had been made lazy, so `lr_grid_cells.py --list` still died
+# on a login node. Exercise the functions the analysis actually calls.
+from src.scaling.configs import achievable_sizes, build_grid, lr_for
+sizes = achievable_sizes()
+assert len(sizes) > 100 and sizes[0][0] == 80965, sizes[:2]
+grid = build_grid([1e14])
+assert grid and grid[0].n_params > 0 and grid[0].lr > 0
+
+import subprocess
+for stage in (1, 2, 3):
+    r = subprocess.run([sys.executable, "scripts/lr_grid_cells.py",
+                        "--stage", str(stage)], capture_output=True, text=True)
+    assert r.returncode == 0, f"stage {stage}: {r.stderr}"
+    assert r.stdout.strip(), f"stage {stage} emitted no cells"
+
+# And the wall-model analysis end to end.
 import importlib.util
 spec = importlib.util.spec_from_file_location("fwm", "scripts/fit_wall_model.py")
 mod = importlib.util.module_from_spec(spec)

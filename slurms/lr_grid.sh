@@ -111,10 +111,36 @@ set -euo pipefail
 # averaged in. Widen LR_SPAN for those cells and re-run them.
 # ============================================================================
 
+# Environment FIRST. Everything below shells out to python, and the cell list
+# in particular is computed before any task runs. With the activation further
+# down, both the batch-size lookup and the cell enumeration ran against the
+# system python: the lookup silently fell back to its default and the cell list
+# came back empty, so every array task exited with "no cells". The run
+# directory also has to be set before any relative path is used.
+# Under sbatch this is the submit directory; run by hand it is wherever you
+# already are, so --list works from a checkout without guessing a path.
+if [[ -n "${SLURM_SUBMIT_DIR:-}" ]]; then
+    cd "${SLURM_SUBMIT_DIR}"
+elif [[ ! -f scripts/lr_grid_cells.py && -d "$HOME/Github/INDIGO" ]]; then
+    cd "$HOME/Github/INDIGO"
+fi
+if [[ ! -f scripts/lr_grid_cells.py ]]; then
+    echo "run this from the INDIGO checkout (no scripts/lr_grid_cells.py here)" >&2
+    exit 1
+fi
+module purge 2>/dev/null || true
+source "${CONDA_PREFIX:-$HOME/miniconda3}/etc/profile.d/conda.sh" 2>/dev/null || true
+conda activate "${CONDA_ENV:-indigo}" 2>/dev/null || true
+mkdir -p job-outputs
+
 # Batch size comes from the sweep planner, never from a default here.
-BATCH_SIZE="${BATCH_SIZE:-$(python3 -c 'import sys; sys.path.insert(0,".");
-from src.scaling.configs import DEFAULT_BATCH_SIZE; print(DEFAULT_BATCH_SIZE)' \
-    2>/dev/null || echo 256)}"
+if [[ -z "${BATCH_SIZE:-}" ]]; then
+    BATCH_SIZE="$(python3 -c 'import sys; sys.path.insert(0,".");
+from src.scaling.configs import DEFAULT_BATCH_SIZE; print(DEFAULT_BATCH_SIZE)')" \
+        || { echo "could not read DEFAULT_BATCH_SIZE. Is the environment "\
+                  "active? Set CONDA_ENV, or pass BATCH_SIZE explicitly." >&2
+             exit 1; }
+fi
 
 STAGE="${STAGE:-1}"
 FIT="${FIT:-analyses/scaling/results/porian_fit.json}"
@@ -144,7 +170,13 @@ fi
 mapfile -t CELL_LINES < <(python3 scripts/lr_grid_cells.py \
     --stage "${STAGE}" --fit "${FIT}" --beta2 "${BETA2_WINNER}")
 N_TASKS=${#CELL_LINES[@]}
-(( N_TASKS )) || { echo "no cells for STAGE=${STAGE}" >&2; exit 1; }
+if (( ! N_TASKS )); then
+    echo "no cells for STAGE=${STAGE}." >&2
+    echo "  scripts/lr_grid_cells.py produced nothing. Run it directly to see" >&2
+    echo "  why; the usual cause is the environment not being active, or" >&2
+    echo "  FIT=${FIT} missing." >&2
+    exit 1
+fi
 
 cell_of() {   # $1 = task index -> sets D_MODEL, SLOT_ENCODER_LAYERS, LIMIT_EXAMPLES, BETA2
     read -r D_MODEL SLOT_ENCODER_LAYERS LIMIT_EXAMPLES BETA2 \
@@ -206,11 +238,7 @@ echo "   LR schedule         ${LR_SCHEDULE}"
 [[ -n "${EVAL_FRACTIONS}" ]] && echo "   mid-run evals at    ${EVAL_FRACTIONS} of the run"
 echo "=================================================================="
 
-module purge 2>/dev/null || true
-source "${CONDA_PREFIX:-$HOME/miniconda3}/etc/profile.d/conda.sh" 2>/dev/null || true
-conda activate "${CONDA_ENV:-indigo}" 2>/dev/null || true
-cd "${SLURM_SUBMIT_DIR:-$HOME/Github/INDIGO}"
-mkdir -p job-outputs "${OUTPUT_DIR}"
+mkdir -p "${OUTPUT_DIR}"
 
 # --skip-existing unless FORCE=1: a resubmitted array must never clobber a
 # finished cell.

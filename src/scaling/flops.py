@@ -105,6 +105,7 @@ from src.materials_vocab import (
     M_MAX,
     MAX_LAYERS,
     NUM_THICKNESSES,
+    VOCAB_SIZE,
 )
 
 # Decoder sequence length: start token + one slot per depositable layer.
@@ -152,6 +153,34 @@ class Counts:
 # ============================================================================
 # Architecture resolution
 # ============================================================================
+
+
+@dataclass
+class ArchSpec:
+    """The fields this module reads off a model config, and nothing else.
+
+    `src.model.ModelConfig` carries the same values but lives in a module that
+    imports torch, so building one to count parameters drags the whole training
+    stack into analyses that only read JSON. This stands in for it.
+
+    Defaults are COPIED from ModelConfig and must stay in step with it:
+    `tests/test_archspec_matches_modelconfig.py` fails if they drift, because a
+    silent mismatch would change every parameter count in the ladder and move
+    the sweep's targets without anything looking wrong.
+    """
+    feature_mode: str = "raw_spectrum"
+    encoder_hidden: int = 128
+    encoder_out: int = 64
+    encoder_dropout: float = 0.1
+    d_model: int = 1024
+    n_layers: int = 8
+    dropout: float = 0.1
+    head_mode: str = "mlp"
+    n_heads: int = 8
+    slot_encoder_layers: int = 0
+    decoder_layers: int = 1
+    batch_size: int = 64
+    vocab_size: int = VOCAB_SIZE
 
 
 def slot_encoder_depth(config) -> int:
