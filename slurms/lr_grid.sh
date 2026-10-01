@@ -86,9 +86,9 @@ set -euo pipefail
 #            roughly doubles the cost:
 #
 #              rungs  cells   GPU-h @2171   GPU-h @204   cond   sd(b)  sd(c)  extrap
-#                  2     12          22.1        235.0    630   0.100  0.054   13/24
-#                  3     18          42.8        455.9    401   0.050  0.031    9/24
-#                  4     24          85.2        907.1    303   0.032  0.021    5/24
+#                  2     12          31.3        245.3    630   0.100  0.054   13/24
+#                  3     18          56.7        471.3    401   0.050  0.031    9/24
+#                  4     24          103.7        927.6    303   0.032  0.021    5/24
 #
 #            sd(b) and sd(c) are the spreads of the recovered N and M
 #            exponents over 2000 synthetic draws at 0.10 of noise in log-lr
@@ -98,14 +98,14 @@ set -euo pipefail
 #            argument: an extrapolated size is a size whose learning rate is
 #            a guess. At 2171 ex/s it tightens the N exponent 1.6x and halves
 #            the extrapolated sizes for twice the compute, which is a real
-#            judgement call; at 204 ex/s three curves already costs 456
+#            judgement call; at 204 ex/s three curves already costs 471
 #            GPU-hours and four is out of reach, so the answer is three or
 #            nothing. Carry it into stage 2 as RUNGS=.
 #
 #            Run it ALONE: --array=0-0 and nothing else of yours queued, or
 #            it measures contention rather than throughput.
 #
-#   STAGE=1  beta2 at both ends of the sweep's ladder.  6 cells, ~11 GPU-h
+#   STAGE=1  beta2 at both ends of the sweep's ladder.  6 cells, ~15 GPU-h
 #            Does beta2 matter, and does its optimum move with scale? Their
 #            data says it tracks BATCH SIZE, which we hold fixed, so one value
 #            should serve; this checks that on our model.
@@ -114,7 +114,9 @@ set -euo pipefail
 #            rate interact, so comparing beta2 at one fixed rate can pick
 #            whichever beta2 suits that rate; three is enough to see whether
 #            the beta2 RANKING is stable across them. Locating the optimum
-#            itself is stage 2's job.
+#            itself is stage 2's job. The three sit at prior/4, prior and
+#            prior*4 (LR_SPAN=4 for this stage, not the default 30), so none
+#            is so far off that it only measures divergence.
 #
 #            At each rung's own D*, not the historical 614,400. The first
 #            attempt used that smaller budget and nothing learned: accuracy sat
@@ -123,7 +125,7 @@ set -euo pipefail
 #            another. The sweep's own run at that model size needed D = 4.2M
 #            to reach DeltaE 12.4.
 #
-#   STAGE=2  EVERY model on the lowest RUNGS curves.  18 cells, ~43 GPU-h
+#   STAGE=2  EVERY model on the lowest RUNGS curves.  18 cells, ~57 GPU-h
 #            (RUNGS=3 by default; the probe decides 3 vs 4, see above)
 #            The LR search runs INSIDE the IsoFLOP test. Not one point per
 #            rung: the whole curve, because the curve is what the parabola is
@@ -145,13 +147,14 @@ set -euo pipefail
 #            21.1 while parameters vary 42x), so a law in N alone is right for
 #            them. Ours cannot be, since D*/N* runs 29.3 to 0.86.
 #
-#   STAGE=3  the extrapolation check.                   1 cell,  ~5 GPU-h
+#   STAGE=3  the extrapolation check.                   1 cell,  ~6 GPU-h
 #            The upper rungs get the fitted law rather than a measurement.
 #            Tune the compute-optimal point of the highest usable rung and
 #            compare predicted against measured. If the ratio is far from 1,
 #            the law does not reach and more rungs need tuning directly.
 #
-# About 60 GPU-h in total, against the 566 runs behind their laws.
+# About 78 GPU-h in total at 2171 ex/s, startup and evals included, against
+# the 566 runs behind their laws.
 #
 # ---------------------------------------------------------------------------
 # Usage
@@ -227,9 +230,18 @@ STAGE="${STAGE:-1}"
 # The probe runs ONE learning rate; every other stage runs the full grid.
 # Grid width is per stage: the probe times one run, stage 1 ranks beta2 across
 # a small spread of learning rates, stage 2 locates the optimum.
+#
+# Stage 1's span is narrow on purpose. The grid is logspace(prior/SPAN,
+# prior*SPAN), so at the default SPAN of 30 three points land at prior/30,
+# prior and prior*30, a 900x spread. Two of the three would then sit far from
+# the optimum, where beta2 mostly decides whether a run diverges rather than
+# how well it trains, and the "ranking" would measure stability at absurd
+# learning rates. At 4 the outer points are a factor of 4 either side of the
+# prior: wide enough to see whether the ranking holds, close enough that every
+# point is a plausible operating rate.
 case "${STAGE}" in
   probe) N_LRS=1 ;;
-  1)     N_LRS="${N_LRS:-3}" ;;
+  1)     N_LRS="${N_LRS:-3}"; LR_SPAN="${LR_SPAN:-4}" ;;
 esac
 FIT="${FIT:-analyses/scaling/results/porian_fit.json}"
 BETA2_WINNER="${BETA2_WINNER:-0.99}"
@@ -288,6 +300,8 @@ if [[ "${1:-}" == "--list" ]]; then
     python3 scripts/lr_grid_cells.py --stage "${STAGE}" --fit "${FIT}" \
         --beta2 "${BETA2_WINNER}" --rungs "${RUNGS}" --format table \
         --n-lrs "${N_LRS}" --rate "${EXAMPLES_PER_SEC}" \
+        --val-examples "${LIMIT_VAL_EXAMPLES:-10000}" \
+        --de-examples "${LIMIT_DE_EXAMPLES:-2048}" \
         --wall-hours "${WALL_HOURS:-6}"
     echo
     echo "batch size ${BATCH_SIZE};  submit with --array=0-$((N_TASKS - 1))"

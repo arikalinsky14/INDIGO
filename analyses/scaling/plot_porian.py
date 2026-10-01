@@ -278,7 +278,8 @@ def main() -> None:
            rf"$\sigma$ = {noise.sigma_lo:.3f} from repeat seeds), "
            f"1/$\\sigma^2$-weighted fit.")
     if use_credits and credits.caveat:
-        sub += f"  SU rates are placeholders: {credits.su_per_gpu_hour:g}/GPU-hour."
+        sub += (f"  {credits.su_per_gpu_hour:g} SU/GPU-hour (published l40s weight; "
+                "core weight unconfirmed).")
     if span_warning:
         sub += f"  CAUTION: {span_warning}."
         for ax in (axes[1], axes[2]):

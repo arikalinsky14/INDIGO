@@ -374,8 +374,8 @@ tuning budget has to be large enough that DeltaE responds to the learning rate
 at all, which is why stage 2 tunes at each rung's own D* (3.4M to 6.1M
 examples) rather than at the historical 614,400.
 
-The two problems compound: stage 2 as now designed costs 42.8 GPU-hours at the
-sweep's 2171 ex/s and 455.9 at the measured 204. Resolve the throughput first.
+The two problems compound: stage 2 as now designed costs 56.7 GPU-hours at the
+sweep's 2171 ex/s and 471.3 at the measured 204. Resolve the throughput first.
 The sweep reached 2171 ex/s on the same data, so 204 is contention rather than
 a floor, and a single unthrottled cell is the measurement that settles it. That
 same number also decides whether three or four IsoFLOP curves get tuned, the

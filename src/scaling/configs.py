@@ -98,6 +98,13 @@ _model_config = ArchSpec
 # over the wall. At p10 the worst v1 run would have come in at 1.08x its
 # prediction instead of 2.05x.
 EXAMPLES_PER_SEC = 1301.0
+# The rate the finished sweep actually ran at: scripts/fit_wall_model.py over
+# 90 checkpoint intervals (startup and DeltaE evals excluded). This is NOT for
+# sizing, where the p10 above is the safe choice. It is for ACCOUNTING: a
+# service-unit charge is linear in elapsed time, so the expected cost of a run
+# is set by its typical rate, and pricing it at the slow tail overstates every
+# credit figure by 23 to 28% across the usable rungs.
+MEASURED_EXAMPLES_PER_SEC = 2171.0
 STARTUP_SEC = 1712.0
 ROWS_PER_SHARD = 5000
 # Shard-read cost is no longer a separate term: the empirical slope above was
@@ -502,14 +509,19 @@ class SweepConfig:
         return self.epochs_over_corpus <= EPOCH_CEILING
 
 
-def estimate_wall_sec(passes: int, de_examples: int = DE_EXAMPLES) -> float:
+def estimate_wall_sec(passes: int, de_examples: int = DE_EXAMPLES,
+                      rate: float = EXAMPLES_PER_SEC) -> float:
     """Wall clock for one config: startup + training + shard I/O + one DeltaE eval.
 
     The DeltaE term is small but not ignorable, and leaving it out would let a
     bigger --limit-de-examples silently eat the feasibility margin instead of
     tightening the grid.
+
+    `rate` defaults to the conservative sizing figure. Pass
+    MEASURED_EXAMPLES_PER_SEC when the question is what a run costs rather
+    than whether it fits its wall.
     """
-    return (STARTUP_SEC + passes / EXAMPLES_PER_SEC
+    return (STARTUP_SEC + passes / rate
             + (passes / ROWS_PER_SHARD) * SEC_PER_SHARD_READ
             + de_examples * SEC_PER_DE_EXAMPLE)
 

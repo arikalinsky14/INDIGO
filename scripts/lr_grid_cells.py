@@ -41,7 +41,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.scaling.configs import achievable_sizes          # noqa: E402
+from src.scaling.configs import (STARTUP_SEC, SEC_PER_DE_EXAMPLE,  # noqa: E402
+                                 achievable_sizes)
 
 #: beta2 at the smallest and largest rung (stage 1), then the winner.
 STAGE1_BETA2 = (0.95, 0.99, 0.999)
@@ -98,9 +99,9 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3) -> list[dict]:
         #    conditioning of the (N, M) fit and roughly doubles the cost:
         #
         #      rungs  cells   GPU-h @2171   GPU-h @204   cond   sd(b)  sd(c)  extrap
-        #          2     12          22.1        235.0    630   0.100  0.054   13/24
-        #          3     18          42.8        455.9    401   0.050  0.031    9/24
-        #          4     24          85.2        907.1    303   0.032  0.021    5/24
+        #          2     12          31.3        245.3    630   0.100  0.054   13/24
+        #          3     18          56.7        471.3    401   0.050  0.031    9/24
+        #          4     24          103.7        927.6    303   0.032  0.021    5/24
         #
         #    sd(b), sd(c) are the spreads of the recovered N and M exponents
         #    over 2000 synthetic draws with 0.10 of noise in log-lr units, and
@@ -109,7 +110,7 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3) -> list[dict]:
         #    well as conditioning, and coverage is the stronger argument: an
         #    extrapolated size is a size whose learning rate is a guess.
         #    At 2171 it tightens b 1.6x and halves the extrapolated sizes for
-        #    2x the compute, a real choice; at 204 even three rungs is 456
+        #    2x the compute, a real choice; at 204 even three rungs is 471
         #    GPU-hours and the choice is three or nothing. Carry the answer
         #    into stage 2 as --rungs (RUNGS in the SLURM wrapper).
         #
@@ -193,6 +194,23 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3) -> list[dict]:
     raise SystemExit(f"unknown stage {stage}")
 
 
+def cell_hours(D: int, n_lrs: int, rate: float, val_examples: int,
+               de_examples: int) -> float:
+    """GPU-hours for one cell: every cost the job pays, not just training.
+
+    lr_tuning.py runs its learning rates one after another in ONE process, so
+    the cell pays the fixed startup once (module load, torch and JAX imports,
+    shard scan, validation read, simulator preflight: STARTUP_SEC, measured on
+    the sweep) and then, per learning rate, a training pass, one CE validation
+    pass and one DeltaE eval. Pricing only the training pass under-stated
+    stage 2 by about a third. The validation pass is priced at the training
+    rate, which over-states a forward-only pass slightly, in the safe
+    direction.
+    """
+    per_lr = (D + val_examples) / rate + de_examples * SEC_PER_DE_EXAMPLE
+    return (STARTUP_SEC + n_lrs * per_lr) / 3600
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -207,13 +225,13 @@ def main() -> None:
                         "tune in full, the rest being projected from the "
                         "fitted law. Two is the minimum that separates the N "
                         "and M exponents (cond 630); three gives cond 401 at "
-                        "18 cells and 42.8 GPU-h at 2171 ex/s; four gives 303 "
-                        "at 24 cells and 85.2 GPU-h. THE PROBE DECIDES "
+                        "18 cells and 56.7 GPU-h at 2171 ex/s; four gives 303 "
+                        "at 24 cells and 103.7 GPU-h. THE PROBE DECIDES "
                         "BETWEEN THREE AND FOUR: at 2171 ex/s the fourth rung "
                         "tightens the fitted N exponent 1.6x and cuts the "
                         "sweep sizes left to extrapolation from 9 of 24 to 5, "
                         "for twice the compute; at 204 ex/s three rungs "
-                        "already costs 456 GPU-h and four is out of reach.")
+                        "already costs 471 GPU-h and four is out of reach.")
     p.add_argument("--format", choices=("lines", "table"), default="lines")
     p.add_argument("--rate", type=float, default=204.0,
                    help="examples per second. The default is the MEASURED "
@@ -229,6 +247,12 @@ def main() -> None:
                    help="the --time the array will be submitted with, so the "
                         "table can say which cells do not fit")
     p.add_argument("--n-lrs", type=int, default=7)
+    p.add_argument("--val-examples", type=int, default=10_000,
+                   help="--limit-val-examples the cells run with; one CE "
+                        "validation pass per learning rate")
+    p.add_argument("--de-examples", type=int, default=2048,
+                   help="--limit-de-examples the cells run with; one DeltaE "
+                        "eval per learning rate")
     a = p.parse_args()
 
     stage = a.stage if a.stage == "probe" else int(a.stage)
@@ -245,20 +269,24 @@ def main() -> None:
           f"{n_lrs} learning rate(s) each")
     print(f"{'idx':>4} {'model':<12} {'N':>11} {'D':>12} {'M = D/N':>9} "
           f"{'beta2':>6} {'GPU-h':>7}")
+    hours = [cell_hours(c["D"], n_lrs, a.rate, a.val_examples, a.de_examples)
+             for c in cells]
     total = 0.0
-    for i, c in enumerate(cells):
-        h = n_lrs * c["D"] / a.rate / 3600
+    for i, (c, h) in enumerate(zip(cells, hours)):
         total += h
         print(f"{i:>4} d{c['d_model']}/se{c['se']:<8} {c['n_params']:>11,} "
               f"{c['D']:>12,} {c['D'] / c['n_params']:>9.2f} "
               f"{c['beta2']:>6g} {h:>7.1f}")
     print(f"\n{'':>4} {'total':<12} {'':>11} {'':>12} {'':>9} {'':>6} {total:>7.1f}")
+    train_only = sum(n_lrs * c["D"] / a.rate / 3600 for c in cells)
+    print(f"{'':>4} (of which training {train_only:.1f}; startup "
+          f"{len(cells) * STARTUP_SEC / 3600:.1f}; evals "
+          f"{total - train_only - len(cells) * STARTUP_SEC / 3600:.1f})")
     # A cell that needs most of its wall will die on the tail, because the
     # rate is a median and the slow end of the distribution is 15x below it.
     # The first stage-1 submission was estimated at 0.9h per cell against a
     # 6h wall and still hit the limit.
     MARGIN = 0.6
-    hours = [n_lrs * c["D"] / a.rate / 3600 for c in cells]
     at_risk = [h for h in hours if h > a.wall_hours * MARGIN]
     if at_risk:
         worst = max(hours)

@@ -74,9 +74,9 @@ Two decisions ride on the number, and both are the point of the stage:
 
   | rungs | cells | GPU-h @2171 | GPU-h @204 | cond | sd(b) | sd(c) | sizes extrap. |
   |---|---|---|---|---|---|---|---|
-  | 2 | 12 | 22.1 | 235.0 | 630 | 0.100 | 0.054 | 13 of 24 |
-  | **3** | **18** | **42.8** | **455.9** | **401** | **0.050** | **0.031** | **9 of 24** |
-  | 4 | 24 | 85.2 | 907.1 | 303 | 0.032 | 0.021 | 5 of 24 |
+  | 2 | 12 | 31.3 | 245.3 | 630 | 0.100 | 0.054 | 13 of 24 |
+  | **3** | **18** | **56.7** | **471.3** | **401** | **0.050** | **0.031** | **9 of 24** |
+  | 4 | 24 | 103.7 | 927.6 | 303 | 0.032 | 0.021 | 5 of 24 |
 
   sd(b), sd(c) are the spreads of the recovered N and M exponents over 2000
   synthetic draws at 0.10 of noise in log-lr units; the last column counts the
@@ -84,10 +84,12 @@ Two decisions ride on the number, and both are the point of the stage:
   fourth curve buys coverage as well as conditioning. At 2171 it tightens the N
   exponent 1.6x and halves the extrapolated sizes for twice the compute, a
   judgement call worth making on the measured rate; at 204 three curves already
-  costs 456 GPU-h and four is out of reach. Pass the answer as `RUNGS=`.
+  costs 471 GPU-h and four is out of reach. Pass the answer as `RUNGS=`.
 
 **1. `STAGE=1`** — β₂ ∈ {0.95, 0.99, 0.999} at both ends of the ladder, three
-LRs each, 6 cells, ~11 GPU-h at 2171 ex/s. Three rates rather than one because
+LRs each at prior/4, prior, prior×4 (stage 1 sets `LR_SPAN=4`; the default 30
+would put two of three points so far off the optimum that they measure
+divergence), 6 cells, ~15 GPU-h at 2171 ex/s. Three rates rather than one because
 β₂ and the LR interact; three rather than seven because the question is whether
 the β₂ *ranking* is stable, not where the LR optimum is. If the two ends
 disagree, β₂ interacts with scale and the sequential staging below does not
@@ -95,7 +97,7 @@ hold: stop and reconsider rather than carrying a wrong constant forward.
 
 **2. `STAGE=2`** — **the LR search runs inside the IsoFLOP test.** Every model
 on the `RUNGS` lowest curves is tuned directly; at the default 3 that is 18
-cells, ~43 GPU-h at 2171 ex/s.
+cells, ~57 GPU-h at 2171 ex/s.
 Not one representative point per rung: the whole curve, because the curve is
 what the parabola is fitted through, and a point whose LR was extrapolated
 moves the minimum as surely as one trained wrong.
@@ -118,7 +120,7 @@ tune at a constant multiplier (20.0 to 21.1 while parameters vary 42x), so a
 law in N alone is the right object for them. Ours cannot be, because D\*/N\*
 runs 29.3 to 0.86 across our budgets.
 
-**3. `STAGE=3`** — the extrapolation check, 1 cell, ~5 GPU-h. The upper rungs
+**3. `STAGE=3`** — the extrapolation check, 1 cell, ~6 GPU-h. The upper rungs
 get the fitted law rather than a measurement, so tune the compute-optimal point
 of the highest usable rung and compare what the law predicted against what that
 point actually wanted. It is where an error in the law does the most damage. If

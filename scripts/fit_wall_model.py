@@ -7,7 +7,7 @@ input-bound rather than GPU-bound. That assumption is load-bearing in two
 places, and it has never been tested against the sweep's own elapsed times:
 
   * it is how every config in the ladder is sized against the wall cap, and
-  * it is why the service-unit axis compresses the sweep to 1.4x while the FLOP
+  * it is why the service-unit axis compresses the sweep to 1.3x while the FLOP
     axis spans 250x, which is the whole reason credits and FLOPs disagree.
 
 Circumstantial evidence says it is mostly right. Forward cost per example spans
@@ -218,6 +218,11 @@ def main() -> None:
     print(f"   c         {c_flop:>12.3e} s per FLOP")
     print(f"   R2        {r2:>12.4f}")
     print(f"   p(c)      {p_value:>12.3f}   (permutation, {n_perm} shuffles)")
+    # A charge is linear in time, so the expected cost of an example is the
+    # MEAN seconds per example, i.e. the harmonic mean of the rates. Compare
+    # against configs.MEASURED_EXAMPLES_PER_SEC, which credits.py prices with.
+    print(f"   billing   {1 / spe.mean():>12.0f} ex/s   (1 / mean s per "
+          f"example; what configs.MEASURED_EXAMPLES_PER_SEC should hold)")
 
     thr = 1 / spe
     print(f"\nthroughput spread across the ladder: {thr.max() / thr.min():.1f}x "

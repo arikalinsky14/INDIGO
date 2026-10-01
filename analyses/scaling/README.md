@@ -730,9 +730,19 @@ the D you want. One side finding: measured throughput is **2171 ex/s** against
 the **1301** the planner assumes, so the ladder is sized conservatively by
 about 1.7x and configs finish early.
 
-The credit axis currently converts at 1.0 SU per GPU-hour
-(`su_rates_confirmed: false` in the fit artifact). Confirm the L40S rate with
-CRC before any credit figure leaves the group.
+The credit axis converts at **8 SU per L40S-hour**, the `l40s` billing weight
+in CRC's published table (CRC bills the max of cores × weight, GB × memory
+weight and GPUs × weight, times walltime; memory weight on `l40s` is 0). Run
+time is priced at the measured 2171 ex/s, not the planner's conservative 1301,
+because a charge is linear in time and the p10 rate overstated every credit by
+23 to 28%. The compute-optimal run costs 7.3 SU at C = 1e14 rising to 9.8 SU
+at 8.3e15. Over half of the low-rung figure is the fixed 1712 s startup, so cost
+is affine in D, not proportional, and the five usable rungs span only 1.3x.
+
+Still `su_rates_confirmed: false`: the table lists the weight "per CPU/GPU",
+and if cores on `l40s` carry it too, `--cpus-per-task=8` bills 64 SU per hour,
+not 8. Read `billing=` from `sacct -X -M gpu -j <job> --format=AllocTRES%60`
+on a finished sweep job before any credit figure leaves the group.
 
 ### Epoch repetition is not why the top rung fails
 
@@ -791,11 +801,14 @@ the (N, M) design matrix and roughly doubles the cost:
 
 | rungs tuned | cells | GPU-h @2171 | GPU-h @204 | cond | sd(b) | sd(c) | sweep sizes extrapolated |
 |---|---|---|---|---|---|---|---|
-| 2 | 12 | 22.1 | 235.0 | 630 | 0.100 | 0.054 | 13 of 24 |
-| **3** (default) | **18** | **42.8** | **455.9** | **401** | **0.050** | **0.031** | **9 of 24** |
-| 4 | 24 | 85.2 | 907.1 | 303 | 0.032 | 0.021 | 5 of 24 |
+| 2 | 12 | 31.3 | 245.3 | 630 | 0.100 | 0.054 | 13 of 24 |
+| **3** (default) | **18** | **56.7** | **471.3** | **401** | **0.050** | **0.031** | **9 of 24** |
+| 4 | 24 | 103.7 | 927.6 | 303 | 0.032 | 0.021 | 5 of 24 |
 
-sd(b) and sd(c) are the spreads of the recovered N and M exponents over 2000
+GPU-hours count everything a cell pays: one 1712 s startup, then per learning
+rate a training pass, a CE validation pass and a DeltaE eval. Pricing the
+training pass alone, as an earlier version did, under-stated stage 2 by about a
+third. sd(b) and sd(c) are the spreads of the recovered N and M exponents over 2000
 synthetic draws at 0.10 of noise in log-lr units. The last column is the number
 of the sweep's 24 distinct model sizes that fall above the largest size tuned,
 so the fourth curve buys **coverage** as well as conditioning, and coverage is
@@ -804,7 +817,7 @@ rate is a guess.
 
 At 2171 ex/s the fourth curve tightens the N exponent by 1.6x and halves the
 extrapolated sizes for twice the compute, which is a real judgement call; at
-204 ex/s three curves already costs 456 GPU-hours and four is out of reach, so
+204 ex/s three curves already costs 471 GPU-hours and four is out of reach, so
 the answer is three or nothing. Price both before committing:
 
 ```bash
@@ -813,8 +826,8 @@ STAGE=2 RUNGS=4 EXAMPLES_PER_SEC=<measured> bash slurms/lr_grid.sh --list
 ```
 
 **Stage 1.** AdamW beta2 in {0.95, 0.99, 0.999} at both ends of the ladder, three
-LRs each, 6 cells, ~11 GPU-h at 2171 ex/s. Three rates rather than one because
-beta2 and the LR interact and a single fixed rate picks whichever beta2 suits
+LRs each at prior/4, prior and prior×4, 6 cells, ~15 GPU-h at 2171 ex/s. Three
+rates rather than one because beta2 and the LR interact and a single fixed rate picks whichever beta2 suits
 it; three rather than seven because the question is whether the beta2 *ranking*
 is stable, not where the LR optimum is. **If the two ends disagree, beta2
 interacts with scale, the sequential staging does not hold, and the right move
@@ -822,7 +835,7 @@ is to stop rather than carry a wrong constant forward.**
 
 **Stage 2. The LR search runs inside the IsoFLOP test.** Every model on
 the `RUNGS` lowest curves is tuned directly: at the default 3 that is 18 cells,
-~43 GPU-h. Not one representative point per rung, the whole curve, because the
+~57 GPU-h. Not one representative point per rung, the whole curve, because the
 curve is what the interpolant runs through and a point whose LR was
 extrapolated moves the argmin as surely as one trained wrong.
 
@@ -840,7 +853,7 @@ is forced: they tune at a constant multiplier (M = 20.0 to 21.1 while
 parameters vary 42x), so a law in N alone is the right object for them. Ours
 cannot be, because D\*/N\* runs 29.3 to 0.86.
 
-**Stage 3.** The extrapolation check, 1 cell, ~5 GPU-h. The upper rungs get
+**Stage 3.** The extrapolation check, 1 cell, ~6 GPU-h. The upper rungs get
 the fitted law rather than a measurement, so tune the compute-optimal point of
 the highest usable rung and compare what the law predicted against what that
 point actually wanted. It runs on the sweep's own cosine schedule, because a
@@ -939,5 +952,7 @@ Ordered by how much they threaten a published number.
 9. **Batch size 256 may not match production's 512.** All 48 runs used 256 and
    the optimal LR depends on it, so raising the constant means re-tuning and
    re-running: existing runs would not be comparable to new ones.
-10. **The credit axis converts at an unconfirmed 1.0 SU per GPU-hour.** Fine
-    for internal comparison, not for publication.
+10. **The credit axis converts at 8 SU per L40S-hour, core weight unconfirmed.**
+    The GPU weight is CRC's published figure; whether the 8 cores each job
+    requests are also billed at 8 (64 SU per hour) is not. One `sacct` on a
+    finished job settles it.
