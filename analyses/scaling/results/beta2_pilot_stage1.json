@@ -1,0 +1,228 @@
+{
+ "n_cells": 6,
+ "by_metric": {
+  "pooled": {
+   "beta2_grid": [
+    0.95,
+    0.99,
+    0.999
+   ],
+   "per_size": {
+    "d40/se1": {
+     "n_params": 100493,
+     "seeds": [
+      42
+     ],
+     "tuned": [
+      [
+       12.983,
+       12.396,
+       12.891
+      ]
+     ],
+     "centred_mean": [
+      0.22633333333333283,
+      -0.3606666666666669,
+      0.1343333333333323
+     ],
+     "winner": 0.99,
+     "vs_winner": {
+      "0.95": {
+       "mean": 0.5869999999999997,
+       "ci_this_size_only": [
+        NaN,
+        NaN
+       ],
+       "seeds_winner_better": 1,
+       "n_seeds": 1,
+       "ci": [
+        NaN,
+        NaN
+       ]
+      },
+      "0.999": {
+       "mean": 0.4949999999999992,
+       "ci_this_size_only": [
+        NaN,
+        NaN
+       ],
+       "seeds_winner_better": 1,
+       "n_seeds": 1,
+       "ci": [
+        NaN,
+        NaN
+       ]
+      }
+     },
+     "quadratic": {
+      "beta2_star": null,
+      "status": "needs at least 4 beta2 values, have 3"
+     }
+    },
+    "d288/se5": {
+     "n_params": 6606789,
+     "seeds": [
+      42
+     ],
+     "tuned": [
+      [
+       10.333,
+       10.665,
+       11.611
+      ]
+     ],
+     "centred_mean": [
+      -0.5366666666666653,
+      -0.20466666666666633,
+      0.7413333333333352
+     ],
+     "winner": 0.95,
+     "vs_winner": {
+      "0.99": {
+       "mean": 0.33199999999999896,
+       "ci_this_size_only": [
+        NaN,
+        NaN
+       ],
+       "seeds_winner_better": 1,
+       "n_seeds": 1,
+       "ci": [
+        NaN,
+        NaN
+       ]
+      },
+      "0.999": {
+       "mean": 1.2780000000000005,
+       "ci_this_size_only": [
+        NaN,
+        NaN
+       ],
+       "seeds_winner_better": 1,
+       "n_seeds": 1,
+       "ci": [
+        NaN,
+        NaN
+       ]
+      }
+     },
+     "quadratic": {
+      "beta2_star": null,
+      "status": "needs at least 4 beta2 values, have 3"
+     }
+    }
+   },
+   "anova": {
+    "status": "needs at least two seeds per size"
+   },
+   "pooled": {
+    "centred_mean": [
+     -0.15516666666666623,
+     -0.2826666666666666,
+     0.43783333333333374
+    ],
+    "winner": 0.99,
+    "vs_winner": {
+     "0.95": {
+      "mean": 0.1275000000000004,
+      "ci": [
+       -5.711001076272263,
+       5.9660010762722635
+      ]
+     },
+     "0.999": {
+      "mean": 0.7205000000000004,
+      "ci": [
+       -2.1447491680074076,
+       3.5857491680074083
+      ]
+     }
+    },
+    "n_blocks": 2,
+    "indistinguishable_from_winner": [
+     0.95,
+     0.999
+    ],
+    "quadratic": {
+     "beta2_star": null,
+     "status": "needs at least 4 beta2 values, have 3"
+    }
+   },
+   "lr_edge_cells": [
+    {
+     "size": [
+      40,
+      1
+     ],
+     "seed": 42,
+     "beta2": 0.95,
+     "edge": "fewer than 3 stable rates"
+    },
+    {
+     "size": [
+      40,
+      1
+     ],
+     "seed": 42,
+     "beta2": 0.99,
+     "edge": "fewer than 3 stable rates"
+    },
+    {
+     "size": [
+      40,
+      1
+     ],
+     "seed": 42,
+     "beta2": 0.999,
+     "edge": "fewer than 3 stable rates"
+    },
+    {
+     "size": [
+      288,
+      5
+     ],
+     "seed": 42,
+     "beta2": 0.95,
+     "edge": "fewer than 3 stable rates"
+    },
+    {
+     "size": [
+      288,
+      5
+     ],
+     "seed": 42,
+     "beta2": 0.99,
+     "edge": "fewer than 3 stable rates"
+    },
+    {
+     "size": [
+      288,
+      5
+     ],
+     "seed": 42,
+     "beta2": 0.999,
+     "edge": "fewer than 3 stable rates"
+    }
+   ]
+  }
+ },
+ "example_bootstrap": [],
+ "decision": {
+  "verdict": "single",
+  "beta2": 0.99,
+  "per_size": {
+   "d40/se1": 0.99,
+   "d288/se5": 0.95
+  },
+  "indistinguishable_from_winner": [
+   0.95,
+   0.999
+  ],
+  "notes": [
+   "6 cell(s) did not bracket their LR optimum; their tuned DeltaE is an upper bound"
+  ]
+ },
+ "report": "beta2 grid [0.95, 0.99, 0.999]; 6 cells; 2 complete (size, seed) blocks\nANOVA  needs at least two seeds per size\n\nd40/se1 (N = 100,493), seeds [42]: winner 0.99\n     0.95 - winner  +0.59   winner better in 1/1 seeds\n    0.999 - winner  +0.49   winner better in 1/1 seeds\n\nd288/se5 (N = 6,606,789), seeds [42]: winner 0.95\n     0.99 - winner  +0.33   winner better in 1/1 seeds\n    0.999 - winner  +1.28   winner better in 1/1 seeds\n\nPOOLED winner 0.99\n   continuous optimum: needs at least 4 beta2 values, have 3\n     0.95 - winner  +0.13  [-5.71, +5.97]\n    0.999 - winner  +0.72  [-2.14, +3.59]\n\nDECISION: single, beta2 = 0.99; per size {'d40/se1': 0.99, 'd288/se5': 0.95}\n   not distinguishable from the winner at 95%: [0.95, 0.999]\n   note: 6 cell(s) did not bracket their LR optimum; their tuned DeltaE is an upper bound",
+ "sources": [
+  "/tmp/claude-0/-home-user-INDIGO/7bb58cbf-463b-5c6d-a396-ba1981c29e97/scratchpad/b2/stage1"
+ ]
+}

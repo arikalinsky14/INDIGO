@@ -886,7 +886,13 @@ decision rule is fixed in its docstring before any data**: an interaction
 p < 0.05 means per-size β₂; otherwise the pooled winner, with every β₂ whose
 interval includes zero reported as indistinguishable; a winner at the end of
 the β₂ grid is not bracketed. `tests/test_fit_beta2.py` checks it recovers a
-planted optimum and reports no effect when none is planted.
+planted optimum and reports no effect when none is planted. **Calibrated on
+200 simulated studies** of this exact design (seed σ 0.35, a planted optimum at
+0.97): the pooled β₂* 95% interval covered 0.97 in 189/200 (94.5%), a false
+size × β₂ interaction appeared in 9/200 (4.5%), and a β₂ effect with none
+planted in 8/200 (4.0%). `results/beta2_method_check_synthetic.png` is the
+figure on one such synthetic study; `results/beta2_pilot_stage1.png` is stage 1
+run through the same analysis, labelled as the pilot it is.
 
 ```bash
 python scripts/fit_beta2.py --results-dir outputs/lr_search/beta2/cross_attn
