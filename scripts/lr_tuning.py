@@ -180,6 +180,7 @@ def train_with_lr(
     betas: Tuple[float, float] = (0.9, 0.999),
     lr_schedule: str = "cosine",
     eval_fractions: Optional[Sequence[float]] = None,
+    per_example_de: bool = False,
 ) -> LRSearchResult:
     # Re-seed before EVERY trial, not once for the sweep. Seeding once would
     # give trial 1 one initialisation, trial 2 another, and so on -- so the
@@ -315,7 +316,7 @@ def train_with_lr(
     if de_examples and de_limit > 0:
         de_result = evaluate_delta_e(
             model, de_examples, device, limit=de_limit,
-            simulator=de_simulator,
+            simulator=de_simulator, per_example=per_example_de,
         )
         if verbose and de_result.get("n_scored"):
             print(f"    dE: median={de_result['delta_e_median']:.3f} "
@@ -373,6 +374,7 @@ def lr_tuning(
     betas: Tuple[float, float] = (0.9, 0.999),
     lr_schedule: str = "cosine",
     eval_fractions: Optional[Sequence[float]] = None,
+    per_example_de: bool = False,
 ) -> Tuple[float, List[LRSearchResult]]:
     lrs = np.logspace(np.log10(lr_min), np.log10(lr_max), n_lrs)
     print(f"\n{'=' * 70}")
@@ -404,6 +406,7 @@ def lr_tuning(
             de_examples=de_examples, de_limit=de_limit,
             de_simulator=de_simulator, seed=seed, betas=betas,
             lr_schedule=lr_schedule, eval_fractions=eval_fractions,
+            per_example_de=per_example_de,
         )
         results.append(result)
         de_str = ("" if result.final_val_de is None
@@ -553,6 +556,11 @@ def main() -> None:
                              "instead of one run per multiplier. Requires "
                              "--lr-schedule constant: a cosine prefix is not a "
                              "valid shorter run.")
+    parser.add_argument("--per-example-de", action="store_true",
+                        help="store every scored example's DeltaE (and chroma "
+                             "bucket) in each trial's de_result, so cells "
+                             "scored on the same examples can be compared "
+                             "paired. About 40 KB per trial.")
     parser.add_argument("--skip-existing", action="store_true",
                         help="exit successfully if this cell's results file "
                              "already exists. Makes re-submitting an array "
@@ -735,6 +743,7 @@ def main() -> None:
         betas=(args.beta1, args.beta2),
         lr_schedule=args.lr_schedule,
         eval_fractions=args.eval_fractions,
+        per_example_de=args.per_example_de,
         epochs=args.epochs,
         train_dataset=train_dataset, val_dataset=val_dataset,
         config=config, device=device,

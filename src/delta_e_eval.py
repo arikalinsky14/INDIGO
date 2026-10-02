@@ -136,6 +136,7 @@ def evaluate_delta_e(
     chroma_edges: Tuple[float, float] = DEFAULT_CHROMA_EDGES,
     incidence_angle: float = 0.0,
     progress_every: int = 0,
+    per_example: bool = False,
 ) -> Dict[str, Any]:
     """Greedy-decode each example, simulate, and score ΔE₀₀ against the target.
 
@@ -156,6 +157,12 @@ def evaluate_delta_e(
     simulator
         Reuse an existing `OpticalSimulator` to keep the JAX trace cache warm
         across calls. One is built on demand if omitted.
+    per_example
+        Also return `per_example_de`: one entry per example scored, in input
+        order, None where nothing was generated or the simulation failed, and
+        `per_example_bucket`, each example's chroma bucket. Two
+        models scored on the same examples can then be compared PAIRED, by
+        bootstrapping over examples, rather than through their medians alone.
 
     Returns
     -------
@@ -184,6 +191,8 @@ def evaluate_delta_e(
     model.eval()
 
     all_de: List[float] = []
+    aligned: List[Optional[float]] = []
+    aligned_bucket: List[str] = []
     by_bucket: Dict[str, List[float]] = {n: [] for n in CHROMA_BUCKET_NAMES}
     bucket_counts: Dict[str, int] = {n: 0 for n in CHROMA_BUCKET_NAMES}
     n_seen = n_valid = n_eos = n_sim_failed = 0
@@ -198,6 +207,7 @@ def evaluate_delta_e(
                 gt_lab = denormalize_lab(example.lab)
                 bucket = chroma_bucket(gt_lab, chroma_edges)
                 bucket_counts[bucket] += 1
+                aligned_bucket.append(bucket)
 
                 pred_slots, pred_thick, stop_reason = generate_structure(
                     model, example.lab, example.pool, device,
@@ -206,6 +216,7 @@ def evaluate_delta_e(
                 if stop_reason == "EOS":
                     n_eos += 1
                 if not pred_slots:
+                    aligned.append(None)
                     continue
                 n_valid += 1
 
@@ -218,10 +229,12 @@ def evaluate_delta_e(
                 except Exception:
                     # A single bad stack must not take down training.
                     n_sim_failed += 1
+                    aligned.append(None)
                     continue
 
                 de = float(ciede2000(gt_lab, pred_lab))
                 all_de.append(de)
+                aligned.append(de)
                 by_bucket[bucket].append(de)
 
                 if progress_every and n_seen % progress_every == 0:
@@ -255,6 +268,9 @@ def evaluate_delta_e(
         name: {**_summarise(by_bucket[name]), "n_examples": bucket_counts[name]}
         for name in CHROMA_BUCKET_NAMES
     }
+    if per_example:
+        result["per_example_de"] = aligned
+        result["per_example_bucket"] = aligned_bucket
     return result
 
 

@@ -59,6 +59,16 @@ QOS_SHORT_MAX_HOURS = 24
 #: beta2 at the smallest and largest rung (stage 1), then the winner.
 STAGE1_BETA2 = (0.95, 0.99, 0.999)
 
+#: The beta2 study (stage "beta2"). Evenly spread in log(1 - beta2), the
+#: second-moment averaging horizon of 10 to 1000 steps, with the dense end
+#: where stage 1 put the winner (0.95 to 0.99) and 0.9 below it, so the grid
+#: brackets an optimum on either side instead of assuming one.
+BETA2_SWEEP = (0.9, 0.95, 0.98, 0.99, 0.999)
+#: Repeat seeds. Each changes init, data order and the validation slice, so
+#: the seed-to-seed spread is the whole training noise, and three is the
+#: fewest that gives the paired comparison a variance.
+BETA2_SEEDS = (42, 43, 44)
+
 
 def nearest_config(n_target: float):
     """The achievable (n_params, d_model, slot_encoder_layers) nearest in log N."""
@@ -212,6 +222,28 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
             out.extend(_cell(n, D, b) for b in STAGE1_BETA2)
         return out
 
+    if stage == "beta2":
+        # The defensible version of stage 1. Three sizes (smallest, middle and
+        # largest usable rung's N*, at 1.1 x its D*, the same rule stage 1
+        # used), every beta2 in BETA2_SWEEP, every seed in BETA2_SEEDS, and
+        # SEVEN learning rates per cell in sqrt(2) steps from prior/2.83 to
+        # 2.83 x prior, so each beta2 is compared at its OWN bracketed optimum
+        # rather than at a shared rate that may suit one beta2 more than
+        # another. Stage 1 bounds that window: prior/4 lost and 4 x prior
+        # diverged in all six of its cells.
+        #
+        # Seed is the outer loop so that, as the array runs, complete paired
+        # blocks (one seed, every beta2, one size) land early.
+        picks = [rungs_[0], rungs_[len(rungs_) // 2], rungs_[-1]]
+        out = []
+        for seed in BETA2_SEEDS:
+            for r in picks:
+                D = int(round(r["d_star"] * 1.1 / 1000) * 1000)
+                out.extend(_cell(r["n_star_median"], D, b, seed=seed,
+                                 budget=r["budget"])
+                           for b in BETA2_SWEEP)
+        return out
+
     if stage == 2:
         # EVERY model on the lowest `rungs` IsoFLOP curves, tuned directly.
         #
@@ -303,7 +335,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--stage", required=True,
-                   choices=("probe", "1", "2", "check", "3"),
+                   choices=("probe", "1", "beta2", "2", "check", "3"),
                    help="probe: throughput. 1: beta2. 2: learning rate, tuned "
                         "on every point of the lowest RUNGS IsoFLOP curves. "
                         "check: the fitted law tested at one upper-rung point. "
@@ -353,7 +385,7 @@ def main() -> None:
                         "eval per learning rate")
     a = p.parse_args()
 
-    stage = a.stage if a.stage in ("probe", "check") else int(a.stage)
+    stage = a.stage if a.stage in ("probe", "check", "beta2") else int(a.stage)
     cells = cells_for(stage, a.fit, a.beta2, a.rungs, a.stage2_dir)
     # Stage 1 ranks beta2; stage 2 and the check locate the LR optimum; stage
     # 3 trains each point once at a rate it is given. Different jobs,

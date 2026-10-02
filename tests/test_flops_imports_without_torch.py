@@ -56,6 +56,7 @@ for fmt in ("table", "count"):
     assert r.returncode == 0, f"stage 3 {fmt}: {r.stderr}"
     assert r.stdout.strip(), f"stage 3 {fmt} printed nothing"
 import scripts.collect_isoflop      # noqa: F401
+import scripts.fit_beta2            # noqa: F401
 
 # And the wall-model analysis end to end.
 import importlib.util

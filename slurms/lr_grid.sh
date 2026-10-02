@@ -125,6 +125,18 @@ set -euo pipefail
 #            another. The sweep's own run at that model size needed D = 4.2M
 #            to reach DeltaE 12.4.
 #
+#   STAGE=beta2  the defensible beta2 study.        45 cells, ~156 GPU-h
+#            Stage 1 could not separate 0.95 from 0.99: one seed, and only
+#            two stable learning rates per cell, so no beta2 had a bracketed
+#            LR optimum. This runs beta2 in {0.9, 0.95, 0.98, 0.99, 0.999} at
+#            three sizes (smallest, middle and largest usable rung's N*),
+#            three seeds, and seven learning rates per cell in sqrt(2) steps
+#            centred on the prior, with per-example DeltaE saved. Seed is the
+#            outer loop: --array=0-14 is a complete single-seed pass (~52
+#            GPU-h), 15-44 adds the replicates. scripts/fit_beta2.py applies a
+#            decision rule fixed before the data and draws the figure.
+#            Writes to outputs/lr_search/beta2/.
+#
 #   STAGE=2  EVERY model on the lowest RUNGS curves.  18 cells, ~57 GPU-h
 #            (RUNGS=3 by default; the probe decides 3 vs 4, see above)
 #            The LR search runs INSIDE the IsoFLOP test. Not one point per
@@ -291,6 +303,11 @@ STAGE="${STAGE:-1}"
 case "${STAGE}" in
   probe)   N_LRS=1 ;;
   1)       N_LRS="${N_LRS:-3}"; LR_SPAN="${LR_SPAN:-4}" ;;
+  # beta2 study: seven rates in sqrt(2) steps, prior/2.83 to 2.83 x prior,
+  # centred so the prior itself is the middle point.
+  beta2)   N_LRS="${N_LRS:-7}"
+           LR_SPAN_DOWN="${LR_SPAN_DOWN:-2.828427}"
+           LR_SPAN_UP="${LR_SPAN_UP:-2.828427}" ;;
   2|check) LR_SPAN_DOWN="${LR_SPAN_DOWN:-${LR_SPAN:-8}}"
            LR_SPAN_UP="${LR_SPAN_UP:-${LR_SPAN:-5}}" ;;
   3)       N_LRS=1 ;;               # one rate per point, given by the cell
@@ -320,6 +337,7 @@ case "${STAGE}" in
   # and the LR fit collapses beta2 by taking the best at each rate, so these
   # must not feed the law that stage 2 measures at one fixed beta2.
   1)     OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/stage1/${HEAD_MODE}}" ;;
+  beta2) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/beta2/${HEAD_MODE}}" ;;
   check) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/check/${HEAD_MODE}}" ;;
   3)     OUTPUT_DIR="${OUTPUT_DIR:-outputs/isoflop_tuned/${HEAD_MODE}}" ;;
   *)     OUTPUT_DIR="${OUTPUT_DIR:-${STAGE2_DIR}}" ;;
@@ -481,7 +499,8 @@ srun python scripts/lr_tuning.py \
     --weight-decay 0.01 --grad-clip 1.0 --warmup-fraction 0.02 \
     --output-dir "${OUTPUT_DIR}" \
     "${OVERWRITE_FLAG}" \
-    --log-every 100 --streaming --bf16 --plot
+    --log-every 100 --streaming --bf16 --plot \
+    $([[ "${PER_EXAMPLE_DE:-1}" == "1" ]] && echo --per-example-de)
 
 echo "[INFO] STAGE ${STAGE} cell ${TASK} done."
 if [[ "${STAGE}" == "3" ]]; then

@@ -125,6 +125,36 @@ one seed (42), identical init, data order and eval slice across β₂:
 - Stage 1 results belong in `outputs/lr_search/stage1/`, not in the directory
   `fit_lr_law.py` reads: three rates cannot bracket, and the fit collapses β₂.
 
+**`STAGE=beta2`: the defensible β₂ study, run before stage 2.** Stage 1
+cannot pick a β₂: one seed, and only two stable LRs per cell, so no β₂ had a
+bracketed LR optimum. Run through `scripts/fit_beta2.py`'s own decision rule,
+its pooled 0.95-vs-0.99 interval is ±5.8 ΔE. The study:
+
+| | |
+|---|---|
+| β₂ | 0.9, 0.95, 0.98, 0.99, 0.999 (even in log(1−β₂); brackets 0.95 to 0.99 on both sides) |
+| sizes | N* of the smallest, middle and largest usable rung (100k, 1.0M, 6.6M), at 1.1×D* |
+| seeds | 42, 43, 44 (each changes init, data order and validation slice) |
+| LRs | 7 per cell, √2 steps, prior/2.83 to 2.83×prior |
+| cost | 45 cells, ~156 GPU-h at 3,150 ex/s; `--array=0-14` is one full seed, ~52 |
+
+`scripts/fit_beta2.py` compares each β₂ at its own Akima-interpolated LR
+optimum, paired within (size, seed) blocks; runs a two-way ANOVA for the β₂
+effect and the size × β₂ interaction; reports per-size and pooled paired 95%
+intervals against the winner; fits a quadratic in log10(1−β₂) for a continuous
+β₂* with a parametric-bootstrap interval; and bootstraps the 2,048 examples
+paired (per-example ΔE is now saved) for the evaluation noise alone. **The
+decision rule is fixed in its docstring before any data**: an interaction
+p < 0.05 means per-size β₂; otherwise the pooled winner, with every β₂ whose
+interval includes zero reported as indistinguishable; a winner at the end of
+the β₂ grid is not bracketed. `tests/test_fit_beta2.py` checks it recovers a
+planted optimum and reports no effect when none is planted.
+
+```bash
+python scripts/fit_beta2.py --results-dir outputs/lr_search/beta2/cross_attn
+# -> analyses/scaling/results/beta2_fit.json, beta2.png, beta2.pdf
+```
+
 **2. `STAGE=2`** — **the LR search runs inside the IsoFLOP test.** Every model
 on the `RUNGS` lowest curves is tuned directly; at the default 3 that is 18
 cells, ~57 GPU-h at 2171 ex/s.
