@@ -221,7 +221,8 @@ set -euo pipefail
 #       --output analyses/scaling/results/porian_fit_tuned.json
 #
 # Any cell whose optimum lands on a grid endpoint is DISCARDED by the fit, not
-# averaged in. Widen LR_SPAN for those cells and re-run them.
+# averaged in. Widen LR_SPAN_DOWN or LR_SPAN_UP (whichever side the optimum
+# fell on) for those cells and re-run them with FORCE=1.
 # ============================================================================
 
 # Environment FIRST. Everything below shells out to python, and the cell list
@@ -278,10 +279,21 @@ STAGE="${STAGE:-1}"
 # learning rates. At 4 the outer points are a factor of 4 either side of the
 # prior: wide enough to see whether the ranking holds, close enough that every
 # point is a plausible operating rate.
+#
+# Stage 2 and the check reach DOWN 8x and UP 5x from the prior, set from what
+# stage 1 measured (job 4126638): at both ends of the ladder and under all
+# three beta2, prior/4 lost to the prior by 0.8 to 2.6 DeltaE and 4x the prior
+# DIVERGED, all six times. A symmetric 30x window would have put two of seven
+# points past divergence and two more far below anything competitive, leaving
+# prior/3.1, prior and 3.1x prior to locate the optimum: a three-point grid
+# again. Seven points over prior/8 to 5x prior step 1.85x instead of 3.1x, and
+# the top point is expected to diverge, which is what brackets from above.
 case "${STAGE}" in
-  probe) N_LRS=1 ;;
-  1)     N_LRS="${N_LRS:-3}"; LR_SPAN="${LR_SPAN:-4}" ;;
-  3)     N_LRS=1 ;;                 # one rate per point, given by the cell
+  probe)   N_LRS=1 ;;
+  1)       N_LRS="${N_LRS:-3}"; LR_SPAN="${LR_SPAN:-4}" ;;
+  2|check) LR_SPAN_DOWN="${LR_SPAN_DOWN:-${LR_SPAN:-8}}"
+           LR_SPAN_UP="${LR_SPAN_UP:-${LR_SPAN:-5}}" ;;
+  3)       N_LRS=1 ;;               # one rate per point, given by the cell
 esac
 FIT="${FIT:-analyses/scaling/results/porian_fit.json}"
 BETA2_WINNER="${BETA2_WINNER:-0.99}"
@@ -291,6 +303,9 @@ BETA2_WINNER="${BETA2_WINNER:-0.99}"
 RUNGS="${RUNGS:-3}"
 
 LR_SPAN="${LR_SPAN:-30}"
+# The grid runs prior/LR_SPAN_DOWN to prior*LR_SPAN_UP; both default to LR_SPAN.
+LR_SPAN_DOWN="${LR_SPAN_DOWN:-${LR_SPAN}}"
+LR_SPAN_UP="${LR_SPAN_UP:-${LR_SPAN}}"
 N_LRS="${N_LRS:-7}"
 SELECTION_METRIC="${SELECTION_METRIC:-delta_e}"
 HEAD_MODE="${HEAD_MODE:-cross_attn}"
@@ -301,6 +316,10 @@ DATA_DIR="${DATA_DIR:-/ix1/ohinder/ajk245/Github/INDIGO/data/train}"
 STAGE2_DIR="${STAGE2_DIR:-outputs/lr_search/${HEAD_MODE}}"
 case "${STAGE}" in
   probe) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/probe/${HEAD_MODE}}" ;;
+  # Stage 1 ranks beta2 on three rates; three cannot bracket an LR optimum,
+  # and the LR fit collapses beta2 by taking the best at each rate, so these
+  # must not feed the law that stage 2 measures at one fixed beta2.
+  1)     OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/stage1/${HEAD_MODE}}" ;;
   check) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/check/${HEAD_MODE}}" ;;
   3)     OUTPUT_DIR="${OUTPUT_DIR:-outputs/isoflop_tuned/${HEAD_MODE}}" ;;
   *)     OUTPUT_DIR="${OUTPUT_DIR:-${STAGE2_DIR}}" ;;
@@ -391,18 +410,19 @@ from src.scaling.configs import n_heads_for; print(n_heads_for(int(sys.argv[1]))
 
 # Centre the LR window on the prior for THIS model size.
 read -r N_PARAMS LR_PRIOR LR_LO LR_HI <<< "$(python3 - "${D_MODEL}" \
-    "${SLOT_ENCODER_LAYERS}" "${N_HEADS}" "${LR_SPAN}" <<'PYEOF'
+    "${SLOT_ENCODER_LAYERS}" "${N_HEADS}" "${LR_SPAN_DOWN}" "${LR_SPAN_UP}" <<'PYEOF'
 import sys
 sys.path.insert(0, ".")
 from src.scaling.flops import ArchSpec, n_params
 from src.scaling.configs import lr_for
 
-d_model, se, n_heads, span = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4])
+d_model, se, n_heads = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
+down, up = float(sys.argv[4]), float(sys.argv[5])
 cfg = ArchSpec(d_model=d_model, n_heads=n_heads, head_mode="cross_attn",
                slot_encoder_layers=se, decoder_layers=1)
 n = n_params(cfg)
 prior = lr_for(n)
-print(f"{n} {prior:.6e} {prior / span:.6e} {prior * span:.6e}")
+print(f"{n} {prior:.6e} {prior / down:.6e} {prior * up:.6e}")
 PYEOF
 )"
 LR_MIN="${LR_MIN:-${LR_LO}}"
@@ -411,7 +431,7 @@ LR_MAX="${LR_MAX:-${LR_HI}}"
 if [[ "${CELL_LR}" != "-" ]]; then
     LR_MIN="${CELL_LR}"; LR_MAX="${CELL_LR}"; N_LRS=1
 elif (( N_LRS == 1 )); then
-    # One point of logspace(lo, hi, 1) is lo, prior/LR_SPAN, not the prior.
+    # One point of logspace(lo, hi, 1) is lo, prior/LR_SPAN_DOWN, not the prior.
     # The first shard-aligned probe trained at 2.0e-5 that way and learned
     # nothing (DeltaE 41). Harmless for a throughput number, but a run should
     # train at the rate it says it does.

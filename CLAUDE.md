@@ -95,6 +95,36 @@ the β₂ *ranking* is stable, not where the LR optimum is. If the two ends
 disagree, β₂ interacts with scale and the sequential staging below does not
 hold: stop and reconsider rather than carrying a wrong constant forward.
 
+**Stage 1 result (job 4126638, Oct 2).** Median ΔE₀₀ on the 2,048-example slice,
+one seed (42), identical init, data order and eval slice across β₂:
+
+| | β₂ | prior/4 | prior | 4×prior |
+|---|---|---|---|---|
+| d40/se1, N = 100k, D = 3.45M, prior 2.28e-3 | 0.95 | 14.65 | 12.98 | diverged |
+| | **0.99** | **13.99** | **12.40** | diverged |
+| | 0.999 | 15.46 | 12.89 | diverged |
+| d288/se5, N = 6.6M, D = 6.14M, prior 2.12e-4 | 0.95 | 12.32 | **10.33** | diverged |
+| | **0.99** | **11.47** | 10.67 | diverged |
+| | 0.999 | 11.72 | 11.61 | diverged |
+
+- **0.999, torch's default and everything INDIGO has run, is never best** and
+  trails by 1.3 ΔE at the large end's prior.
+- **The ends disagree on the winner, narrowly.** Best over LR: 0.99 at the small
+  end (0.59 ahead of 0.95), 0.95 at the large end (0.33 ahead of 0.99). Both
+  gaps are at or under the 0.52 seed σ, though the comparison is paired (same
+  init, data and eval slice), so its own noise is smaller than that.
+- **0.99 minimises the worst case**: its largest loss to the per-end winner is
+  0.33 ΔE, against 0.59 for 0.95 and 1.28 for 0.999. Stage 2's models
+  (81k to 3.4M) sit nearer the small end, where 0.99 won at both rates.
+- **The old LR law is close at both ends**: the prior beat prior/4 in all six
+  cells and 4×prior diverged in all six. Stage 2's grid is set from this:
+  prior/8 to 5×prior (`LR_SPAN_DOWN=8`, `LR_SPAN_UP=5`), 1.85x steps.
+- **Throughput with two cells sharing a node**: 3,150 to 3,420 ex/s
+  (harmonic means), above the probe's solo 2,033. Stage 2 at three curves
+  prices at 43 GPU-h at 3,150.
+- Stage 1 results belong in `outputs/lr_search/stage1/`, not in the directory
+  `fit_lr_law.py` reads: three rates cannot bracket, and the fit collapses β₂.
+
 **2. `STAGE=2`** — **the LR search runs inside the IsoFLOP test.** Every model
 on the `RUNGS` lowest curves is tuned directly; at the default 3 that is 18
 cells, ~57 GPU-h at 2171 ex/s.
