@@ -65,9 +65,17 @@ ALPHA = 0.05
 
 # ------------------------------------------------------------------ loading --
 def load_cells(results_dirs: Sequence[str]) -> List[dict]:
-    """One record per (size, beta2, seed): its learning-rate curve."""
+    """One record per (size, beta2, seed): its learning-rate curve.
+
+    A cell may be spread over several directories: the main seven-rate grid,
+    plus the extra rates `STAGE=beta2x` adds past an unbracketed edge. Files
+    for the same (size, beta2, seed) are merged into one curve; the prior is
+    taken from the file with the most rates, the centred main grid.
+    """
     cells = []
     for root in results_dirs:
+        if not Path(root).is_dir():
+            continue
         for path in sorted(glob.glob(str(Path(root) / "lr_search_*.json"))):
             d = json.load(open(path))
             trials = sorted(d.get("results", []), key=lambda t: t["lr"])
@@ -100,15 +108,62 @@ def load_cells(results_dirs: Sequence[str]) -> List[dict]:
                 "lrs": lrs, "prior": prior, "diverged": np.array(diverged),
                 "curve": curve, "per_example": per_ex, "buckets": buckets,
             })
-    return cells
+    return _merge(cells)
+
+
+def _merge(cells: List[dict]) -> List[dict]:
+    """Fold records of one (size, beta2, seed) into a single LR curve."""
+    groups: Dict[tuple, List[dict]] = defaultdict(list)
+    for c in cells:
+        groups[(c["size"], c["beta2"], c["seed"])].append(c)
+    out = []
+    for parts in groups.values():
+        if len(parts) == 1:
+            out.append(parts[0])
+            continue
+        main = max(parts, key=lambda c: len(c["lrs"]))
+        rows = {}
+        for c in parts:
+            for i, lr in enumerate(c["lrs"]):
+                key = round(float(np.log(lr)), 6)
+                if key in rows:            # same rate twice: keep the first
+                    continue
+                rows[key] = (float(lr), bool(c["diverged"][i]),
+                             {m: c["curve"][m][i] for m in METRICS},
+                             c["per_example"][i])
+        order = sorted(rows.values(), key=lambda r: r[0])
+        out.append({**main,
+                    "file": "+".join(c["file"] for c in parts),
+                    "lrs": np.array([r[0] for r in order]),
+                    "diverged": np.array([r[1] for r in order]),
+                    "curve": {m: [r[2][m] for r in order] for m in METRICS},
+                    "per_example": [r[3] for r in order]})
+    return out
+
+
+#: How a cell's LR curve becomes one number. "akima" is Porian's: the minimum
+#: of an Akima interpolant through the points. "quadratic" fits a parabola in
+#: log LR through every stable point and takes its minimum. Set by --estimator.
+ESTIMATOR = "akima"
 
 
 def tune(cell: dict, metric: str = "pooled") -> dict:
-    """The cell's optimum over learning rate, Porian-style.
+    """The cell's optimum over learning rate.
 
-    `value` is the Akima-interpolated minimum when at least three rates were
-    stable, otherwise the best stable grid point. `on_edge` is their bracketing
-    test applied to the stable rates; `edge` says which side.
+    `value` is the estimator's minimum (see ESTIMATOR) when enough rates were
+    stable, otherwise the best stable grid point. `on_edge` is Porian's
+    bracketing test, the optimum outside the second and second-to-last stable
+    rates; `edge` says which side.
+
+    Why there are two estimators. INDIGO's runs are not reproducible to the
+    bit: the same seed, size, beta2, data and LR, trained twice (stage 1 and
+    the beta2 study), differed by up to 1.2 DeltaE, single-run sd ~0.36. GPU
+    nondeterminism sends identical starts down different paths. With noise
+    that size on every point, an interpolant through the points finds the
+    luckiest one, and the minimum of seven noisy values is biased low by
+    roughly a standard deviation. A parabola through all of them averages the
+    noise instead. Which one serves the beta2 decision better is settled by
+    simulation at that noise level, not by which beta2 it favours.
     """
     ok = [(lr, v) for lr, v, div in zip(cell["lrs"], cell["curve"][metric],
                                        cell["diverged"])
@@ -124,6 +179,8 @@ def tune(cell: dict, metric: str = "pooled") -> dict:
     if len(ok) < 3:
         return {**out, "value": float(ys[j]), "lr": float(xs[j]),
                 "on_edge": True, "edge": "fewer than 3 stable rates"}
+    if ESTIMATOR == "quadratic":
+        return {**out, **_quadratic_min(cell, xs, ys)}
     lr_star, on_edge = tuned_optimum(xs, ys)
     grid, y_grid, idx = akima_argmin(xs, ys)
     edge = ""
@@ -136,6 +193,38 @@ def tune(cell: dict, metric: str = "pooled") -> dict:
             higher_div = bool(cell["diverged"][cell["lrs"] > xs[-1]].any())
             edge = "high, capped by divergence" if higher_div else "high"
     return {**out, "value": float(y_grid[idx]), "lr": float(lr_star),
+            "on_edge": bool(on_edge), "edge": edge}
+
+
+def _quadratic_min(cell: dict, xs: np.ndarray, ys: np.ndarray) -> dict:
+    """Minimum of a parabola in log2(LR) through every stable point.
+
+    Needs four points, so the fit has a residual. A parabola that opens down,
+    or whose vertex falls outside the second and second-to-last stable rates,
+    is not bracketed: its value is then the fitted curve's lowest point inside
+    the tested range, and the cell is flagged like Porian's on_edge.
+    """
+    if xs.size < 4:
+        j = int(np.argmin(ys))
+        return {"value": float(ys[j]), "lr": float(xs[j]), "on_edge": True,
+                "edge": "fewer than 4 stable rates"}
+    lx = np.log2(xs)
+    a, b, c = np.polyfit(lx, ys, 2)
+    fine = np.linspace(lx.min(), lx.max(), 400)
+    fit = a * fine ** 2 + b * fine + c
+    k = int(np.argmin(fit))
+    x_star = fine[k]
+    on_edge = not (a > 0 and lx[1] <= -b / (2 * a) <= lx[-2])
+    edge = ""
+    if on_edge:
+        if a <= 0:
+            edge = "no interior minimum"
+        elif x_star < lx[1]:
+            edge = "low"
+        else:
+            higher_div = bool(cell["diverged"][cell["lrs"] > xs[-1]].any())
+            edge = "high, capped by divergence" if higher_div else "high"
+    return {"value": float(fit[k]), "lr": float(2 ** x_star),
             "on_edge": bool(on_edge), "edge": edge}
 
 
@@ -338,8 +427,12 @@ def analyse(cells: List[dict], n_boot: int, seed: int) -> dict:
                        "indistinguishable_from_winner": indist,
                        "quadratic": quad_optimum(
                            betas, pmean, sigma, P.shape[0], rng)}
+        # "extend" says which way STAGE=beta2x should add rates. Not for an
+        # edge capped by divergence: the next rate up already blew up, so the
+        # optimum is bounded, and a higher one would only diverge again.
         m["lr_edge_cells"] = [
-            {"size": list(k[0]), "seed": k[1], "beta2": k[2], "edge": v["edge"]}
+            {"size": list(k[0]), "seed": k[1], "beta2": k[2], "edge": v["edge"],
+             "extend": {"high": "up", "low": "down"}.get(v["edge"])}
             for k, v in sorted(tuned.items()) if v.get("on_edge")]
         result["by_metric"][metric] = m
 
@@ -454,6 +547,11 @@ BETA_RAMP = ("#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281")
 #: surface, so sizes also carry marker shapes and direct labels.
 SIZE_COLORS = ("#eb6834", "#1baf7a", "#4a3aa7")
 SIZE_MARKERS = ("o", "s", "D")
+#: Display only: a run at or above this DeltaE learned nothing usable (a model
+#: emitting nothing useful scores ~28.6), even if its CE did not trip the
+#: divergence screen. Drawn as a failure at the top of its panel so one such
+#: point does not flatten every curve. The analysis keeps its value.
+FAILED_DE = 25.0
 INK, INK2, MUTED, GRID, SURF = "#0b0b0b", "#52514e", "#8a8984", "#e6e5e1", "#fcfcfb"
 
 
@@ -486,10 +584,9 @@ def plot(cells: List[dict], result: dict, out: Path, title_note: str = "") -> No
         ax = fig.add_subplot(gs[0, k])
         style(ax)
         sc = [c for c in cells if c["size"] == size]
-        top = max(v for c in sc for v, dv in zip(c["curve"]["pooled"], c["diverged"])
-                  if v is not None and not dv)
-        bot = min(v for c in sc for v, dv in zip(c["curve"]["pooled"], c["diverged"])
-                  if v is not None and not dv)
+        shown = [v for c in sc for v, dv in zip(c["curve"]["pooled"], c["diverged"])
+                 if v is not None and not dv and v < FAILED_DE]
+        top, bot = max(shown), min(shown)
         ytop = top + 0.12 * (top - bot + 1e-9)
         for b in betas:
             cb = [c for c in sc if c["beta2"] == b]
@@ -500,7 +597,8 @@ def plot(cells: List[dict], result: dict, out: Path, title_note: str = "") -> No
                 for lr, v, dv in zip(c["lrs"] / c["prior"], c["curve"]["pooled"],
                                      c["diverged"]):
                     key = round(float(np.log2(lr)) * 4) / 4
-                    rel[key].append(None if dv else v)
+                    failed = dv or v is None or v >= FAILED_DE
+                    rel[key].append(None if failed else v)
             xs = sorted(rel)
             mean_x, mean_y = [], []
             for x in xs:
@@ -524,7 +622,7 @@ def plot(cells: List[dict], result: dict, out: Path, title_note: str = "") -> No
         if k == 0:
             ax.set_ylabel("val ΔE₀₀ (median, mean over seeds)")
             ax.legend(frameon=False, fontsize=8, loc="upper center")
-        ax.text(0.99, 0.02, "× at top: diverged", transform=ax.transAxes,
+        ax.text(0.99, 0.02, "× at top: diverged or failed", transform=ax.transAxes,
                 ha="right", va="bottom", fontsize=7.5, color=MUTED)
 
     x_of = lambda b: 1 - b
@@ -603,8 +701,8 @@ def plot(cells: List[dict], result: dict, out: Path, title_note: str = "") -> No
     ax.set_xlabel("AdamW β₂")
     ax.set_ylabel("optimal LR / prior (geometric mean over seeds)")
     ax.set_title("E.  Where each β₂'s LR optimum sits", loc="left", fontsize=10)
-    ax.text(0.99, 0.02, "hollow: not bracketed by the LR grid",
-            transform=ax.transAxes, ha="right", va="bottom", fontsize=7.5,
+    ax.text(1.0, -0.17, "hollow: not bracketed by the LR grid",
+            transform=ax.transAxes, ha="right", va="top", fontsize=7.5,
             color=MUTED)
     ax.legend(frameon=False, fontsize=8)
 
@@ -665,13 +763,22 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--results-dir", nargs="+",
-                   default=["outputs/lr_search/beta2/cross_attn"])
+                   default=["outputs/lr_search/beta2/cross_attn",
+                            "outputs/lr_search/beta2_ext/cross_attn"],
+                   help="every directory holding cells; a cell spread over "
+                        "several (the main grid plus beta2x's extra rates) is "
+                        "merged. Missing directories are skipped.")
     p.add_argument("--output", default="analyses/scaling/results/beta2_fit.json")
     p.add_argument("--figure", default="analyses/scaling/results/beta2.png")
     p.add_argument("--title-note", default="")
     p.add_argument("--n-boot", type=int, default=2000)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--estimator", choices=("akima", "quadratic"),
+                   default="akima",
+                   help="how a cell's LR curve becomes one number; see tune()")
     a = p.parse_args()
+    global ESTIMATOR
+    ESTIMATOR = a.estimator
 
     cells = load_cells(a.results_dir)
     if not cells:

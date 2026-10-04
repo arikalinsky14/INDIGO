@@ -1,0 +1,356 @@
+{
+ "n_cells": 23,
+ "by_metric": {
+  "pooled": {
+   "beta2_grid": [
+    0.9,
+    0.95,
+    0.98,
+    0.99,
+    0.999
+   ],
+   "per_size": {
+    "d40/se1": {
+     "n_params": 100493,
+     "seeds": [
+      42
+     ],
+     "tuned": [
+      [
+       12.863999999999999,
+       12.142225350596226,
+       12.010818416342753,
+       11.533642350686472,
+       11.438866915661334
+      ]
+     ],
+     "centred_mean": [
+      0.8660893933426426,
+      0.14431474393886923,
+      0.012907809685396288,
+      -0.46426825597088417,
+      -0.5590436909960221
+     ],
+     "winner": 0.999,
+     "vs_winner": {
+      "0.9": {
+       "mean": 1.4251330843386647,
+       "ci_this_size_only": [
+        NaN,
+        NaN
+       ],
+       "seeds_winner_better": 1,
+       "n_seeds": 1,
+       "ci": [
+        NaN,
+        NaN
+       ]
+      },
+      "0.95": {
+       "mean": 0.7033584349348914,
+       "ci_this_size_only": [
+        NaN,
+        NaN
+       ],
+       "seeds_winner_better": 1,
+       "n_seeds": 1,
+       "ci": [
+        NaN,
+        NaN
+       ]
+      },
+      "0.98": {
+       "mean": 0.5719515006814184,
+       "ci_this_size_only": [
+        NaN,
+        NaN
+       ],
+       "seeds_winner_better": 1,
+       "n_seeds": 1,
+       "ci": [
+        NaN,
+        NaN
+       ]
+      },
+      "0.99": {
+       "mean": 0.09477543502513797,
+       "ci_this_size_only": [
+        NaN,
+        NaN
+       ],
+       "seeds_winner_better": 1,
+       "n_seeds": 1,
+       "ci": [
+        NaN,
+        NaN
+       ]
+      }
+     },
+     "quadratic": {
+      "coef": [
+       0.5216030486965085,
+       2.7616881346471582,
+       3.0328474518836077
+      ],
+      "beta2_star": 0.9977473603478126
+     }
+    },
+    "d120/se4": {
+     "n_params": 1030053,
+     "seeds": [
+      42,
+      43
+     ],
+     "tuned": [
+      [
+       10.71793746336267,
+       10.173069880545082,
+       11.124202311026725,
+       10.748785906652072,
+       10.855332035478495
+      ],
+      [
+       12.17850798190259,
+       12.875835754618445,
+       12.454098489145654,
+       11.646402530296083,
+       11.801978994277611
+      ]
+     ],
+     "centred_mean": [
+      -0.009392412097914082,
+      0.0668376828512196,
+      0.3315352653556456,
+      -0.2600209162564662,
+      -0.12895961985249027
+     ],
+     "winner": 0.99,
+     "vs_winner": {
+      "0.9": {
+       "mean": 0.2506285041585521,
+       "ci_this_size_only": [
+        -3.325875218628641,
+        3.827132226945745
+       ],
+       "seeds_winner_better": 1,
+       "n_seeds": 2,
+       "ci": [
+        -3.325875218628641,
+        3.827132226945745
+       ]
+      },
+      "0.95": {
+       "mean": 0.3268585991076858,
+       "ci_this_size_only": [
+        -11.141439378546131,
+        11.795156576761503
+       ],
+       "seeds_winner_better": 1,
+       "n_seeds": 2,
+       "ci": [
+        -11.141439378546131,
+        11.795156576761503
+       ]
+      },
+      "0.98": {
+       "mean": 0.5915561816121118,
+       "ci_this_size_only": [
+        -2.154760079598238,
+        3.3378724428224613
+       ],
+       "seeds_winner_better": 2,
+       "n_seeds": 2,
+       "ci": [
+        -2.154760079598238,
+        3.3378724428224613
+       ]
+      },
+      "0.999": {
+       "mean": 0.1310612964039759,
+       "ci_this_size_only": [
+        -0.18043344197804168,
+        0.4425560347859935
+       ],
+       "seeds_winner_better": 2,
+       "n_seeds": 2,
+       "ci": [
+        -0.18043344197804168,
+        0.4425560347859935
+       ]
+      }
+     },
+     "quadratic": {
+      "coef": [
+       -0.06524987964472352,
+       -0.15319312856041212,
+       -0.03328980409464193
+      ],
+      "beta2_star": null
+     }
+    }
+   },
+   "anova": {
+    "status": "needs at least two seeds per size"
+   },
+   "pooled": {
+    "centred_mean": [
+     0.28243485638227145,
+     0.09266336988043615,
+     0.2253261134655625,
+     -0.32810336282793884,
+     -0.27232097690033424
+    ],
+    "winner": 0.99,
+    "vs_winner": {
+     "0.9": {
+      "mean": 0.6105382192102103,
+      "ci": [
+       -1.0885725356884732,
+       2.309648974108894
+      ]
+     },
+     "0.95": {
+      "mean": 0.420766732708375,
+      "ci": [
+       -1.8574694916469194,
+       2.6990029570636693
+      ]
+     },
+     "0.98": {
+      "mean": 0.5534294762935014,
+      "ci": [
+       -0.007993012529538768,
+       1.1148519651165416
+      ]
+     },
+     "0.999": {
+      "mean": 0.055782385927604615,
+      "ci": [
+       -0.2737919805276699,
+       0.3853567523828791
+      ]
+     }
+    },
+    "n_blocks": 3,
+    "indistinguishable_from_winner": [
+     0.9,
+     0.95,
+     0.98,
+     0.999
+    ],
+    "quadratic": {
+     "coef": [
+      0.13036776313568713,
+      0.8184339591754444,
+      0.9887559478981074
+     ],
+     "beta2_star": null
+    }
+   },
+   "lr_edge_cells": [
+    {
+     "size": [
+      40,
+      1
+     ],
+     "seed": 42,
+     "beta2": 0.9,
+     "edge": "high, capped by divergence",
+     "extend": null
+    },
+    {
+     "size": [
+      40,
+      1
+     ],
+     "seed": 42,
+     "beta2": 0.98,
+     "edge": "high, capped by divergence",
+     "extend": null
+    },
+    {
+     "size": [
+      40,
+      1
+     ],
+     "seed": 42,
+     "beta2": 0.999,
+     "edge": "high",
+     "extend": "up"
+    },
+    {
+     "size": [
+      40,
+      1
+     ],
+     "seed": 43,
+     "beta2": 0.999,
+     "edge": "high, capped by divergence",
+     "extend": null
+    },
+    {
+     "size": [
+      120,
+      4
+     ],
+     "seed": 42,
+     "beta2": 0.99,
+     "edge": "high",
+     "extend": "up"
+    },
+    {
+     "size": [
+      120,
+      4
+     ],
+     "seed": 43,
+     "beta2": 0.999,
+     "edge": "high",
+     "extend": "up"
+    },
+    {
+     "size": [
+      288,
+      5
+     ],
+     "seed": 42,
+     "beta2": 0.95,
+     "edge": "low",
+     "extend": "down"
+    },
+    {
+     "size": [
+      288,
+      5
+     ],
+     "seed": 43,
+     "beta2": 0.95,
+     "edge": "low",
+     "extend": "down"
+    }
+   ]
+  }
+ },
+ "example_bootstrap": [],
+ "decision": {
+  "verdict": "single",
+  "beta2": 0.99,
+  "per_size": {
+   "d40/se1": 0.999,
+   "d120/se4": 0.99
+  },
+  "indistinguishable_from_winner": [
+   0.9,
+   0.95,
+   0.98,
+   0.999
+  ],
+  "notes": [
+   "8 cell(s) did not bracket their LR optimum; their tuned DeltaE is an upper bound"
+  ]
+ },
+ "report": "beta2 grid [0.9, 0.95, 0.98, 0.99, 0.999]; 23 cells; 3 complete (size, seed) blocks\nANOVA  needs at least two seeds per size\n\nd40/se1 (N = 100,493), seeds [42]: winner 0.999\n      0.9 - winner  +1.43   winner better in 1/1 seeds\n     0.95 - winner  +0.70   winner better in 1/1 seeds\n     0.98 - winner  +0.57   winner better in 1/1 seeds\n     0.99 - winner  +0.09   winner better in 1/1 seeds\n   quadratic optimum beta2* = 0.9977\n\nd120/se4 (N = 1,030,053), seeds [42, 43]: winner 0.99\n      0.9 - winner  +0.25  [-3.33, +3.83]   winner better in 1/2 seeds\n     0.95 - winner  +0.33  [-11.14, +11.80]   winner better in 1/2 seeds\n     0.98 - winner  +0.59  [-2.15, +3.34]   winner better in 2/2 seeds\n    0.999 - winner  +0.13  [-0.18, +0.44]   winner better in 2/2 seeds\n\nPOOLED winner 0.99\n   continuous optimum: the quadratic has no interior minimum on this grid\n      0.9 - winner  +0.61  [-1.09, +2.31]\n     0.95 - winner  +0.42  [-1.86, +2.70]\n     0.98 - winner  +0.55  [-0.01, +1.11]\n    0.999 - winner  +0.06  [-0.27, +0.39]\n\nDECISION: single, beta2 = 0.99; per size {'d40/se1': 0.999, 'd120/se4': 0.99}\n   not distinguishable from the winner at 95%: [0.9, 0.95, 0.98, 0.999]\n   note: 8 cell(s) did not bracket their LR optimum; their tuned DeltaE is an upper bound",
+ "sources": [
+  "/tmp/claude-0/-home-user-INDIGO/7bb58cbf-463b-5c6d-a396-ba1981c29e97/scratchpad/b2/real"
+ ]
+}

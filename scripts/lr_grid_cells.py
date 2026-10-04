@@ -147,7 +147,9 @@ def stage2_optimum(stage2_dir: Path, cell: dict) -> Optional[float]:
 
 
 def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
-              stage2_dir: Optional[str] = None) -> list[dict]:
+              stage2_dir: Optional[str] = None,
+              extension_from: Optional[str] = None) -> list[dict]:
+    fit_path_sweep = fit_path
     fit = json.load(open(fit_path))
 
     rungs_ = [r for r in fit["by_metric"]["pooled"]["rungs"] if r.get("usable")]
@@ -244,6 +246,35 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
                            for b in BETA2_SWEEP)
         return out
 
+    if stage == "beta2x":
+        # Two more rates for every beta2-study cell whose LR optimum ran off an
+        # UNCAPPED edge of its grid (fit_beta2.py's "extend": up or down):
+        # 4x and 5.66x the prior above, or the mirror below, continuing the
+        # sqrt(2) ladder. Such a cell's tuned DeltaE is only an upper bound,
+        # which tilts the comparison against exactly that beta2, so the edge
+        # has to be closed before the verdict. Re-run fit_beta2.py afterwards;
+        # it merges these rates into the same cells, and lists any still open.
+        from src.scaling.configs import lr_for
+        fit_path = extension_from or "analyses/scaling/results/beta2_fit.json"
+        if not Path(fit_path).is_file():
+            raise SystemExit(f"{fit_path} not found: run scripts/fit_beta2.py "
+                             f"on the finished beta2 study first")
+        edges = json.load(open(fit_path))["by_metric"]["pooled"]["lr_edge_cells"]
+        want = {(tuple(e["size"]), e["seed"], e["beta2"]): e["extend"]
+                for e in edges if e.get("extend")}
+        out = []
+        for c in cells_for("beta2", fit_path_sweep, beta2, rungs):
+            way = want.get(((c["d_model"], c["se"]), c["seed"], c["beta2"]))
+            if not way:
+                continue
+            prior = lr_for(c["n_params"])
+            lo, hi = ((prior * 4, prior * 4 * 2 ** 0.5) if way == "up"
+                      else (prior / (4 * 2 ** 0.5), prior / 4))
+            c["lr"] = f"{lo:.6e}:{hi:.6e}:2"
+            c["lr_source"] = f"extend {way}"
+            out.append(c)
+        return out
+
     if stage == 2:
         # EVERY model on the lowest `rungs` IsoFLOP curves, tuned directly.
         #
@@ -335,13 +366,16 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--stage", required=True,
-                   choices=("probe", "1", "beta2", "2", "check", "3"),
+                   choices=("probe", "1", "beta2", "beta2x", "2", "check", "3"),
                    help="probe: throughput. 1: beta2. 2: learning rate, tuned "
                         "on every point of the lowest RUNGS IsoFLOP curves. "
                         "check: the fitted law tested at one upper-rung point. "
                         "3: every point of the remaining curves at the law's "
                         "learning rate, plus the lower rungs' repeat seeds. "
                         "Stages 2 and 3 together are the final IsoFLOP.")
+    p.add_argument("--extension-from", default=None,
+                   help="beta2x: fit_beta2.py's JSON, whose lr_edge_cells say "
+                        "which cells to extend and which way")
     p.add_argument("--stage2-dir", default="outputs/lr_search/cross_attn",
                    help="stage 3: where stage 2's results are, for the "
                         "learning rate each lower-rung repeat seed reuses")
@@ -385,12 +419,14 @@ def main() -> None:
                         "eval per learning rate")
     a = p.parse_args()
 
-    stage = a.stage if a.stage in ("probe", "check", "beta2") else int(a.stage)
-    cells = cells_for(stage, a.fit, a.beta2, a.rungs, a.stage2_dir)
+    stage = (a.stage if a.stage in ("probe", "check", "beta2", "beta2x")
+             else int(a.stage))
+    cells = cells_for(stage, a.fit, a.beta2, a.rungs, a.stage2_dir,
+                      a.extension_from)
     # Stage 1 ranks beta2; stage 2 and the check locate the LR optimum; stage
     # 3 trains each point once at a rate it is given. Different jobs,
     # different grid widths.
-    n_lrs = {"probe": 1, 1: 3, 3: 1}.get(stage, a.n_lrs)
+    n_lrs = {"probe": 1, 1: 3, 3: 1, "beta2x": 2}.get(stage, a.n_lrs)
     if a.format == "count":
         print(len(cells))
         return
@@ -407,7 +443,8 @@ def main() -> None:
         # epochs and limit are what lr_tuning.py is given; lr "-" means the
         # SLURM wrapper builds its usual grid around the prior.
         for c in cells:
-            lr = "-" if c["lr"] is None else f"{c['lr']:.6e}"
+            lr = ("-" if c["lr"] is None else
+                  c["lr"] if isinstance(c["lr"], str) else f"{c['lr']:.6e}")
             print(f"{c['d_model']} {c['se']} {c['limit']} {c['beta2']:g} "
                   f"{c['epochs']} {c['seed']} {lr}")
         return
@@ -421,7 +458,9 @@ def main() -> None:
     total = 0.0
     for i, (c, h) in enumerate(zip(cells, hours)):
         total += h
-        if stage == 3:
+        if stage == "beta2x":
+            lr = c["lr_source"]
+        elif stage == 3:
             lr = (f"{c['lr']:.2e}" if c["lr"] is not None
                   else f"({c['lr_source']})")
         else:

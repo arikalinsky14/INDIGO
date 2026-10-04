@@ -108,7 +108,9 @@ one seed (42), identical init, data order and eval slice across β₂:
 | | 0.999 | 11.72 | 11.61 | diverged |
 
 - **0.999, torch's default and everything INDIGO has run, is never best** and
-  trails by 1.3 ΔE at the large end's prior.
+  trails by 1.3 ΔE at the large end's prior. **Retracted Oct 4**: runs are not
+  reproducible to that precision. The same configuration rerun in the β₂ study
+  (d40, β₂ 0.999, seed 42, prior LR) came in 1.19 ΔE better than in stage 1.
 - **The ends disagree on the winner, narrowly.** Best over LR: 0.99 at the small
   end (0.59 ahead of 0.95), 0.95 at the large end (0.33 ahead of 0.99). Both
   gaps are at or under the 0.52 seed σ, though the comparison is paired (same
@@ -156,10 +158,54 @@ planted in 8/200 (4.0%). `results/beta2_method_check_synthetic.png` is the
 figure on one such synthetic study; `results/beta2_pilot_stage1.png` is stage 1
 run through the same analysis, labelled as the pilot it is.
 
+**Run-to-run noise is large, and the calibration above understated it.** GPU
+nondeterminism sends identical starts down different paths: the same seed,
+size, β₂, data and LR, trained in stage 1 and again here, differed by up to
+1.19 ΔE (sd of a single run ~0.36 from four such pairs), and scatter around a
+smooth fit of each cell's LR curve is ~0.96. Pairing by seed still removes the
+shared start and evaluation slice, but not the trajectory. Recalibrated at
+per-run noise 0.6 and 0.9, 100 studies per condition:
+
+| estimator | coverage of β₂* | false β₂ effect | winner under no effect | power, weak effect |
+|---|---|---|---|---|
+| **Akima** (pre-registered) | 93 to 95% | 3 to 5% | uniform, 16 to 22% each | 0.87 at noise 0.9 |
+| quadratic in log LR | 91 to 96% | 7% | **28 to 31% to 0.9** | 0.99 |
+
+The quadratic extrapolates optimistically when a β₂'s LR optimum sits near the
+grid edge, which favours 0.9 even with no effect, so **Akima stays the primary
+estimator**; `--estimator quadratic` is a robustness check. The choice was made
+on this simulation, not on which β₂ either favours.
+
+**Open LR edges get closed, `STAGE=beta2x`.** A cell whose LR optimum ran off
+an edge that did not diverge has only an upper-bound tuned ΔE, which tilts the
+comparison against that β₂. `fit_beta2.py` lists them (`extend: up/down`), and
+`STAGE=beta2x` trains two more rates past the edge (4× and 5.66× the prior, or
+the mirror below) into `outputs/lr_search/beta2_ext/`, which the analysis
+merges into the same cells. In the interim data (23 of 45 cells, Oct 4) five
+cells were open, all for the leading β₂ values; about 7 GPU-h to close.
+
+**Interim, 23 of 45 cells, not a result.** No β₂ is distinguishable from the
+leader; Akima leads with 0.99, the quadratic with 0.999, as expected when
+nothing is resolved. Three complete blocks; no size yet has the two seeds the
+ANOVA needs.
+
+**Analysis runs through SLURM**, since python cannot run on the login nodes.
+`slurms/analyze.sh` runs any analysis script on smp and zips everything it
+wrote (plus `INCLUDE=<dir>`) into `job-outputs/analysis_<job>.zip`:
+
 ```bash
-python scripts/fit_beta2.py --results-dir outputs/lr_search/beta2/cross_attn
+INCLUDE=outputs/lr_search/beta2/cross_attn sbatch slurms/analyze.sh scripts/fit_beta2.py
 # -> analyses/scaling/results/beta2_fit.json, beta2.png, beta2.pdf
+STAGE=beta2x bash slurms/lr_grid.sh --list     # then sbatch it, then re-run the above
 ```
+
+**The validation set is now read once per cell.** `lr_tuning.py` used to build
+each trial's validation loader on the streaming dataset, so every trial re-read
+10,000 shard-aligned rows spread over ~3,600 shards, near half the corpus.
+Two small d40 cells (β₂ 0.9 and 0.95, seed 43) hit an 8-hour wall about 100
+steps from the end of their seventh rate. The ΔE slice and the token-weighted
+CE are unchanged, so cells already finished stay valid and paired. Each trial
+now logs `[time] train / val / dE`.
 
 **2. `STAGE=2`** — **the LR search runs inside the IsoFLOP test.** Every model
 on the `RUNGS` lowest curves is tuned directly; at the default 3 that is 18

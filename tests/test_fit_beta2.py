@@ -74,3 +74,28 @@ def test_no_effect_is_not_reported_as_one(tmp_path):
     make(tmp_path, effect=0.0, rng_seed=3)
     res = F.analyse(F.load_cells([str(tmp_path)]), n_boot=50, seed=0)
     assert res["by_metric"]["pooled"]["anova"]["p_beta2"] > 0.05
+
+
+def test_extension_rates_merge_into_their_cell(tmp_path):
+    """beta2x writes extra rates for a cell to a second directory; the
+    analysis must treat them as more points on the same curve, keep the
+    prior from the main grid, and not double-count a cell."""
+    main, ext = tmp_path / "main", tmp_path / "ext"
+    make(main, effect=1.5, rng_seed=1)
+    ext.mkdir()
+    src = sorted(main.glob("*d40_se1*_b20.999.json"))[0]
+    d = json.load(open(src))
+    lrs = [t["lr"] for t in d["results"]]
+    prior = float(np.exp(np.mean(np.log(lrs))))
+    d["results"] = [{"lr": prior * f, "best_val_loss": 80.0,
+                     "final_val_de": 27.0, "de_result": {}}
+                    for f in (4.0, 4.0 * 2 ** 0.5)]
+    json.dump(d, open(ext / src.name, "w"))
+
+    cells = F.load_cells([str(main), str(ext)])
+    assert len(cells) == 45
+    c = next(c for c in cells if c["size"] == (40, 1) and c["seed"] == 42
+             and c["beta2"] == 0.999)
+    assert len(c["lrs"]) == 9 and list(c["lrs"]) == sorted(c["lrs"])
+    assert abs(c["prior"] / prior - 1) < 1e-9
+    assert c["diverged"][-2:].all()

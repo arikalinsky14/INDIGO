@@ -35,6 +35,7 @@ import argparse
 import json
 import math
 import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
@@ -202,10 +203,20 @@ def train_with_lr(
         train_dataset, batch_size=batch_size, collate_fn=active_collate,
         num_workers=num_workers, pin_memory=True, **loader_kw,
     )
-    val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, collate_fn=active_collate,
-        num_workers=num_workers, pin_memory=True, **loader_kw,
-    )
+    if isinstance(val_dataset, list):
+        # Read once in main() and held in memory, as training.py does. A
+        # DataLoader over the streaming dataset re-read it from disk on every
+        # trial: 10,000 shard-aligned validation rows span ~3,600 shards, near
+        # half the corpus, so a seven-rate cell read that eight times and the
+        # beta2 study's small cells ran past an 8-hour wall on it. CE here is
+        # token-weighted, so batching from the cached list changes nothing.
+        val_loader = [active_collate(val_dataset[i:i + batch_size])
+                      for i in range(0, len(val_dataset), batch_size)]
+    else:
+        val_loader = DataLoader(
+            val_dataset, batch_size=batch_size, collate_fn=active_collate,
+            num_workers=num_workers, pin_memory=True, **loader_kw,
+        )
 
     n_examples = len(train_dataset)
     steps_per_epoch = math.ceil(n_examples / batch_size)
@@ -268,6 +279,7 @@ def train_with_lr(
         # the hook. Their GCD is that spacing.
         eval_every_steps = math.gcd(*targets) if len(targets) > 1 else targets[0]
 
+    t_train = time.perf_counter()
     for epoch in range(epochs):
         epoch_out = run_one_epoch(
             model=model,
@@ -291,7 +303,9 @@ def train_with_lr(
         avg_train_loss = epoch_out["avg_loss"]
         train_losses.append(avg_train_loss)
 
+        t_val = time.perf_counter()
         val_loss, val_acc = evaluate_validation(model, val_loader, device, loss_fn=loss_fn)
+        t_val = time.perf_counter() - t_val
         val_losses.append(val_loss)
         val_accs.append(val_acc)
         if val_loss < best_val_loss:
@@ -312,7 +326,9 @@ def train_with_lr(
     # DeltaE on the final weights. Run once per LR rather than per epoch:
     # it is ~100x more expensive per example than CE, and what we need is a
     # single comparable number per LR.
+    t_train = time.perf_counter() - t_train - t_val
     de_result = None
+    t_de = time.perf_counter()
     if de_examples and de_limit > 0:
         de_result = evaluate_delta_e(
             model, de_examples, device, limit=de_limit,
@@ -323,6 +339,13 @@ def train_with_lr(
                   f"p95={de_result['delta_e_p95']:.3f} "
                   f"(n={de_result['n_scored']}, "
                   f"valid={de_result['valid_rate']:.2f})", flush=True)
+
+    t_de = time.perf_counter() - t_de
+    if verbose:
+        # Where the wall clock goes. The beta2 study's first cells hit their
+        # wall with no record of which phase ate it; this is that record.
+        print(f"    [time] train {t_train / 60:.1f} min, val {t_val / 60:.1f} min, "
+              f"dE {t_de / 60:.1f} min", flush=True)
 
     scored = bool(de_result and de_result.get("n_scored"))
     return LRSearchResult(
@@ -725,6 +748,14 @@ def main() -> None:
     # jaxlayerlumos' per-stack-depth trace cache warm across the sweep.
     de_examples = None
     de_simulator = None
+    # Read the validation split ONCE and keep it in memory; every trial's CE
+    # eval and the DeltaE slice come from this list. See train_with_lr.
+    t0 = time.perf_counter()
+    val_examples = list(val_dataset)
+    print(f"[INFO] Validation: {len(val_examples):,} examples read once in "
+          f"{(time.perf_counter() - t0) / 60:.1f} min, held in memory",
+          flush=True)
+
     de_limit = args.limit_de_examples if args.selection_metric == "delta_e" else 0
     if de_limit > 0:
         if not OPTICAL_SIM_AVAILABLE:
@@ -733,7 +764,7 @@ def main() -> None:
                   "selection will fall back to val_loss.", flush=True)
             de_limit = 0
         else:
-            de_examples = list(val_dataset)[:de_limit]
+            de_examples = val_examples[:de_limit]
             from src.optical_sim import OpticalSimulator
             de_simulator = OpticalSimulator(incidence_angle=0)
             print(f"[INFO] DeltaE selection slice: {len(de_examples):,} examples "
@@ -745,7 +776,7 @@ def main() -> None:
         eval_fractions=args.eval_fractions,
         per_example_de=args.per_example_de,
         epochs=args.epochs,
-        train_dataset=train_dataset, val_dataset=val_dataset,
+        train_dataset=train_dataset, val_dataset=val_examples,
         config=config, device=device,
         lr_min=args.lr_min, lr_max=args.lr_max, n_lrs=args.n_lrs,
         batch_size=args.batch_size, num_workers=args.num_workers,

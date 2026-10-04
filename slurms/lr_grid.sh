@@ -137,6 +137,15 @@ set -euo pipefail
 #            decision rule fixed before the data and draws the figure.
 #            Writes to outputs/lr_search/beta2/.
 #
+#   STAGE=beta2x  close the beta2 study's open LR edges.   a few cells
+#            After scripts/fit_beta2.py, every cell whose LR optimum ran off an
+#            edge that did NOT diverge gets two more rates past it (4x and
+#            5.66x the prior, or the mirror below). Reads the cells from
+#            analyses/scaling/results/beta2_fit.json (EXTENSION_FROM= to
+#            override), writes to outputs/lr_search/beta2_ext/. Re-run
+#            fit_beta2.py after; it merges the rates and lists any edge still
+#            open.
+#
 #   STAGE=2  EVERY model on the lowest RUNGS curves.  18 cells, ~57 GPU-h
 #            (RUNGS=3 by default; the probe decides 3 vs 4, see above)
 #            The LR search runs INSIDE the IsoFLOP test. Not one point per
@@ -338,6 +347,10 @@ case "${STAGE}" in
   # must not feed the law that stage 2 measures at one fixed beta2.
   1)     OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/stage1/${HEAD_MODE}}" ;;
   beta2) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/beta2/${HEAD_MODE}}" ;;
+  # Extra rates for beta2 cells whose LR optimum ran off an open edge. Its own
+  # directory: same (size, beta2, seed) tag as the main cell, and fit_beta2.py
+  # merges the two.
+  beta2x) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/beta2_ext/${HEAD_MODE}}" ;;
   check) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/check/${HEAD_MODE}}" ;;
   3)     OUTPUT_DIR="${OUTPUT_DIR:-outputs/isoflop_tuned/${HEAD_MODE}}" ;;
   *)     OUTPUT_DIR="${OUTPUT_DIR:-${STAGE2_DIR}}" ;;
@@ -365,7 +378,8 @@ LR_SCHEDULE="${LR_SCHEDULE:-cosine}"
 EVAL_FRACTIONS="${EVAL_FRACTIONS-}"
 
 CELL_ARGS=(--stage "${STAGE}" --fit "${FIT}" --beta2 "${BETA2_WINNER}"
-           --rungs "${RUNGS}" --stage2-dir "${STAGE2_DIR}")
+           --rungs "${RUNGS}" --stage2-dir "${STAGE2_DIR}"
+           ${EXTENSION_FROM:+--extension-from "${EXTENSION_FROM}"})
 
 # --list prices the stage, so it must work BEFORE the stage can run: stage 3's
 # learning rates do not exist until stage 2 is fitted, but its cells and cost
@@ -445,8 +459,11 @@ PYEOF
 )"
 LR_MIN="${LR_MIN:-${LR_LO}}"
 LR_MAX="${LR_MAX:-${LR_HI}}"
-# A cell that carries its own rate trains at exactly that rate, once.
-if [[ "${CELL_LR}" != "-" ]]; then
+# A cell that carries its own rate trains at exactly that rate, once; one that
+# carries "lo:hi:n" trains n rates from lo to hi (beta2x's extensions).
+if [[ "${CELL_LR}" == *:*:* ]]; then
+    IFS=: read -r LR_MIN LR_MAX N_LRS <<< "${CELL_LR}"
+elif [[ "${CELL_LR}" != "-" ]]; then
     LR_MIN="${CELL_LR}"; LR_MAX="${CELL_LR}"; N_LRS=1
 elif (( N_LRS == 1 )); then
     # One point of logspace(lo, hi, 1) is lo, prior/LR_SPAN_DOWN, not the prior.
