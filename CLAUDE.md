@@ -184,7 +184,32 @@ the mirror below) into `outputs/lr_search/beta2_ext/`, which the analysis
 merges into the same cells. In the interim data (23 of 45 cells, Oct 4) five
 cells were open, all for the leading β₂ values; about 7 GPU-h to close.
 
-**Interim, 23 of 45 cells, not a result.** No β₂ is distinguishable from the
+**Result, all 45 cells (Oct 5), under the pre-registered rule.**
+`results/beta2_fit_oct5_45cells.json`.
+
+| | |
+|---|---|
+| β₂ effect | F(4, 24) = 4.6, **p = 0.007**: β₂ matters |
+| size × β₂ | p = 0.14: no evidence the best β₂ moves with size, so one value |
+| winner | **0.999**, pooled and in every chroma bucket (low, mid, high) |
+| vs 0.99 | +0.13 ΔE, p = 0.46: indistinguishable |
+| vs 0.95 | +0.27 ΔE, p = 0.32: indistinguishable |
+| vs 0.98 | +0.52 ΔE, p = 0.021 (Holm over 4: 0.064) |
+| vs 0.9 | +0.65 ΔE, p = 0.016 (Holm over 4: 0.065) |
+| per size | 0.999 at 100k, 0.99 at 1M, 0.95 at 6.6M (each within noise of 0.999) |
+| continuous β₂* | no interior minimum: the trend still falls toward higher β₂ |
+
+Stage 1's suggestion that 0.95 or 0.99 beat 0.999 was noise; the replicated,
+LR-tuned study reverses it. **Two things stand between this and a claim of
+optimality, both named by the rule:** 0.999 is the end of the grid, so it is
+not bracketed (`BETA2_VALUES=0.9995` adds 9 cells, ~31 GPU-h), and 16 cells
+did not bracket their LR optimum, 11 of them on an open edge
+(`STAGE=beta2x`, ~16 GPU-h). Until then the defensible statement is: lowering
+β₂ from 0.999 does not help, and 0.9 and 0.98 are worse at nominal 95%.
+0.999 is also what the first sweep ran, so carrying it into stage 2 leaves
+the learning rate as the only change between the two IsoFLOP figures.
+
+**Interim, 23 of 45 cells (Oct 4), superseded by the above.** No β₂ is distinguishable from the
 leader; Akima leads with 0.99, the quadratic with 0.999, as expected when
 nothing is resolved. Three complete blocks; no size yet has the two seeds the
 ANOVA needs.

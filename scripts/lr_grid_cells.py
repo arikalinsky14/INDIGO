@@ -46,7 +46,7 @@ import math
 import re
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.scaling.configs import (CORPUS_EXAMPLES,                  # noqa: E402
@@ -148,7 +148,8 @@ def stage2_optimum(stage2_dir: Path, cell: dict) -> Optional[float]:
 
 def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
               stage2_dir: Optional[str] = None,
-              extension_from: Optional[str] = None) -> list[dict]:
+              extension_from: Optional[str] = None,
+              beta2_values: Optional[Sequence[float]] = None) -> list[dict]:
     fit_path_sweep = fit_path
     fit = json.load(open(fit_path))
 
@@ -236,6 +237,9 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
         #
         # Seed is the outer loop so that, as the array runs, complete paired
         # blocks (one seed, every beta2, one size) land early.
+        # beta2_values extends the grid without re-listing the cells already
+        # run: the first study's winner, 0.999, sat on the end of the grid, so
+        # the pre-registered rule required values past it before any claim.
         picks = [rungs_[0], rungs_[len(rungs_) // 2], rungs_[-1]]
         out = []
         for seed in BETA2_SEEDS:
@@ -243,7 +247,7 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
                 D = int(round(r["d_star"] * 1.1 / 1000) * 1000)
                 out.extend(_cell(r["n_star_median"], D, b, seed=seed,
                                  budget=r["budget"])
-                           for b in BETA2_SWEEP)
+                           for b in (beta2_values or BETA2_SWEEP))
         return out
 
     if stage == "beta2x":
@@ -373,6 +377,10 @@ def main() -> None:
                         "3: every point of the remaining curves at the law's "
                         "learning rate, plus the lower rungs' repeat seeds. "
                         "Stages 2 and 3 together are the final IsoFLOP.")
+    p.add_argument("--beta2-values", default=None,
+                   help="beta2 stage: comma-separated beta2 values to run "
+                        "instead of the default sweep, e.g. 0.9995,0.9999 to "
+                        "extend the grid past its end")
     p.add_argument("--extension-from", default=None,
                    help="beta2x: fit_beta2.py's JSON, whose lr_edge_cells say "
                         "which cells to extend and which way")
@@ -421,8 +429,10 @@ def main() -> None:
 
     stage = (a.stage if a.stage in ("probe", "check", "beta2", "beta2x")
              else int(a.stage))
+    b2v = ([float(x) for x in a.beta2_values.split(",")]
+           if a.beta2_values else None)
     cells = cells_for(stage, a.fit, a.beta2, a.rungs, a.stage2_dir,
-                      a.extension_from)
+                      a.extension_from, b2v)
     # Stage 1 ranks beta2; stage 2 and the check locate the LR optimum; stage
     # 3 trains each point once at a rate it is given. Different jobs,
     # different grid widths.

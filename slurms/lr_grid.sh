@@ -379,7 +379,8 @@ EVAL_FRACTIONS="${EVAL_FRACTIONS-}"
 
 CELL_ARGS=(--stage "${STAGE}" --fit "${FIT}" --beta2 "${BETA2_WINNER}"
            --rungs "${RUNGS}" --stage2-dir "${STAGE2_DIR}"
-           ${EXTENSION_FROM:+--extension-from "${EXTENSION_FROM}"})
+           ${EXTENSION_FROM:+--extension-from "${EXTENSION_FROM}"}
+           ${BETA2_VALUES:+--beta2-values "${BETA2_VALUES}"})
 
 # --list prices the stage, so it must work BEFORE the stage can run: stage 3's
 # learning rates do not exist until stage 2 is fitted, but its cells and cost
