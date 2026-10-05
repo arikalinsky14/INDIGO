@@ -330,8 +330,10 @@ that applies, give or take 7%. The probe trains at the prior LR and writes to
   614,400.
 - **Tuning cells ran ~10x slower than sweep runs.** Most likely cause: no
   `--limit-shard-aligned`, so every trial streamed the whole corpus (now fixed).
-  Contention was the earlier guess and may still add to it, so throttle arrays
-  (`%2`) and size from a rate the probe measured after the fix.
+  Contention was the earlier guess. With the validation set also read once per
+  cell (Oct 4), six cells run side by side fine: arrays default to `%6`
+  (`THROTTLE=` to change what `--list` suggests). Raise or lower a running
+  array with `scontrol -M gpu update JobId=<id> ArrayTaskThrottle=<n>`.
 - **Any run that goes on an IsoFLOP passes `--limit-shard-aligned`.** It decides
   which shards the training subset and the ΔE slice are drawn from; points drawn
   differently do not belong on one curve.

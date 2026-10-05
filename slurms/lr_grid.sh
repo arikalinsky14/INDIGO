@@ -221,22 +221,22 @@ set -euo pipefail
 #   STAGE=2 RUNGS=3 EXAMPLES_PER_SEC=<measured> bash slurms/lr_grid.sh --list
 #   STAGE=3 RUNGS=3 EXAMPLES_PER_SEC=<measured> bash slurms/lr_grid.sh --list
 #
-#   STAGE=1 sbatch --array=0-5%2 --time=<from the table> slurms/lr_grid.sh
+#   STAGE=1 sbatch --array=0-5%6 --time=<from the table> slurms/lr_grid.sh
 #
 #   # then, with BETA2_WINNER set to what stage 1 picked and RUNGS set to what
 #   # the probe justified (3 -> --array=0-17, 4 -> --array=0-23):
-#   STAGE=2 RUNGS=3 BETA2_WINNER=0.99 sbatch --array=0-17%2 \
+#   STAGE=2 RUNGS=3 BETA2_WINNER=0.999 sbatch --array=0-17%6 \
 #       --time=<from the table> slurms/lr_grid.sh
 #   python scripts/fit_lr_law.py --results-dir outputs/lr_search/cross_attn \
 #       --coverage-from analyses/scaling/results/isoflop_fit.json
 #
-#   STAGE=check BETA2_WINNER=0.99 sbatch --array=0-0 \
+#   STAGE=check BETA2_WINNER=0.999 sbatch --array=0-0 \
 #       --time=<from the table> slurms/lr_grid.sh
 #
 #   # only if the check passes; RUNGS must be the value stage 2 ran with:
-#   STAGE=3 RUNGS=3 BETA2_WINNER=0.99 sbatch --array=0-29%2 \
+#   STAGE=3 RUNGS=3 BETA2_WINNER=0.999 sbatch --array=0-29%6 \
 #       --time=<from the table> slurms/lr_grid.sh
-#   python scripts/collect_isoflop.py --beta2 0.99 --rungs 3
+#   python scripts/collect_isoflop.py --beta2 0.999 --rungs 3
 #   python scripts/fit_scaling_porian.py \
 #       --fit analyses/scaling/results/isoflop_tuned.json \
 #       --output analyses/scaling/results/porian_fit_tuned.json
@@ -393,7 +393,7 @@ if [[ "${1:-}" == "--list" ]]; then
         --wall-hours "${WALL_HOURS:-6}"
     N_TASKS="$(python3 scripts/lr_grid_cells.py "${CELL_ARGS[@]}" --format count)"
     echo
-    echo "batch size ${BATCH_SIZE};  submit with --array=0-$((N_TASKS - 1))"
+    echo "batch size ${BATCH_SIZE};  submit with --array=0-$((N_TASKS - 1))%${THROTTLE:-6}"
     exit 0
 fi
 

@@ -249,7 +249,7 @@ parabola, an early finish costs nothing.
 **Tuning cells are a different regime and the sweep's rate does not transfer.**
 Six concurrent `lr_grid.sh` cells on the same shards measured a median of 204
 ex/s, 6x under the planner, and every cell hit its wall. Size tuning arrays
-from a measured rate and throttle them with `%2`.
+from a measured rate and throttle them (`%6` since the validation-read fix).
 
 **Throttle concurrency with `%N`.** v1 ran all 20 tasks at once against the
 same parquet shards on shared `/ix1` and measured 246–2856 ex/s. These jobs

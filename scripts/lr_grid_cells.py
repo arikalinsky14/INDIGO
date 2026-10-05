@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
 import sys
 from pathlib import Path
@@ -52,6 +53,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.scaling.configs import (CORPUS_EXAMPLES,                  # noqa: E402
                                  DEFAULT_BATCH_SIZE, SEC_PER_DE_EXAMPLE,
                                  STARTUP_SEC, achievable_sizes)
+
+#: Array tasks allowed to run at once (the %N in --array). 6 since the beta2
+#: study: once lr_tuning.py read its validation set once per cell rather than
+#: once per trial, six cells shared the shards without starving each other.
+#: The first submissions ran at 2, when every trial streamed half the corpus.
+DEFAULT_THROTTLE = int(os.environ.get("THROTTLE", 6))
 
 #: Longest --time CRC's --qos=short accepts on the l40s partition.
 QOS_SHORT_MAX_HOURS = 24
@@ -505,8 +512,9 @@ def main() -> None:
         # needed, and long caps how many cards a group holds at once.
         qos = "" if need <= QOS_SHORT_MAX_HOURS else " --qos=long"
         print(f"       Submit with --time={need:02d}:00:00{qos}, and "
-              f"throttle the array (--array=0-{len(cells) - 1}%2): these runs "
-              f"are input-bound, so concurrent cells slow each other down.")
+              f"throttle the array (--array=0-{len(cells) - 1}%{DEFAULT_THROTTLE}): "
+              f"these runs are input-bound, so concurrent cells slow each "
+              f"other down.")
 
 
 if __name__ == "__main__":
