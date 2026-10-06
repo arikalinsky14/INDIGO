@@ -23,7 +23,7 @@ import collections
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -61,9 +61,10 @@ def law_json(law: P.PowerLaw) -> dict:
 
 def analyse(runs: List[dict], budgets: List[float], metric: str,
             n_boot: int, n_draws: int, constant_noise: bool,
-            credits: CreditModel, seed: int) -> dict:
+            credits: CreditModel, seed: int,
+            noise_runs: Optional[List[dict]] = None) -> dict:
     by_b = group_by_budget(runs, budgets)
-    noise = noise_for(runs, metric, constant_noise)
+    noise = noise_for(noise_runs or runs, metric, constant_noise)
     rungs, rung_json = [], []
     for b in sorted(by_b):
         rs = by_b[b]
@@ -153,22 +154,32 @@ def main() -> None:
     p.add_argument("--su-per-gpu-hour", type=float, default=None,
                    help="service units per GPU-hour for the credits column")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--noise-from", default=None,
+                   help="calibrate the seed noise from THIS file's repeat-seed "
+                        "clusters instead of --fit's. For a preview before "
+                        "the fit has repeats of its own (stage 2 alone is "
+                        "seed 42 only): pass the first sweep's isoflop_fit.json")
     a = p.parse_args()
 
     src = json.load(open(a.fit))
+    noise_runs = json.load(open(a.noise_from))["runs"] if a.noise_from else None
+    if noise_runs:
+        print(f"[INFO] seed noise borrowed from {a.noise_from}: a preview; the "
+              f"final fit uses its own repeat seeds")
     credits = (CreditModel(su_per_gpu_hour=a.su_per_gpu_hour)
                if a.su_per_gpu_hour else CreditModel())
     if credits.caveat:
         print(f"[WARN] {credits.caveat}")
 
-    result = {"source": a.fit, "budgets": src["budgets"],
+    result = {"source": a.fit, "noise_from": a.noise_from or a.fit,
+              "budgets": src["budgets"],
               "n_runs": len(src["runs"]), "estimator": "porian2024",
               "su_per_gpu_hour": credits.su_per_gpu_hour,
               "su_rates_confirmed": credits.confirmed, "by_metric": {}}
     for m in a.metrics:
         result["by_metric"][m] = analyse(
             src["runs"], src["budgets"], m, a.bootstrap_iters, a.law_draws,
-            not a.noise_varies_with_metric, credits, a.seed)
+            not a.noise_varies_with_metric, credits, a.seed, noise_runs)
 
     Path(a.output).parent.mkdir(parents=True, exist_ok=True)
     json.dump(result, open(a.output, "w"), indent=1)

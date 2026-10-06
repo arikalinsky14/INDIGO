@@ -101,6 +101,11 @@ def main() -> None:
                         "branch is otherwise flush against the axis.")
     p.add_argument("--x-pad-right", type=float, default=1.25)
     p.add_argument("--output", default=None)
+    p.add_argument("--noise-from", default=None,
+                   help="take the seed noise from this file's repeat seeds "
+                        "(see scripts/fit_scaling_porian.py --noise-from)")
+    p.add_argument("--title", default=None,
+                   help="replaces the default title, e.g. to mark a preview")
     a = p.parse_args()
 
     src = json.load(open(a.fit))
@@ -110,7 +115,8 @@ def main() -> None:
     budgets = sorted(by_b)
 
     clusters = collections.defaultdict(list)
-    for r in src["runs"]:
+    noise_src = json.load(open(a.noise_from))["runs"] if a.noise_from else src["runs"]
+    for r in noise_src:
         clusters[(round(r["flops"], -11), r["n_params"])].append(value_of(r, a.metric))
     noise = P.NoiseModel.from_clusters(list(clusters.values()))
 
@@ -270,12 +276,13 @@ def main() -> None:
     for t in leg.get_texts():
         t.set_color(INK2)
 
-    fig.suptitle(f"INDIGO IsoFLOP sweep, estimated as in Porian et al. 2024  "
+    fig.suptitle(a.title or f"INDIGO IsoFLOP sweep, estimated as in Porian et al. 2024  "
                  f"({label})", fontsize=13.5, color=INK, x=0.008, ha="left",
                  y=1.035)
     sub = (f"{len(good)} of {len(rungs)} rungs usable. Akima interpolation, "
            f"boundary rejection, seed-noise bootstrap ({a.bootstrap_iters} draws, "
-           rf"$\sigma$ = {noise.sigma_lo:.3f} from repeat seeds), "
+           rf"$\sigma$ = {noise.sigma_lo:.3f} from repeat seeds"
+           + (f" of {Path(a.noise_from).name}" if a.noise_from else "") + "), "
            f"1/$\\sigma^2$-weighted fit.")
     if use_credits and credits.caveat:
         sub += (f"  {credits.su_per_gpu_hour:g} SU/GPU-hour (published l40s weight; "
