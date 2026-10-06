@@ -52,6 +52,7 @@ sys.path.insert(0, str(_repo_root))
 from scripts.training import (
     collate_fn,
     collate_fn_packed,
+    make_train_loader,
     run_one_epoch,
     set_seed,
 )
@@ -199,10 +200,8 @@ def train_with_lr(
     loader_kw = {}
     if num_workers > 0:
         loader_kw["prefetch_factor"] = prefetch_factor
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, collate_fn=active_collate,
-        num_workers=num_workers, pin_memory=True, **loader_kw,
-    )
+    train_loader = make_train_loader(train_dataset, batch_size, active_collate,
+                                     num_workers, **loader_kw)
     if isinstance(val_dataset, list):
         # Read once in main() and held in memory, as training.py does. A
         # DataLoader over the streaming dataset re-read it from disk on every

@@ -277,3 +277,118 @@ def test_split_cache_identical(shards, tmp_path, capsys):
     # Different rows, different file.
     other = FlexThinFilmDataset(shards, **dict(kw, seed=8))
     assert split_cache_key(other) != split_cache_key(ds)
+
+
+# ---------------------------------------------------------------------------
+# Batch-native loader (src/batch_stream.py)
+# ---------------------------------------------------------------------------
+
+def _stream_batches(root, workers, prefetch, batch=32, **kw):
+    from torch.utils.data import DataLoader
+    from src.batch_stream import PackedBatchStream
+    kw = {"limit_examples": 500, "limit_shard_aligned": True, **kw}
+    ds = FlexThinFilmDataset(root, split="train", streaming=True, **kw)
+    return list(DataLoader(PackedBatchStream(ds, batch), batch_size=None,
+                           num_workers=workers,
+                           prefetch_factor=prefetch if workers else None))
+
+
+def _same_batches(ref, got):
+    assert len(ref) == len(got)
+    for a, b in zip(ref, got):
+        assert a.keys() == b.keys()
+        for k in a:
+            assert a[k].dtype == b[k].dtype, k
+            assert a[k].shape == b[k].shape, k
+            assert torch.equal(a[k], b[k]), k
+
+
+@pytest.mark.parametrize("workers", [0, 1, 3, 6, 9])
+def test_batch_stream_identical(shards, workers):
+    """Old decode, old collate, old DataLoader settings against the batch
+    stream: same batches, same order, including batches that span a shard
+    boundary, each worker's partial last batch, and more workers than
+    shards."""
+    ref = _loader_batches(shards, True, old_collate_fn_packed, workers, 1)
+    got = _stream_batches(shards, workers, 4)
+    assert any(b["lab"].shape[0] < 32 for b in ref) or workers == 0
+    _same_batches(ref, got)
+
+
+def test_batch_stream_full_split(shards):
+    """Every row of the corpus, no limit: whole shards, dense selection."""
+    from torch.utils.data import DataLoader
+    os.environ["INDIGO_LEGACY_DECODE"] = "1"
+    try:
+        ds = FlexThinFilmDataset(shards, split="train", streaming=True)
+        ref = list(DataLoader(ds, batch_size=64, collate_fn=old_collate_fn_packed,
+                              num_workers=4, prefetch_factor=1))
+    finally:
+        os.environ.pop("INDIGO_LEGACY_DECODE")
+    from src.batch_stream import PackedBatchStream
+    got = list(DataLoader(PackedBatchStream(
+        FlexThinFilmDataset(shards, split="train", streaming=True), 64),
+        batch_size=None, num_workers=4, prefetch_factor=4))
+    _same_batches(ref, got)
+
+
+def test_batch_stream_legacy_paths(shards):
+    """The fallbacks: INDIGO_LEGACY_DECODE=1, and examples converted to
+    columns, give the same batches."""
+    ref = _loader_batches(shards, True, old_collate_fn_packed, 3, 1)
+    os.environ["INDIGO_LEGACY_DECODE"] = "1"
+    try:
+        got = _stream_batches(shards, 3, 2)
+    finally:
+        os.environ.pop("INDIGO_LEGACY_DECODE")
+    _same_batches(ref, got)
+
+
+@pytest.fixture(scope="module")
+def mixed_shards(tmp_path_factory):
+    """Two ordinary shards and one in an older layout (string-encoded
+    spectra and slots), which the column path must refuse and the per-row
+    path must decode."""
+    root = _write_shards(tmp_path_factory.mktemp("mixed"), n_shards=2, seed=5)
+    rng = np.random.default_rng(9)
+    R = []
+    for _ in range(90):
+        P = int(rng.integers(4, 12)); L = int(rng.integers(1, MAX_LAYERS + 1))
+        R.append({
+            "lab": json.dumps([float(x) for x in rng.uniform(-60, 95, 3)]),
+            "pool_size": P,
+            "pool_n": json.dumps([list(rng.uniform(0.2, 4, 128)) for _ in range(P)]),
+            "pool_k": json.dumps([list(rng.uniform(0, 5, 128)) for _ in range(P)]),
+            "pool_names": [f"m{j}" for j in range(P)],
+            "pool_sources": ["synthetic"] * P,
+            "layer_slots": json.dumps([int(x) for x in rng.integers(0, P, L)]),
+            "layer_thicknesses": json.dumps([int(x) for x in rng.integers(1, 101, L) * 2]),
+            "num_layers": L,
+        })
+    pq.write_table(pa.Table.from_pylist(R),
+                   root / "angle_0_substrate_glass" / "shard_7.parquet")
+    return root
+
+
+def test_batch_stream_old_layout_shard(mixed_shards):
+    ref = _loader_batches(mixed_shards, True, old_collate_fn_packed, 2, 1)
+    got = _stream_batches(mixed_shards, 2, 4)
+    _same_batches(ref, got)
+
+
+def test_collate_columns_rejects_what_old_collate_rejects(shards):
+    """Bad inputs raise in both, rather than silently training on them."""
+    from src.batch_stream import collate_columns, columns_from_examples
+    exs = _examples(shards, legacy=True)[:8]
+    for mutate in (lambda e: e.target_thicknesses.__setitem__(0, 3),
+                   lambda e: e.target_slots.__setitem__(0, M_MAX),
+                   lambda e: e.target_slots.extend([0] * MAX_LAYERS)
+                   or e.target_thicknesses.extend([2] * MAX_LAYERS)):
+        bad = _examples(shards, legacy=True)[:8]
+        mutate(bad[3])
+        with pytest.raises(ValueError):
+            old_collate_fn_packed(bad)
+        with pytest.raises(ValueError):
+            collate_columns(columns_from_examples(bad))
+    _same_batches([old_collate_fn_packed(exs)],
+                  [collate_columns(columns_from_examples(exs))])

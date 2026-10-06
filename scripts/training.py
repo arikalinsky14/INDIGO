@@ -54,6 +54,7 @@ from torch.utils.data import DataLoader
 _repo_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_repo_root))
 
+from src.batch_stream import PackedBatchStream, batch_loader_enabled
 from src.dataset import FlexThinFilmDataset, TrainingExample, find_repo_root
 from src.material_features import featurize_pool, pad_pool_features
 from src.materials_vocab import (
@@ -70,6 +71,25 @@ from src.delta_e_eval import (
     primary_metric as delta_e_primary_metric,
     OPTICAL_SIM_AVAILABLE,
 )
+
+
+def make_train_loader(dataset, batch_size: int, collate, num_workers: int,
+                      **loader_kw) -> DataLoader:
+    """The training DataLoader: batch-native for the packed head.
+
+    For a streaming dataset under the packed collate, workers build each
+    batch straight from parquet columns (src/batch_stream.py), giving the
+    same batches in the same order as `DataLoader(dataset, batch_size,
+    collate_fn=collate_fn_packed)` without a Python object per example.
+    INDIGO_BATCH_LOADER=0 selects the per-example loader.
+    """
+    if (collate is collate_fn_packed and getattr(dataset, "streaming", False)
+            and batch_loader_enabled()):
+        return DataLoader(PackedBatchStream(dataset, batch_size),
+                          batch_size=None, num_workers=num_workers,
+                          pin_memory=True, **loader_kw)
+    return DataLoader(dataset, batch_size=batch_size, collate_fn=collate,
+                      num_workers=num_workers, pin_memory=True, **loader_kw)
 
 
 def _pool_features(ex: TrainingExample) -> torch.Tensor:
@@ -779,14 +799,8 @@ def main() -> None:
         # Without this, every epoch boundary tears down and respawns all
         # workers, re-paying dataset setup on each one.
         loader_kw["persistent_workers"] = True
-    loader = DataLoader(
-        dataset,
-        batch_size=args.batch_size,
-        collate_fn=active_collate,
-        num_workers=args.num_workers,
-        pin_memory=True,
-        **loader_kw,
-    )
+    loader = make_train_loader(dataset, args.batch_size, active_collate,
+                               args.num_workers, **loader_kw)
 
     # ---- Validation slice, read ONCE and shared by both consumers.
     #
