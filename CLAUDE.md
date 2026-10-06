@@ -280,6 +280,23 @@ indexing in `compute_loss_packed`). Changed:
 - `PREFETCH=4` (was 1). `NUM_WORKERS` stays 6: the worker count decides batch
   composition and order, so changing it changes the data order.
 
+**Measured (STAGE=speed, job 4230033, Oct 6).** Each task alone on an l40s:
+
+| | before | N = 81k | N = 2.5M |
+|---|---|---|---|
+| throughput, harmonic mean | 2,033 ex/s | 11,942 | 16,602 |
+| `data_wait` | not measured | 64% | 25% |
+| startup | ~28 min | 0.8 min | 0.5 min |
+| ΔE eval per LR | 146 s assumed | 3.2 min | |
+
+Building the validation cache on smp took 41.6 min (job 24273491), which is
+what every GPU task used to spend. Stage 2 now prices at ~25 GPU-h at the
+measured rates and 33.8 at the planner's conservative 8,000 ex/s (was 111);
+its longest cell is ~3.4 to 4.9 h, so nothing splits. Still input-bound at the
+bottom of the ladder (64% waiting on data at 81k): wall time tracks FLOPs
+more than it did, not fully. The ΔE eval, single-example greedy decoding plus
+the CPU simulator, is now about a third of stage 2's cost.
+
 **Nothing finished is invalidated**, and new runs are comparable to the beta2
 study and the first sweep: `tests/test_fast_data_path.py` checks bit-for-bit
 equality of every example, every batch, the batch order through 6 workers

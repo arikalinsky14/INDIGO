@@ -24,8 +24,11 @@ import merge_lr_parts as M     # noqa: E402
 
 def _stage2_tasks(max_hours):
     out = subprocess.run(
+        # The pre-Oct-6 rate, at which stage 2's long cells must split; at
+        # the current rate none would, and the test would check nothing.
         [sys.executable, "scripts/lr_grid_cells.py", "--stage", "2",
-         "--format", "lines", "--max-task-hours", str(max_hours)],
+         "--format", "lines", "--rate", "2033",
+         "--max-task-hours", str(max_hours)],
         cwd=REPO, capture_output=True, text=True, check=True).stdout
     return [l.split() for l in out.strip().splitlines()]
 

@@ -60,6 +60,16 @@ from src.scaling.configs import (CORPUS_EXAMPLES,                  # noqa: E402
 #: The first submissions ran at 2, when every trial streamed half the corpus.
 DEFAULT_THROTTLE = int(os.environ.get("THROTTLE", 6))
 
+# Per-task costs after the Oct 6 input-pipeline work, measured by STAGE=speed
+# (job 4230033): startup 0.5 to 0.8 min with the validation split cached (was
+# 1712 s, the sweep-era figure in configs.py, which still prices the sweep);
+# DeltaE eval 3.2 min per learning rate for 2,048 examples (configs.py has
+# 146 s). Priced with margin. Override with TASK_STARTUP_SEC and
+# SEC_PER_DE_EXAMPLE.
+STARTUP_SEC = float(os.environ.get("TASK_STARTUP_SEC", 120.0))
+SEC_PER_DE_EXAMPLE = float(os.environ.get("SEC_PER_DE_EXAMPLE",
+                                          3.5 * 60 / 2048))
+
 #: Longest --time CRC's --qos=short accepts on the l40s partition.
 QOS_SHORT_MAX_HOURS = 24
 
@@ -467,7 +477,7 @@ def main() -> None:
                         "array. table: cells with cost. count: how many "
                         "cells, which stage 3 can answer before its learning "
                         "rates exist.")
-    p.add_argument("--rate", type=float, default=2033.0,
+    p.add_argument("--rate", type=float, default=8000.0,
                    help="examples per second. The default is the MEASURED "
                         "harmonic mean of the shard-aligned probe (job "
                         "4125957: median 2156, harmonic mean 2033), which "

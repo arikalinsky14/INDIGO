@@ -367,7 +367,12 @@ esac
 # is the one that sizes wall time, since time per example is what adds up. The
 # same probe without shard alignment (job 4125615) ran at ~340 and timed out,
 # and the first stage-1 submission at 204: the old figure was I/O, not a floor.
-EXAMPLES_PER_SEC="${EXAMPLES_PER_SEC:-2033}"
+#
+# After the Oct 6 input-pipeline work, STAGE=speed (job 4230033) measured
+# harmonic means of 11,942 ex/s at N = 81k and 16,602 at N = 2.5M, each
+# running alone. Sized at 8,000 for margin, since many tasks reading the same
+# filesystem at once have not been measured at these rates.
+EXAMPLES_PER_SEC="${EXAMPLES_PER_SEC:-8000}"
 
 # Every stage trains on the schedule the SWEEP uses, cosine, because the law
 # is applied to sweep runs and a learning rate means something different under
