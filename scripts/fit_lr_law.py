@@ -46,12 +46,26 @@ from src.scaling.porian import (nested_hparam_optimum,          # noqa: E402
 METRIC_FIELD = {"delta_e": "final_val_de", "val_loss": "best_val_loss"}
 
 
-def load_cells(results_dir: Path, metric: str) -> List[dict]:
-    """Every (N, D, bs, beta2, lr) cell the sweep ran, one row per trial."""
+def load_cells(results_dir: Path, metric: str,
+               beta2: Optional[float] = None) -> List[dict]:
+    """Every (N, D, bs, beta2, lr) cell the sweep ran, one row per trial.
+
+    Only shard-aligned results, and with `beta2` only that beta2's: the
+    directory also holds leftovers from before the stages had their own
+    directories (the first stage-1 submission ran unaligned, at three beta2
+    values and three rates), and those are not evidence for this law.
+    """
     field = METRIC_FIELD[metric]
     out = []
     for path in sorted(glob.glob(str(results_dir / "lr_search_*.json"))):
         d = json.load(open(path))
+        if not d.get("limit_shard_aligned"):
+            print(f"[WARN] {Path(path).name}: not shard-aligned, skipped")
+            continue
+        if beta2 is not None and abs(float(d.get("beta2", 0.999)) - beta2) > 1e-12:
+            print(f"[WARN] {Path(path).name}: beta2 {d.get('beta2')}, not "
+                  f"{beta2:g}; skipped")
+            continue
         if d.get("n_params") is None:
             print(f"[WARN] {Path(path).name}: no n_params recorded, skipping. "
                   f"Re-run with the current lr_tuning.py, which saves it.")
@@ -244,6 +258,9 @@ def main() -> None:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--results-dir", default="outputs/lr_search/cross_attn")
     p.add_argument("--metric", choices=sorted(METRIC_FIELD), default="delta_e")
+    p.add_argument("--beta2", type=float, default=0.999,
+                   help="fit only results at this beta2 (stage 2 ran 0.999); "
+                        "pass a negative value to keep every beta2")
     p.add_argument("--min-params", type=float, default=None,
                    help="lower edge of the fit window (their min_params_for_fit)")
     p.add_argument("--max-params", type=float, default=None,
@@ -264,7 +281,8 @@ def main() -> None:
     p.add_argument("--output", default="analyses/scaling/results/lr_law_fit.json")
     a = p.parse_args()
 
-    cells = load_cells(Path(a.results_dir), a.metric)
+    cells = load_cells(Path(a.results_dir), a.metric,
+                       a.beta2 if a.beta2 >= 0 else None)
     if not cells:
         sys.exit(f"no usable lr_search JSONs under {a.results_dir}")
     rows = tune_per_config(cells, batch_size_swept=a.batch_size_swept)

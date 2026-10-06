@@ -392,3 +392,19 @@ def test_collate_columns_rejects_what_old_collate_rejects(shards):
             collate_columns(columns_from_examples(bad))
     _same_batches([old_collate_fn_packed(exs)],
                   [collate_columns(columns_from_examples(exs))])
+
+
+def test_existing_results_pins_the_cell(tmp_path):
+    """A finished cell with the same architecture but a different example
+    count (the same model on another IsoFLOP rung) must not count as done."""
+    import argparse
+    import lr_tuning as L
+    args = argparse.Namespace(epochs=1, d_model=96, slot_encoder_layers=2,
+                              batch_size=256, beta2=0.999, lr_schedule="cosine",
+                              seed=42, output_suffix="", limit_examples=2395648)
+    other = tmp_path / "lr_search_ep1_lim793088_d96_se2_bs256_b20.999.json"
+    json.dump({"limit_examples": 793088, "epochs": 1, "seed": 42}, open(other, "w"))
+    assert L.existing_results(tmp_path, args) == []
+    mine = tmp_path / "lr_search_ep1_lim2395648_d96_se2_bs256_b20.999.json"
+    json.dump({"limit_examples": 2395648, "epochs": 1, "seed": 42}, open(mine, "w"))
+    assert L.existing_results(tmp_path, args) == [mine]

@@ -521,6 +521,35 @@ def _seed_suffix(seed: int) -> str:
     return "" if seed == 42 else f"_s{seed}"
 
 
+def existing_results(out_dir: Path, args) -> List[Path]:
+    """Finished results for exactly this cell.
+
+    The filename's example count is n_train, which shard alignment could in
+    principle nudge off --limit-examples, so files are matched with `lim*`
+    and then confirmed by the limit_examples, epochs and seed recorded INSIDE
+    them. Matching on the glob alone made any cell whose architecture also
+    appears on another IsoFLOP rung (same d_model and slot layers, different
+    D) see that other cell's file and skip itself: stage 2 lost 8 of 30
+    cells that way (Oct 7).
+    """
+    pattern = (f"lr_search_ep{args.epochs}_lim*"
+               f"_d{args.d_model}_se{args.slot_encoder_layers}"
+               f"_bs{args.batch_size}_b2{args.beta2:g}"
+               + ("" if args.lr_schedule == "cosine" else f"_{args.lr_schedule}")
+               + _seed_suffix(args.seed) + args.output_suffix + ".json")
+    out = []
+    for path in sorted(Path(out_dir).glob(pattern)):
+        try:
+            d = json.load(open(path))
+        except (OSError, ValueError):
+            continue
+        if (d.get("limit_examples") == args.limit_examples
+                and d.get("epochs") == args.epochs
+                and d.get("seed", 42) == args.seed):
+            out.append(path)
+    return out
+
+
 def resolve_output_dir(output_dir: Optional[str], head_mode: str) -> Path:
     """Where this run's results land. Shared by the pre-flight existence check
     and the writer, so the two cannot disagree about which file to look for."""
@@ -684,15 +713,9 @@ def main() -> None:
     # Check for an existing result BEFORE loading data or touching the GPU.
     # The grid is submitted as a SLURM array and arrays get resubmitted, so
     # the point of --skip-existing is to spend nothing on a cell that is
-    # already done. Globbing the example count rather than pinning it keeps
-    # this honest when shard alignment nudges n_train off --limit-examples.
+    # already done.
     _out_dir = resolve_output_dir(args.output_dir, args.head_mode)
-    _pattern = (f"lr_search_ep{args.epochs}_lim*"
-                f"_d{args.d_model}_se{args.slot_encoder_layers}"
-                f"_bs{args.batch_size}_b2{args.beta2:g}"
-                + ("" if args.lr_schedule == "cosine" else f"_{args.lr_schedule}")
-                + _seed_suffix(args.seed) + args.output_suffix + ".json")
-    _existing = sorted(_out_dir.glob(_pattern))
+    _existing = existing_results(_out_dir, args)
     if _existing:
         if args.skip_existing:
             print(f"[INFO] {_existing[0].name} already exists and "
