@@ -55,7 +55,7 @@ from scripts.training import (
     run_one_epoch,
     set_seed,
 )
-from src.dataset import FlexThinFilmDataset, find_repo_root
+from src.dataset import FlexThinFilmDataset, find_repo_root, load_split_cached
 from src.model import ModelConfig, build_model, compute_loss, compute_loss_packed
 from src.materials_vocab import VOCAB_SIZE
 from src.delta_e_eval import (
@@ -601,6 +601,14 @@ def main() -> None:
     parser.add_argument("--lr-min", type=float, default=1e-5)
     parser.add_argument("--lr-max", type=float, default=1e-2)
     parser.add_argument("--n-lrs", type=int, default=8)
+    parser.add_argument("--split-cache-dir", default="cache/splits",
+                        help="where the validation split's rows are cached "
+                             "after the first read (src/dataset.py "
+                             "load_split_cached). Empty string disables.")
+    parser.add_argument("--prepare-split-cache", action="store_true",
+                        help="build the validation split cache and exit, "
+                             "without a GPU: run on smp before an array so "
+                             "no GPU task spends its startup reading it")
     parser.add_argument("--output-suffix", default="",
                         help="appended to the result's filename tag. The SLURM "
                              "wrapper uses it to run one cell's learning-rate "
@@ -703,6 +711,7 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Device: {device}")
 
+    t_startup = time.perf_counter()
     data_dir = Path(args.data_dir)
     if args.limit_examples is None:
         print(f"[INFO] Loading FULL training data...")
@@ -719,6 +728,16 @@ def main() -> None:
         limit_examples=args.limit_val_examples, streaming=args.streaming,
         limit_shard_aligned=args.limit_shard_aligned,
     )
+    print(f"[startup] shard scan and split indices: "
+          f"{time.perf_counter() - t_startup:.0f} s", flush=True)
+    split_cache = (Path(args.split_cache_dir)
+                   if args.split_cache_dir and args.streaming else None)
+    if args.prepare_split_cache:
+        t0 = time.perf_counter()
+        n = len(load_split_cached(val_dataset, split_cache))
+        print(f"[INFO] split cache ready: {n:,} validation rows in "
+              f"{(time.perf_counter() - t0) / 60:.1f} min")
+        return
 
     config = ModelConfig(
         feature_mode=args.feature_mode,
@@ -758,7 +777,7 @@ def main() -> None:
     # Read the validation split ONCE and keep it in memory; every trial's CE
     # eval and the DeltaE slice come from this list. See train_with_lr.
     t0 = time.perf_counter()
-    val_examples = list(val_dataset)
+    val_examples = load_split_cached(val_dataset, split_cache)
     print(f"[INFO] Validation: {len(val_examples):,} examples read once in "
           f"{(time.perf_counter() - t0) / 60:.1f} min, held in memory",
           flush=True)
@@ -776,6 +795,8 @@ def main() -> None:
             de_simulator = OpticalSimulator(incidence_angle=0)
             print(f"[INFO] DeltaE selection slice: {len(de_examples):,} examples "
                   f"(greedy), scored once per LR", flush=True)
+    print(f"[startup] total before the first trial: "
+          f"{(time.perf_counter() - t_startup) / 60:.1f} min", flush=True)
 
     optimal_lr, results = lr_tuning(
         betas=(args.beta1, args.beta2),

@@ -214,6 +214,13 @@ set -euo pipefail
 #
 #   STAGE=probe sbatch --array=0-0 --time=02:00:00 slurms/lr_grid.sh
 #
+#   # After the input-pipeline work (Oct 6): throughput at the smallest, a
+#   # middle and the largest model, one at a time. Read ex/s and data_wait
+#   # from the step lines and the [startup] lines, then size stage 2 with
+#   # EXAMPLES_PER_SEC=<measured>.
+#   sbatch slurms/prepare_split_cache.sh        # smp; wait for it to finish
+#   STAGE=speed sbatch --array=0-2%1 --time=02:00:00 slurms/lr_grid.sh
+#
 #   # read the ex/s off the log. It sizes everything below AND decides how
 #   # many curves stage 2 tunes, so price both before committing. --list works
 #   # for every stage before it can run, stage 3 included:
@@ -309,7 +316,7 @@ STAGE="${STAGE:-1}"
 # again. Seven points over prior/8 to 5x prior step 1.85x instead of 3.1x, and
 # the top point is expected to diverge, which is what brackets from above.
 case "${STAGE}" in
-  probe)   N_LRS=1 ;;
+  probe|speed) N_LRS=1 ;;
   1)       N_LRS="${N_LRS:-3}"; LR_SPAN="${LR_SPAN:-4}" ;;
   # beta2 study: seven rates in sqrt(2) steps, prior/2.83 to 2.83 x prior,
   # centred so the prior itself is the middle point.
@@ -341,6 +348,7 @@ DATA_DIR="${DATA_DIR:-/ix1/ohinder/ajk245/Github/INDIGO/data/train}"
 STAGE2_DIR="${STAGE2_DIR:-outputs/lr_search/${HEAD_MODE}}"
 case "${STAGE}" in
   probe) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/probe/${HEAD_MODE}}" ;;
+  speed) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/speed/${HEAD_MODE}}" ;;
   # Stage 1 ranks beta2 on three rates; three cannot bracket an LR optimum,
   # and the LR fit collapses beta2 by taking the best at each rate, so these
   # must not feed the law that stage 2 measures at one fixed beta2.
@@ -394,10 +402,11 @@ CELL_ARGS=(--stage "${STAGE}" --fit "${FIT}" --beta2 "${BETA2_WINNER}"
            --n-lrs "${N_LRS}" --rate "${EXAMPLES_PER_SEC}"
            --val-examples "${LIMIT_VAL_EXAMPLES:-10000}"
            --de-examples "${LIMIT_DE_EXAMPLES:-2048}"
-           $( (( $(awk "BEGIN{print (${MAX_TASK_HOURS} > 0)}") )) \
-              && echo --max-task-hours "${MAX_TASK_HOURS}")
            ${EXTENSION_FROM:+--extension-from "${EXTENSION_FROM}"}
            ${BETA2_VALUES:+--beta2-values "${BETA2_VALUES}"})
+if awk "BEGIN{exit !(${MAX_TASK_HOURS} > 0)}"; then
+    CELL_ARGS+=(--max-task-hours "${MAX_TASK_HOURS}")
+fi
 
 # --list prices the stage, so it must work BEFORE the stage can run: stage 3's
 # learning rates do not exist until stage 2 is fitted, but its cells and cost
@@ -537,6 +546,12 @@ mkdir -p "${OUTPUT_DIR}" "${RESULTS_DIR}"
 OVERWRITE_FLAG="--skip-existing"
 [[ "${FORCE:-0}" == "1" ]] && OVERWRITE_FLAG="--force"
 
+# NUM_WORKERS stays 6 for every run that is compared with another. Each
+# DataLoader worker streams its own subset of shards and batches are taken
+# from the workers in turn, so the worker count decides which examples share
+# a batch and in what order batches arrive: a different count is a different
+# data order, and the beta2 study and the first sweep all ran with 6. The
+# prefetch depth does not affect order, only how far the workers run ahead.
 srun python scripts/lr_tuning.py \
     --data-dir "${DATA_DIR}" \
     --epochs "${EPOCHS}" --seed "${SEED}" \
@@ -554,7 +569,8 @@ srun python scripts/lr_tuning.py \
     --head-mode "${HEAD_MODE}" --n-heads "${N_HEADS}" \
     --slot-encoder-layers "${SLOT_ENCODER_LAYERS}" --decoder-layers 1 \
     --batch-size "${BATCH_SIZE}" \
-    --num-workers "${NUM_WORKERS:-6}" --prefetch-factor 1 \
+    --num-workers "${NUM_WORKERS:-6}" --prefetch-factor "${PREFETCH:-4}" \
+    --split-cache-dir "${SPLIT_CACHE_DIR:-cache/splits}" \
     --weight-decay 0.01 --grad-clip 1.0 --warmup-fraction 0.02 \
     --output-dir "${RESULTS_DIR}" ${OUTPUT_SUFFIX:+--output-suffix "${OUTPUT_SUFFIX}"} \
     "${OVERWRITE_FLAG}" \

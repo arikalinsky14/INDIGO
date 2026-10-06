@@ -62,6 +62,7 @@ from src.materials_vocab import (
     MAX_LAYERS,
     build_structure_matrix,
     encode_layer,
+    normalize_thickness,
 )
 from src.model import ModelConfig, build_model, compute_loss, compute_loss_packed
 from src.delta_e_eval import (
@@ -69,6 +70,36 @@ from src.delta_e_eval import (
     primary_metric as delta_e_primary_metric,
     OPTICAL_SIM_AVAILABLE,
 )
+
+
+def _pool_features(ex: TrainingExample) -> torch.Tensor:
+    """[pool_size, 2, NUM_LAMBDA] float32: the streaming reader's precomputed
+    features when it supplied them, else featurized here. Same values."""
+    if ex.pool_features is not None:
+        return ex.pool_features
+    return featurize_pool(ex.pool, mode="raw_spectrum")
+
+
+def _batch_pool(examples: List[TrainingExample]
+                ) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Padded pool features [B, M_MAX, 2, L] and mask [B, M_MAX] for a batch.
+
+    Fills one zeroed tensor instead of padding each example with torch.cat
+    and stacking the results: the values are identical (features in the first
+    pool_size slots, zeros after), with one allocation instead of three per
+    example.
+    """
+    feats = [_pool_features(ex) for ex in examples]
+    out = torch.zeros((len(feats), M_MAX) + tuple(feats[0].shape[1:]),
+                      dtype=torch.float32)
+    mask = torch.zeros(len(feats), M_MAX, dtype=torch.bool)
+    for i, f in enumerate(feats):
+        m = f.size(0)
+        if m > M_MAX:
+            raise ValueError(f"Pool size {m} exceeds m_max={M_MAX}")
+        out[i, :m] = f
+        mask[i, :m] = True
+    return out, mask
 
 
 def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
@@ -85,8 +116,7 @@ def collate_fn(examples: List[TrainingExample]) -> Dict[str, torch.Tensor]:
     all_targets: List[int] = []
 
     for ex in examples:
-        pool_feats_unpadded = featurize_pool(ex.pool, mode="raw_spectrum")
-        pool_feats, pool_mask = pad_pool_features(pool_feats_unpadded, m_max=M_MAX)
+        pool_feats, pool_mask = pad_pool_features(_pool_features(ex), m_max=M_MAX)
         pool_size = len(ex.pool)
         n_layers = len(ex.target_slots)
         max_step = n_layers if n_layers < MAX_LAYERS else MAX_LAYERS - 1
@@ -142,51 +172,44 @@ def collate_fn_packed(examples: List[TrainingExample]) -> Dict[str, torch.Tensor
     one slot-encoder run amortised across all (n_layers + 1) token decisions
     per example.
     """
-    all_lab: List[torch.Tensor] = []
-    all_pool_feats: List[torch.Tensor] = []
-    all_pool_masks: List[torch.Tensor] = []
-    all_pool_sizes: List[int] = []
-    all_structures: List[torch.Tensor] = []
-    all_targets: List[torch.Tensor] = []
+    pool_features, pool_masks = _batch_pool(examples)
+    B = len(examples)
+    # Filled in numpy and wrapped once, rather than a torch tensor per example
+    # assigned element by element. The same values: the structure entries are
+    # normalize_thickness() of each layer cast to float32 exactly as a torch
+    # element assignment casts it, and the targets are encode_layer() ints.
+    structures = np.zeros((B, M_MAX, MAX_LAYERS), dtype=np.float32)
+    targets = np.full((B, _PACKED_SEQ_LEN), -100, dtype=np.int64)
 
-    for ex in examples:
-        pool_feats_unpadded = featurize_pool(ex.pool, mode="raw_spectrum")
-        pool_feats, pool_mask = pad_pool_features(pool_feats_unpadded, m_max=M_MAX)
-        pool_size = len(ex.pool)
-
-        n_layers = len(ex.target_slots)
-        # Whether EOS gets a prediction position: yes if structure ended before
-        # MAX_LAYERS (so n_layers < MAX_LAYERS); no if it filled to the cap.
-        emits_eos = n_layers < MAX_LAYERS
-
-        # Full deposited structure (every layer the model is supposed to
-        # produce). The causal mask in the model ensures position p only
-        # sees layers 0..p-1, so feeding the full structure here does not
-        # leak information.
-        full_structure = build_structure_matrix(
-            ex.target_slots, ex.target_thicknesses
-        )
-
-        targets = torch.full((_PACKED_SEQ_LEN,), -100, dtype=torch.long)
-        for k in range(n_layers):
-            targets[k] = encode_layer(ex.target_slots[k], ex.target_thicknesses[k])
-        if emits_eos:
-            targets[n_layers] = EOS_TOKEN
-
-        all_lab.append(ex.lab)
-        all_pool_feats.append(pool_feats)
-        all_pool_masks.append(pool_mask)
-        all_pool_sizes.append(pool_size)
-        all_structures.append(full_structure)
-        all_targets.append(targets)
+    for i, ex in enumerate(examples):
+        slots, thick = ex.target_slots, ex.target_thicknesses
+        n_layers = len(slots)
+        # build_structure_matrix's own checks, kept.
+        if n_layers != len(thick):
+            raise ValueError("slot_indices and thicknesses_nm must have same length")
+        if n_layers > MAX_LAYERS:
+            raise ValueError(f"structure has {n_layers} layers, max is {MAX_LAYERS}")
+        # The full deposited structure (every layer the model is supposed to
+        # produce). The causal mask in the model ensures position p only sees
+        # layers 0..p-1, so feeding the full structure does not leak.
+        for k, (slot, t) in enumerate(zip(slots, thick)):
+            if not (0 <= slot < M_MAX):
+                raise ValueError(f"slot {slot} out of range [0, {M_MAX})")
+            structures[i, slot, k] = normalize_thickness(t)
+            targets[i, k] = encode_layer(slot, t)
+        # EOS gets a prediction position unless the structure filled to the
+        # cap.
+        if n_layers < MAX_LAYERS:
+            targets[i, n_layers] = EOS_TOKEN
 
     return {
-        "lab": torch.stack(all_lab),
-        "pool_features": torch.stack(all_pool_feats),
-        "pool_mask": torch.stack(all_pool_masks),
-        "pool_size": torch.tensor(all_pool_sizes, dtype=torch.long),
-        "structure_matrix": torch.stack(all_structures),
-        "target_tokens": torch.stack(all_targets),
+        "lab": torch.stack([ex.lab for ex in examples]),
+        "pool_features": pool_features,
+        "pool_mask": pool_masks,
+        "pool_size": torch.tensor([len(ex.pool) for ex in examples],
+                                  dtype=torch.long),
+        "structure_matrix": torch.from_numpy(structures),
+        "target_tokens": torch.from_numpy(targets),
     }
 
 
@@ -365,17 +388,20 @@ def train_step(model, batch, device, loss_fn=compute_loss) -> Dict[str, torch.Te
       - `compute_loss`        -> `target_token` (fanned-out collate)
       - `compute_loss_packed` -> `target_tokens` (packed collate)
     """
+    # non_blocking: the DataLoader pins its batches, so the copies can overlap
+    # the previous step's kernels instead of stalling the host. Same bytes
+    # arrive either way; the stream orders them before the forward reads them.
     batch_on_device = {
-        "lab": batch["lab"].to(device),
-        "pool_features": batch["pool_features"].to(device),
-        "pool_mask": batch["pool_mask"].to(device),
-        "pool_size": batch["pool_size"].to(device),
-        "structure_matrix": batch["structure_matrix"].to(device),
+        "lab": batch["lab"].to(device, non_blocking=True),
+        "pool_features": batch["pool_features"].to(device, non_blocking=True),
+        "pool_mask": batch["pool_mask"].to(device, non_blocking=True),
+        "pool_size": batch["pool_size"].to(device, non_blocking=True),
+        "structure_matrix": batch["structure_matrix"].to(device, non_blocking=True),
     }
     if "target_token" in batch:
-        batch_on_device["target_token"] = batch["target_token"].to(device)
+        batch_on_device["target_token"] = batch["target_token"].to(device, non_blocking=True)
     if "target_tokens" in batch:
-        batch_on_device["target_tokens"] = batch["target_tokens"].to(device)
+        batch_on_device["target_tokens"] = batch["target_tokens"].to(device, non_blocking=True)
     return loss_fn(model, batch_on_device)
 
 
@@ -415,9 +441,21 @@ def run_one_epoch(
     leaves all four None, so nothing writes).
     """
     model.train()
-    epoch_loss = 0.0
-    epoch_acc = 0.0
+    # Running sums stay on the device, in float64, and are read back only at
+    # log, checkpoint and epoch boundaries. Reading them every step (.item())
+    # made the host wait for the GPU to finish each step before it could
+    # queue the next, which for these small models is most of the step. The
+    # float64 sum of the float32 losses, in step order, is the same number the
+    # Python-float sum produced.
+    epoch_loss = torch.zeros((), dtype=torch.float64, device=device)
+    epoch_acc = torch.zeros((), dtype=torch.float64, device=device)
+    last_loss_t = None
     n_batches = 0
+    # Time the host spends waiting on the DataLoader for the next batch, as a
+    # share of wall time between log lines. Near zero means the input
+    # pipeline keeps up and the GPU (or the host queueing its kernels) sets
+    # the pace; large means the run is input-bound.
+    wait_since_log = 0.0
     global_step = global_step_start
     warmup_steps = int(total_steps * warmup_fraction)
 
@@ -433,7 +471,14 @@ def run_one_epoch(
     last_log_time = time.perf_counter()
     samples_since_log = 0
 
-    for batch in loader:
+    loader_iter = iter(loader)
+    while True:
+        t_wait = time.perf_counter()
+        try:
+            batch = next(loader_iter)
+        except StopIteration:
+            break
+        wait_since_log += time.perf_counter() - t_wait
         current_lr = get_lr_schedule(global_step, total_steps, base_lr,
                                      warmup_fraction, lr_schedule)
         set_lr(optimizer, current_lr)
@@ -449,15 +494,16 @@ def run_one_epoch(
 
         optimizer.step()
 
-        last_loss = losses["loss"].item()
-        epoch_loss += last_loss
-        epoch_acc += losses["accuracy"].item()
+        last_loss_t = losses["loss"].detach()
+        epoch_loss += last_loss_t.double()
+        epoch_acc += losses["accuracy"].detach().double()
         n_batches += 1
         global_step += 1
         samples_since_log += int(batch["lab"].size(0))
 
         if verbose and global_step % log_every == 0:
             phase = "warmup" if global_step <= warmup_steps else "decay"
+            last_loss = last_loss_t.item()       # syncs: the timing below is real
             now = time.perf_counter()
             elapsed = max(now - last_log_time, 1e-9)
             steps_delta = max(global_step - last_log_step, 1)
@@ -468,17 +514,20 @@ def run_one_epoch(
                 f"loss={last_loss:.4f}, "
                 f"acc={losses['accuracy'].item():.3f}, "
                 f"lr={current_lr:.2e} [{phase}] "
-                f"dt={ms_per_step:.1f}ms/step ({ex_per_s:.0f} ex/s)",
+                f"dt={ms_per_step:.1f}ms/step ({ex_per_s:.0f} ex/s) "
+                f"data_wait={wait_since_log / elapsed:.0%}",
                 flush=True,
             )
             last_log_time = now
             last_log_step = global_step
             samples_since_log = 0
+            wait_since_log = 0.0
 
         # `save_every` is truthy (int > 0) only when the caller enabled saves.
         # Short-circuit BEFORE the modulo so lr_tuning.py (save_every=None)
         # doesn't crash with ZeroDivisionError.
         if save_every and global_step % save_every == 0:
+            last_loss = last_loss_t.item()
             if checkpoint_hook is not None:
                 checkpoint_hook(global_step, last_loss, current_lr)
             elif save_dir is not None and config is not None:
@@ -501,10 +550,12 @@ def run_one_epoch(
         if global_step >= total_steps:
             break
 
+    if last_loss_t is not None:
+        last_loss = last_loss_t.item()
     return {
         "global_step": global_step,
-        "avg_loss": epoch_loss / max(n_batches, 1),
-        "avg_acc": epoch_acc / max(n_batches, 1),
+        "avg_loss": epoch_loss.item() / max(n_batches, 1),
+        "avg_acc": epoch_acc.item() / max(n_batches, 1),
         "last_loss": last_loss,
         "final_lr": current_lr,
         "n_batches": n_batches,

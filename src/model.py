@@ -681,10 +681,11 @@ def compute_loss_packed(
     valid = target != -100
     n_tokens = valid.sum()
     n_correct = ((pred == target) & valid).sum()
-    if valid.any():
-        accuracy = (pred[valid] == target[valid]).float().mean()
-    else:
-        accuracy = torch.tensor(0.0, device=logits.device)
+    # The share of valid tokens predicted right, without the host sync that
+    # `if valid.any()` and boolean indexing `pred[valid]` each forced on every
+    # training step. It is a logged diagnostic only (the loss and gradients do
+    # not touch it); the value is the same ratio, and 0 when no token is valid.
+    accuracy = (n_correct.float() / n_tokens.clamp(min=1).float())
     # `loss` and `accuracy` are means over VALID TOKENS, of which there are
     # `n_tokens` -- not over the `B` examples in the batch. Callers
     # aggregating across batches must weight by `n_tokens`, not by batch

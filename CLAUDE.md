@@ -256,6 +256,43 @@ steps from the end of their seventh rate. The ΔE slice and the token-weighted
 CE are unchanged, so cells already finished stay valid and paired. Each trial
 now logs `[time] train / val / dE`.
 
+**Input pipeline rebuilt, same data (Oct 6). Run `STAGE=speed` before stage 2.**
+Same-FLOP runs took different wall time because the GPU sat at 0.03% to 4% of
+peak: per example, DataLoader workers spent ~85% of their time turning
+spectra into Python floats and back (`.as_py()`, per-material `np.asarray`,
+per-material featurize) and under 10% reading parquet, and the training loop
+synced the GPU every step (`.item()` twice, plus `valid.any()` and boolean
+indexing in `compute_loss_packed`). Changed:
+
+- `src/dataset.py`: each shard is decoded column-wise (`_shard_examples_vectorized`),
+  spectra stay in numpy, `pool_features` is computed once per shard, the
+  MaterialNK pool is built only if something reads it (`_LazyPool`). Any shard
+  whose layout it cannot verify goes through the old per-row decode.
+  `INDIGO_LEGACY_DECODE=1` forces the old decode everywhere.
+- `scripts/training.py`: collate fills preallocated batch tensors; the loop
+  keeps loss sums on the GPU (float64, read at log/checkpoint/epoch only),
+  copies batches with `non_blocking`, and logs `data_wait=` (share of time
+  blocked on the DataLoader: near 0 means not input-bound).
+- Validation rows are cached once per (seed, limit, corpus) as one parquet
+  under `cache/splits/` (`load_split_cached`), decoded by the same function;
+  `slurms/prepare_split_cache.sh` builds it on smp so no GPU task pays the
+  ~3,600-shard read. Startup phases are logged as `[startup]`.
+- `PREFETCH=4` (was 1). `NUM_WORKERS` stays 6: the worker count decides batch
+  composition and order, so changing it changes the data order.
+
+**Nothing finished is invalidated**, and new runs are comparable to the beta2
+study and the first sweep: `tests/test_fast_data_path.py` checks bit-for-bit
+equality of every example, every batch, the batch order through 6 workers
+(old prefetch 1 vs new 4), the validation cache, and the trained weights and
+losses against a verbatim copy of the old loop; old and new `lr_tuning.py`
+end to end on CPU wrote identical results files. The only value that can
+differ is the logged training accuracy, in the last bit. On synthetic shards
+the workers are ~2.6x faster end to end (~5x steady state); real shards and
+CRC CPUs will differ, which is what `STAGE=speed` measures (smallest, middle,
+largest model, 614,400 examples each). Not done, deliberately: batched ΔE
+generation (146 s per trial, but it would change eval numerics) and
+`torch.compile` / fused AdamW (faster kernels, not bit-identical).
+
 **Decided Oct 6: four curves (`RUNGS=4`, now the default in `lr_grid.sh`, `lr_grid_cells.py` and `collect_isoflop.py`) and β₂ = 0.999 (`BETA2_WINNER`, now the default). 24 cells, ~110 GPU-h at 2033 ex/s; the largest cell (d96/se3 at D = 18.5M) alone is ~18.5 h, so it sets the wall time and is submitted on its own with headroom.**
 
 **Long cells run as several array tasks (Oct 6).** `lr_tuning.py` trains a

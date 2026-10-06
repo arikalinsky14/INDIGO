@@ -206,6 +206,18 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
         n, _, _ = nearest_config(rungs_[len(rungs_) // 2]["n_star_median"])
         return [_cell(n, 614_400, beta2)]
 
+    if stage == "speed":
+        # Throughput across the ladder, after the input-pipeline work of Oct
+        # 6: the smallest, a middle and the largest model the final IsoFLOP
+        # trains, one rate each (the prior), 614,400 examples (2,400 steps at
+        # batch 256, well past warm-up). The step log's data_wait share says
+        # whether a size is still input-bound; examples per second across the
+        # three says how far wall time now tracks model size. Its own output
+        # directory: nothing fits on it.
+        ns = sorted({p["n"] for p in points})
+        picks = (ns[0], ns[len(ns) // 2], ns[-1])
+        return [_cell(nearest_config(n)[0], 614_400, beta2) for n in picks]
+
     if stage == 1:
         # beta2, at both ends of the ladder the SWEEP uses. (Not of every
         # achievable shape: achievable_sizes runs to 121M parameters, seven
@@ -418,7 +430,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--stage", required=True,
-                   choices=("probe", "1", "beta2", "beta2x", "2", "check", "3"),
+                   choices=("probe", "speed", "1", "beta2", "beta2x", "2", "check", "3"),
                    help="probe: throughput. 1: beta2. 2: learning rate, tuned "
                         "on every point of the lowest RUNGS IsoFLOP curves. "
                         "check: the fitted law tested at one upper-rung point. "
@@ -480,7 +492,7 @@ def main() -> None:
                         "SLURM wrapper turns it on for stages 2 and check.")
     a = p.parse_args()
 
-    stage = (a.stage if a.stage in ("probe", "check", "beta2", "beta2x")
+    stage = (a.stage if a.stage in ("probe", "speed", "check", "beta2", "beta2x")
              else int(a.stage))
     b2v = ([float(x) for x in a.beta2_values.split(",")]
            if a.beta2_values else None)
@@ -489,7 +501,7 @@ def main() -> None:
     # Stage 1 ranks beta2; stage 2 and the check locate the LR optimum; stage
     # 3 trains each point once at a rate it is given. Different jobs,
     # different grid widths.
-    n_lrs = {"probe": 1, 1: 3, 3: 1, "beta2x": 2}.get(stage, a.n_lrs)
+    n_lrs = {"probe": 1, "speed": 1, 1: 3, 3: 1, "beta2x": 2}.get(stage, a.n_lrs)
     # Splitting needs every cell's learning rate settled, which stage 3's are
     # not before stage 2 is fitted; stage 3 cells are single-rate anyway.
     tasks = split_tasks(cells, n_lrs, None if stage == 3 else a.max_task_hours,

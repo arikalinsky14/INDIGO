@@ -38,11 +38,13 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from functools import lru_cache
 
 import numpy as np
+import pyarrow as pa
 import pyarrow.parquet as pq
 import torch
 from torch.utils.data import IterableDataset, get_worker_info
@@ -105,6 +107,11 @@ class TrainingExample:
     # parquets that predate the column). Populated for eval-time
     # splits by source; ignored during training.
     structure_source: Optional[str] = None
+    # The pool already featurized, [pool_size, 2, NUM_LAMBDA] float32: exactly
+    # featurize_pool(pool, "raw_spectrum"), computed for a whole shard at once
+    # by the streaming reader. The collate uses it when present and falls back
+    # to featurizing the pool when not; the values are the same either way.
+    pool_features: Optional[torch.Tensor] = None
 
 
 # ============================================================================
@@ -259,6 +266,182 @@ def _row_to_example(row: Dict[str, object]) -> TrainingExample:
     )
 
 
+class _LazyPool(Sequence):
+    """A pool of MaterialNK built on first access.
+
+    Training only ever asks a pool its length (the collate reads the
+    precomputed `pool_features`), so building ~18 MaterialNK objects per
+    example for it was a quarter of the remaining decode time. Anything that
+    indexes or iterates the pool (the DeltaE eval, the simulator) gets the
+    same MaterialNK list the per-row decode built: same names, sources and
+    float64 n, k values. Pickles as a plain list.
+    """
+
+    __slots__ = ("_n", "_k", "_names", "_sources", "_built")
+
+    def __init__(self, n: np.ndarray, k: np.ndarray, names, sources):
+        # names, sources: this row's pyarrow list scalars, converted to Python
+        # strings only if the pool is ever materialized.
+        self._n, self._k = n, k
+        self._names, self._sources = names, sources
+        self._built: Optional[List[MaterialNK]] = None
+
+    def _materialize(self) -> List[MaterialNK]:
+        if self._built is None:
+            names = self._names.as_py()
+            sources = self._sources.as_py()
+            with materialnk_validation_disabled():
+                self._built = [
+                    MaterialNK(name=str(names[j]), n=self._n[j],
+                               k=self._k[j], source=str(sources[j]))
+                    for j in range(len(self._n))]
+            self._names = self._sources = None
+        return self._built
+
+    def __len__(self) -> int:
+        return len(self._n)
+
+    def __getitem__(self, i):
+        return self._materialize()[i]
+
+    def __iter__(self):
+        return iter(self._materialize())
+
+    def __eq__(self, other) -> bool:
+        return list(self) == list(other)
+
+    def __reduce__(self):
+        return (list, (self._materialize(),))
+
+    def __repr__(self) -> str:
+        return f"_LazyPool({len(self)} materials)"
+
+
+def _shard_examples_vectorized(table, row_idxs: np.ndarray
+                               ) -> Optional[List[TrainingExample]]:
+    """Every selected row of one shard, decoded column-wise.
+
+    Returns what `_row_to_example` returns row by row, in the same order and
+    with the same values, plus `pool_features`; or None when the shard's
+    layout is not the one this path verifies (string-encoded columns, nulls,
+    a spectrum not NUM_LAMBDA long, a pool whose length disagrees with
+    pool_size), in which case the caller decodes it the old way.
+
+    Why: the per-row path converted every spectrum to Python floats
+    (`.as_py()`), back to numpy one material at a time, and featurized each
+    material again in the collate. Profiled on the training path, that object
+    churn was ~85% of each DataLoader worker's time; the parquet read itself
+    was under 10%. Here the spectra stay in numpy, cast to float32 once for
+    the features (the same round-to-nearest cast featurize() applies).
+
+    Memory: a sparse selection (the validation split, a few rows per shard)
+    is copied out with take(), so what the examples hold is sized to the rows
+    kept, not to the shard. A dense one (training) skips that copy; its
+    examples live only until their batch is collated.
+    """
+    row_idxs = np.asarray(row_idxs, dtype=np.int64)
+    if len(row_idxs) == 0:
+        return []
+    dense = 2 * len(row_idxs) >= table.num_rows
+    sub = table if dense else table.take(pa.array(row_idxs))
+    sel = row_idxs if dense else np.arange(len(row_idxs))
+    for name in ("pool_n", "pool_k", "pool_names", "pool_sources",
+                 "layer_slots", "layer_thicknesses", "pool_size", "lab"):
+        if sub[name].null_count:
+            return None
+
+    def spectra(name: str):
+        col = sub[name].combine_chunks()
+        if not pa.types.is_list(col.type) or not pa.types.is_list(col.type.value_type):
+            return None
+        outer = col.offsets.to_numpy()
+        inner_col = col.flatten()
+        if inner_col.null_count:
+            return None
+        inner = inner_col.offsets.to_numpy()
+        if not np.all(np.diff(inner) == NUM_LAMBDA):
+            return None
+        vals = inner_col.flatten()
+        if vals.null_count or not pa.types.is_floating(vals.type):
+            return None
+        vals = vals.to_numpy(zero_copy_only=False).astype(np.float64, copy=False)
+        return outer - outer[0], vals.reshape(-1, NUM_LAMBDA)
+
+    got_n, got_k = spectra("pool_n"), spectra("pool_k")
+    if got_n is None or got_k is None:
+        return None
+    (off_n, n64), (off_k, k64) = got_n, got_k
+    pool_size = sub["pool_size"].to_numpy(zero_copy_only=False).astype(np.int64)
+    if not (np.array_equal(np.diff(off_n), pool_size)
+            and np.array_equal(off_n, off_k)):
+        return None
+
+    names_col = sub["pool_names"].combine_chunks()
+    sources_col = sub["pool_sources"].combine_chunks()
+    for col in (names_col, sources_col):
+        if not pa.types.is_list(col.type):
+            return None
+        # The per-row decode indexes names[slot] for slot < pool_size.
+        if np.any(np.diff(col.offsets.to_numpy()) < pool_size):
+            return None
+    slots = sub["layer_slots"].to_pylist()
+    thicks = sub["layer_thicknesses"].to_pylist()
+    labs = sub["lab"].to_pylist()
+    srcs = (sub["structure_source"].to_pylist()
+            if "structure_source" in sub.column_names else None)
+    if not all(isinstance(slots[i], list) and isinstance(thicks[i], list)
+               for i in sel):
+        return None
+
+    # float32 features in one cast. Dense: every material of the shard (the
+    # few unselected rows cost less than gathering around them). Sparse: the
+    # table was already cut to the selected rows by take().
+    feats = np.empty((n64.shape[0], 2, NUM_LAMBDA), dtype=np.float32)
+    feats[:, 0] = n64
+    feats[:, 1] = k64
+    feats_t = torch.from_numpy(feats)
+
+    out: List[TrainingExample] = []
+    for i in sel:
+        a, b = int(off_n[i]), int(off_n[i + 1])
+        src = None if srcs is None else srcs[i]
+        out.append(TrainingExample(
+            lab=normalize_lab(list(_maybe_json(labs[i]))),
+            pool=_LazyPool(n64[a:b], k64[a:b], names_col[int(i)],
+                           sources_col[int(i)]),
+            target_slots=[int(x) for x in slots[i]],
+            target_thicknesses=[int(x) for x in thicks[i]],
+            structure_source=None if src is None else str(src),
+            pool_features=feats_t[a:b],
+        ))
+    return out
+
+
+#: INDIGO_LEGACY_DECODE=1 forces the old row-by-row decode everywhere: for A/B
+#: timing, and as the reference the vectorized path is tested against.
+def _legacy_decode() -> bool:
+    import os
+    return os.environ.get("INDIGO_LEGACY_DECODE", "0") == "1"
+
+
+def _shard_examples(table, row_idxs, path: str) -> Iterator[TrainingExample]:
+    """One shard's selected rows, in `row_idxs` order: vectorized when the
+    layout allows, else the original per-row decode (including its per-row
+    skip-and-warn on a bad row)."""
+    fast = None if _legacy_decode() else _shard_examples_vectorized(table, row_idxs)
+    if fast is not None:
+        yield from fast
+        return
+    for row_idx in row_idxs:
+        try:
+            row = {col: table[col][int(row_idx)].as_py()
+                   for col in table.column_names}
+            yield _row_to_example(row)
+        except Exception as exc:
+            print(f"[WARN] Skipping row {int(row_idx)} of {path}: {exc}")
+            continue
+
+
 # ============================================================================
 # Streaming dataset
 # ============================================================================
@@ -299,14 +482,14 @@ class FlexThinFilmDataset(IterableDataset):
         self._file_by_id = {f.file_id: f for f in self.files}
         total_rows = sum(f.nrows for f in self.files)
 
-        file_ids: List[int] = []
-        row_idxs: List[int] = []
-        for f in self.files:
-            file_ids.extend([f.file_id] * f.nrows)
-            row_idxs.extend(range(f.nrows))
-
-        self.file_ids = torch.tensor(file_ids, dtype=torch.int32)
-        self.row_idxs = torch.tensor(row_idxs, dtype=torch.int32)
+        # Same int32 values the original Python-list build produced, without
+        # materialising 2 x 40M Python ints at startup.
+        nrows = np.array([f.nrows for f in self.files], dtype=np.int64)
+        self.file_ids = torch.from_numpy(np.repeat(
+            np.array([f.file_id for f in self.files], dtype=np.int32), nrows))
+        self.row_idxs = torch.from_numpy(
+            (np.arange(int(nrows.sum()), dtype=np.int64)
+             - np.repeat(np.cumsum(nrows) - nrows, nrows)).astype(np.int32))
 
         perm = make_permutation(total_rows, seed)
         # "all" reads every row — use for held-out tier_a/tier_b eval
@@ -426,15 +609,7 @@ class FlexThinFilmDataset(IterableDataset):
                 except Exception as exc:
                     print(f"[WARN] Could not read {f.path}: {exc}")
                     continue
-                for row_idx in row_idxs:
-                    try:
-                        row = {col: table[col][int(row_idx)].as_py()
-                               for col in table.column_names}
-                        yield _row_to_example(row)
-                    except Exception as exc:
-                        print(f"[WARN] Skipping row {int(row_idx)} of "
-                              f"{f.path}: {exc}")
-                        continue
+                yield from _shard_examples(table, row_idxs, f.path)
                 del table  # release ~140 MB before opening the next shard
 
     def _iter_global_order(self) -> Iterator[TrainingExample]:
@@ -487,6 +662,94 @@ class FlexThinFilmDataset(IterableDataset):
         for i in range(len(indices)):
             if i in results:
                 yield results[i]
+
+
+# ============================================================================
+# On-disk cache of a split's rows
+# ============================================================================
+
+#: Bump when the cached content or its decoding changes meaning.
+SPLIT_CACHE_VERSION = 1
+
+
+def split_cache_key(ds: FlexThinFilmDataset) -> str:
+    """Names exactly which rows a streaming dataset yields, and in what order:
+    the split, seed, and every (shard path, row count, selected row indices).
+    Two datasets with the same key read the same rows."""
+    import hashlib
+    if not ds.streaming:
+        raise ValueError("the split cache needs a streaming dataset")
+    h = hashlib.sha256(f"v{SPLIT_CACHE_VERSION}|{ds.split}|{ds.seed}|".encode())
+    for f in sorted(ds.files, key=lambda f: f.shard_id):
+        rows = ds._split_rows_by_file.get(f.file_id)
+        if rows is None or len(rows) == 0:
+            continue
+        h.update(f"{f.path}|{f.nrows}|".encode())
+        h.update(np.ascontiguousarray(rows, dtype=np.int64).tobytes())
+    return h.hexdigest()[:20]
+
+
+def load_split_cached(ds: FlexThinFilmDataset, cache_dir: Optional[Path],
+                      verbose: bool = True) -> List[TrainingExample]:
+    """`list(ds)`, with the rows it reads kept on disk for the next run.
+
+    The validation split is a few rows from each of ~3,600 shards, so reading
+    it means opening nearly half the corpus: the bulk of the ~28-minute
+    startup every tuning task paid. Every task of a stage reads the same rows
+    (same seed and limit), so the first one writes exactly those rows, in
+    iteration order, to one parquet file under cache_dir, and later ones read
+    that file instead.
+
+    Identity: the cache holds the raw parquet rows, not decoded objects, and
+    is decoded by the same `_shard_examples` the shards themselves go through,
+    so a cached run sees the same examples as an uncached one (tested in
+    tests/test_fast_data_path.py). The file is named by split_cache_key, so a
+    different seed, limit, alignment or corpus can never pick it up. Any
+    failure to build or read it falls back to `list(ds)`.
+    """
+    import os
+    if cache_dir is None:
+        return list(ds)
+    try:
+        path = Path(cache_dir) / f"{ds.split}_{split_cache_key(ds)}.parquet"
+    except Exception as exc:
+        print(f"[WARN] split cache unavailable ({exc}); reading the shards")
+        return list(ds)
+
+    table = None
+    if path.exists():
+        try:
+            table = pq.read_table(path)
+            if verbose:
+                print(f"[INFO] {ds.split}: {table.num_rows:,} rows from the "
+                      f"split cache {path}")
+        except Exception as exc:
+            print(f"[WARN] unreadable split cache {path} ({exc}); rebuilding")
+            table = None
+    if table is None:
+        try:
+            parts = []
+            for f in sorted(ds.files, key=lambda f: f.shard_id):
+                rows = ds._split_rows_by_file.get(f.file_id)
+                if rows is None or len(rows) == 0:
+                    continue
+                t = pq.read_table(f.path, columns=_columns_for_shard(f.path))
+                parts.append(t.take(pa.array(np.asarray(rows, dtype=np.int64))))
+            table = pa.concat_tables(parts, promote_options="default")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+            pq.write_table(table, tmp)
+            os.replace(tmp, path)
+            if verbose:
+                print(f"[INFO] {ds.split}: wrote {table.num_rows:,} rows to the "
+                      f"split cache {path}")
+        except Exception as exc:
+            print(f"[WARN] could not build the split cache ({exc}); reading "
+                  f"the shards")
+            return list(ds)
+
+    with materialnk_validation_disabled():
+        return list(_shard_examples(table, np.arange(table.num_rows), str(path)))
 
 
 # ============================================================================

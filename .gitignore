@@ -14,3 +14,4 @@ outputs/
 # ad-hoc local investigation/profiling scripts (not committed)
 _profile_*.py
 _scratch_*.py
+cache/
