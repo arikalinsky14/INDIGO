@@ -118,7 +118,7 @@ def main() -> None:
     p.add_argument("--stage3-dir", default="outputs/isoflop_tuned/cross_attn")
     p.add_argument("--beta2", type=float, required=True,
                    help="stage 1's winner, the BETA2_WINNER stages 2 and 3 ran")
-    p.add_argument("--rungs", type=int, default=4,
+    p.add_argument("--rungs", type=int, default=5,
                    help="the RUNGS stage 2 ran with")
     p.add_argument("--output",
                    default="analyses/scaling/results/isoflop_tuned.json")

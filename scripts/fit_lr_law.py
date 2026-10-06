@@ -133,6 +133,59 @@ def fit_2d(rows: List[dict]) -> dict:
             "n_points": int(A.shape[0])}
 
 
+def rung_of(rows: List[dict], sweep_fit_path: str) -> List[Optional[float]]:
+    """The IsoFLOP budget each tuned configuration belongs to, matched on
+    (N, D) against the sweep it re-runs; None when it matches no sweep point."""
+    runs = json.load(open(sweep_fit_path))["runs"]
+    budgets = sorted(json.load(open(sweep_fit_path))["budgets"])
+    out = []
+    for r in rows:
+        hit = [x for x in runs if x["n_params"] == r["n_params"]
+               and r["train_examples"]
+               and abs(x["passes"] - r["train_examples"]) <= 0.01 * x["passes"]]
+        out.append(min(budgets, key=lambda b: abs(b - hit[0]["flops"]))
+                   if hit else None)
+    return out
+
+
+def leave_one_rung_out(rows: List[dict], sweep_fit_path: str) -> dict:
+    """Fit lr(N, D) without one rung, predict that rung's tuned optima.
+
+    The held-out TOP rung is the extrapolation test that matters: it is what
+    stage 3 does to the rungs above, done here on a rung whose answer was
+    measured. Lower rungs held out are interpolation checks. A law that
+    misses its own top rung will miss the rungs above it by at least as much.
+    """
+    usable = [r for r in rows if r["usable"] and r["train_examples"]]
+    rung = dict(zip(map(id, usable), rung_of(usable, sweep_fit_path)))
+    budgets = sorted({b for b in rung.values() if b is not None})
+    out = {"rungs": []}
+    if len(budgets) < 3:
+        out["status"] = (f"{len(budgets)} tuned rung(s); holding one out needs "
+                         f"at least 3 (two to fit N and M apart)")
+        return out
+    for b in budgets:
+        train = [r for r in usable if rung[id(r)] not in (None, b)]
+        test = [r for r in usable if rung[id(r)] == b]
+        law = fit_2d(train)
+        if law["status"] != "ok" or not test:
+            out["rungs"].append({"budget": b, "status": law["status"]})
+            continue
+        ratios = [r["lr_star"] / (law["coef"] * r["n_params"] ** law["n_exponent"]
+                                  * r["train_examples"] ** law["d_exponent"])
+                  for r in test]
+        out["rungs"].append({
+            "budget": b, "held_out": "top (extrapolation)" if b == budgets[-1]
+            else "interior", "n_points": len(test),
+            "measured_over_predicted": ratios,
+            "median_ratio": float(np.median(ratios)),
+            "worst_ratio": float(max(ratios, key=lambda x: abs(np.log(x)))),
+            "law_without_it": {k: law[k] for k in ("coef", "n_exponent",
+                                                   "d_exponent")}})
+    out["status"] = "ok"
+    return out
+
+
 def report_coverage(law_coef: float, law_exp: float, window: List[dict],
                     fit_json: str) -> dict:
     """Which of the sweep's rungs does the fitted law actually cover?
@@ -312,6 +365,26 @@ def main() -> None:
         print(f"   The D exponent is the term the deployed law omits. "
               f"|c| = {abs(two_d['d_exponent']):.3f}")
         result["lr_vs_n_and_d"] = two_d
+
+    if a.coverage_from:
+        loro = leave_one_rung_out(rows, a.coverage_from)
+        result["leave_one_rung_out"] = loro
+        print("\nLeave one rung out: fit lr(N, D) without a rung, predict its "
+              "tuned optima (measured / predicted).")
+        if loro["status"] != "ok":
+            print(f"   not run: {loro['status']}")
+        for r in loro["rungs"]:
+            if "median_ratio" not in r:
+                print(f"   C={r['budget']:.2e}: {r['status']}")
+                continue
+            print(f"   C={r['budget']:.2e} ({r['held_out']}, {r['n_points']} "
+                  f"points): median {r['median_ratio']:.2f}x, worst "
+                  f"{r['worst_ratio']:.2f}x")
+        top = [r for r in loro["rungs"] if r.get("held_out", "").startswith("top")]
+        if top and "worst_ratio" in top[0]:
+            print("   The top rung is the extrapolation test: if its worst "
+                  "point is off by more than ~1.4x (one grid step is 1.85x), "
+                  "the law does not reach the rungs above.")
 
     Path(a.output).parent.mkdir(parents=True, exist_ok=True)
     json.dump(result, open(a.output, "w"), indent=1)

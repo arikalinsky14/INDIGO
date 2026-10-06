@@ -332,7 +332,7 @@ BETA2_WINNER="${BETA2_WINNER:-0.999}"
 # How many of the lowest IsoFLOP curves stage 2 tunes in full. The rest are
 # projected from the fitted law. The throughput probe decides 3 against 4: see
 # the stage table at the top of this file.
-RUNGS="${RUNGS:-4}"
+RUNGS="${RUNGS:-5}"
 
 LR_SPAN="${LR_SPAN:-30}"
 # The grid runs prior/LR_SPAN_DOWN to prior*LR_SPAN_UP; both default to LR_SPAN.

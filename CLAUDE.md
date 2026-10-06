@@ -297,6 +297,42 @@ bottom of the ladder (64% waiting on data at 81k): wall time tracks FLOPs
 more than it did, not fully. The ΔE eval, single-example greedy decoding plus
 the CPU simulator, is now about a third of stage 2's cost.
 
+**Batch-native loader and five curves (Oct 6, overnight; on the branch, not
+yet on main).**
+
+- `src/batch_stream.py`: DataLoader workers build each packed batch straight
+  from parquet columns, no TrainingExample per row. Handed to the DataLoader
+  with `batch_size=None`, so torch's worker-to-shard assignment and
+  round-robin are untouched. Batches are bit-identical to the old decode +
+  old collate + old DataLoader at 0, 1, 3, 6 and 9 workers, including
+  batches spanning shards, each worker's partial last batch, an old-layout
+  shard and the same ValueErrors. Planted bugs (float16 structure values,
+  dropped partial batches) fail the tests. The pre-Oct-6 `lr_tuning.py` and
+  the new one, 6 workers, wrote identical results. `INDIGO_BATCH_LOADER=0`
+  reverts to the per-example loader.
+- Per worker, collate is 4x cheaper (0.009 vs ~0.035 ms per row), but on
+  synthetic shards end to end it is no faster: what is left is the parquet
+  read, 0.05 ms per row warm and 0.24 cold. On CRC every shard is read cold
+  from /ix1 at ~28 KB per row, so the remaining input limit is probably I/O
+  and decompression, which no loader change touches. Each worker now prints
+  `[loader] ... read X s (MB, MB/s), decode, collate` at the end of its
+  stream, so the next speed run says which. If it is read-bound, the levers
+  are the data format (float32 spectra, fewer bytes per row) or caching a
+  cell's subset on node-local disk for its 7 learning rates.
+- **RUNGS=5** is the default in `lr_grid.sh`, `lr_grid_cells.py` and
+  `collect_isoflop.py`. Stage 2 was submitted as RUNGS=4 tasks 0-23 plus
+  `STAGE=2 RUNGS=5 --array=24-30` (tasks 0-23 are the same cells either way).
+- `STAGE=check` now targets the lowest rung stage 2 does not tune; at
+  RUNGS=5 that is 2.5e16, whose minimum fell on its edge, so the check uses
+  its best seed-42 point (d416/se7, 17.8M, D = 6.4M, ~2 GPU-h).
+- `fit_lr_law.py --coverage-from ...` adds a leave-one-rung-out check: fit
+  lr(N, D) without a rung, predict its tuned optima. The held-out top rung is
+  the extrapolation test (`tests/test_lr_law_loro.py` plants a law and a law
+  that bends).
+- `STAGE=speed` is six sizes (81k to 17.8M) at 2,457,600 examples each, for
+  rate(N) in the credit cost model, ~1.1 GPU-h. Run with
+  `LIMIT_DE_EXAMPLES=0`: throughput needs no DeltaE eval.
+
 **Nothing finished is invalidated**, and new runs are comparable to the beta2
 study and the first sweep: `tests/test_fast_data_path.py` checks bit-for-bit
 equality of every example, every batch, the batch order through 6 workers

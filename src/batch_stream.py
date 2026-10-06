@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
 from typing import Dict, Iterator, List, Optional
 
@@ -299,7 +300,7 @@ class PackedBatchStream(IterableDataset):
         # training loop sizes itself from len(dataset), not from this.
         return -(-len(self.dataset) // self.batch_size)
 
-    def _shards(self) -> Iterator[ShardColumns]:
+    def _shards(self, clock: Dict[str, float]) -> Iterator[ShardColumns]:
         ds = self.dataset
         worker = get_worker_info()
         files = sorted(ds.files, key=lambda f: f.shard_id)
@@ -310,11 +311,18 @@ class PackedBatchStream(IterableDataset):
             rows = ds._split_rows_by_file.get(f.file_id)
             if rows is None or len(rows) == 0:
                 continue
+            t0 = time.perf_counter()
             try:
                 table = pq.read_table(f.path, columns=_columns_for_shard(f.path))
             except Exception as exc:
                 print(f"[WARN] Could not read {f.path}: {exc}")
                 continue
+            t1 = time.perf_counter()
+            clock["read"] += t1 - t0
+            try:
+                clock["mb"] += os.path.getsize(f.path) / 2**20
+            except OSError:
+                pass
             cols = None if legacy else shard_columns(table, rows)
             if cols is None:
                 examples = []
@@ -328,6 +336,7 @@ class PackedBatchStream(IterableDataset):
                               f"{f.path}: {exc}")
                 cols = columns_from_examples(examples)
             del table
+            clock["decode"] += time.perf_counter() - t1
             if cols.n:
                 yield cols
 
@@ -335,8 +344,21 @@ class PackedBatchStream(IterableDataset):
         B = self.batch_size
         pending: List[ShardColumns] = []
         held = 0
+        # Where this worker's time goes, printed when its stream ends: parquet
+        # read (I/O and decompression), column decode, collate. Measured in the
+        # worker, so it excludes time spent blocked handing batches over.
+        clock = {"read": 0.0, "mb": 0.0, "decode": 0.0, "collate": 0.0}
+        rows = 0
+
+        def emit():
+            t = time.perf_counter()
+            out = collate_columns(ShardColumns.concat(pending))
+            clock["collate"] += time.perf_counter() - t
+            return out
+
         with materialnk_validation_disabled():
-            for cols in self._shards():
+            for cols in self._shards(clock):
+                rows += cols.n
                 start = 0
                 while start < cols.n:
                     take = min(B - held, cols.n - start)
@@ -344,7 +366,17 @@ class PackedBatchStream(IterableDataset):
                     held += take
                     start += take
                     if held == B:
-                        yield collate_columns(ShardColumns.concat(pending))
+                        yield emit()
                         pending, held = [], 0
             if held:
-                yield collate_columns(ShardColumns.concat(pending))
+                yield emit()
+        if os.environ.get("INDIGO_LOADER_TIMING", "1") != "0" and rows:
+            w = get_worker_info()
+            busy = clock["read"] + clock["decode"] + clock["collate"]
+            print(f"[loader] worker {w.id if w else 0}: {rows:,} rows; "
+                  f"read {clock['read']:.0f} s ({clock['mb']:,.0f} MB, "
+                  f"{clock['mb'] / max(clock['read'], 1e-9):.0f} MB/s), "
+                  f"decode {clock['decode']:.0f} s, collate "
+                  f"{clock['collate']:.0f} s; {busy / rows * 1e3:.3f} ms/row "
+                  f"busy -> {rows / max(busy, 1e-9):,.0f} rows/s per worker",
+                  flush=True)

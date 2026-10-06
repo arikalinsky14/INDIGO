@@ -49,6 +49,8 @@ import sys
 from pathlib import Path
 from typing import Optional, Sequence
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.scaling.configs import (CORPUS_EXAMPLES,                  # noqa: E402
                                  DEFAULT_BATCH_SIZE, SEC_PER_DE_EXAMPLE,
@@ -143,7 +145,8 @@ def sweep_points(fit: dict) -> tuple[list[float], list[dict]]:
         m = re.search(r"_s(\d+)$", run.get("name", ""))
         points.append({"budget": b, "n": int(run["n_params"]),
                        "D": int(run["passes"]),
-                       "seed": int(m.group(1)) if m else 42})
+                       "seed": int(m.group(1)) if m else 42,
+                       "de": (run.get("val_de") or {}).get("pooled")})
     points.sort(key=lambda p: (p["budget"], p["n"], p["seed"]))
     return budgets, points
 
@@ -224,9 +227,15 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
         # whether a size is still input-bound; examples per second across the
         # three says how far wall time now tracks model size. Its own output
         # directory: nothing fits on it.
+        #
+        # Six sizes, evenly spaced through the sweep's distinct sizes in
+        # order (81k to 17.8M), so the result is a curve, rate(N), for the credit
+        # cost model: cost(N, D) = (startup + D / rate(N)) x SU per GPU-hour.
+        # 2,457,600 examples each (9,600 steps): at 12k to 17k ex/s the first
+        # version's 614,400 was about a minute of training, mostly ramp-up.
         ns = sorted({p["n"] for p in points})
-        picks = (ns[0], ns[len(ns) // 2], ns[-1])
-        return [_cell(nearest_config(n)[0], 614_400, beta2) for n in picks]
+        idx = np.unique(np.round(np.linspace(0, len(ns) - 1, 6)).astype(int))
+        return [_cell(nearest_config(ns[i])[0], 2_457_600, beta2) for i in idx]
 
     if stage == 1:
         # beta2, at both ends of the ladder the SWEEP uses. (Not of every
@@ -343,8 +352,28 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
         #
         # Its results go to their own directory, so the law is not fitted on
         # the point that is supposed to test it.
-        r = rungs_[-1]
-        return [_cell(r["n_star_median"], int(r["d_star"]), beta2)]
+        #
+        # The rung is the lowest one stage 2 does NOT tune. (It used to be the
+        # highest usable rung, which at RUNGS=5 is a rung stage 2 tunes in
+        # full, so the check would have tested nothing.) At RUNGS=5 that is
+        # the 2.5e16 rung, whose minimum fell on its edge in the first sweep,
+        # so there is no N* to take: the check then uses that rung's best
+        # seed-42 point, the largest model, which is also where the law
+        # extrapolates furthest. With every rung tuned, fit_lr_law.py's
+        # leave-one-rung-out check is the test instead.
+        untuned = [b for b in budgets if b not in lower]
+        if not untuned:
+            raise SystemExit("stage 2 tunes every rung; there is nothing for "
+                             "STAGE=check to extrapolate to. Use "
+                             "fit_lr_law.py --leave-one-rung-out instead.")
+        b = untuned[0]
+        r = next((r for r in rungs_ if abs(r["budget"] - b) / b < 0.25), None)
+        if r is not None:
+            return [_cell(r["n_star_median"], int(r["d_star"]), beta2, budget=b)]
+        pts = [p for p in points if p["budget"] == b and p["seed"] == 42
+               and p["de"] is not None]
+        best = min(pts, key=lambda p: p["de"])
+        return [_cell(best["n"], best["D"], beta2, budget=b)]
 
     if stage == 3:
         # Finish the IsoFLOP. Every (N, D) point the sweep trained on the
@@ -459,7 +488,7 @@ def main() -> None:
                         "learning rate each lower-rung repeat seed reuses")
     p.add_argument("--fit", default="analyses/scaling/results/porian_fit.json")
     p.add_argument("--beta2", type=float, default=0.999)
-    p.add_argument("--rungs", type=int, default=4,
+    p.add_argument("--rungs", type=int, default=5,
                    help="stage 2: how many of the LOWEST IsoFLOP curves to "
                         "tune in full, the rest being projected from the "
                         "fitted law. Two is the minimum that separates the N "
