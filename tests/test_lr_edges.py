@@ -132,3 +132,13 @@ def test_stage_2edge_reads_the_fit(tmp_path):
         assert n_params(arch) < smallest
         flops = train_flops_per_example(arch) * lim * ep
         assert abs(flops - budgets[1]) / budgets[1] < 0.02
+
+
+def test_soft_edge_sides():
+    """An end point within k sigma of the minimum is a soft edge; a rung
+    whose ends are both well above its minimum has none."""
+    vals = {100: 10.25, 200: 9.99, 300: 10.8, 400: 19.8}
+    assert E.soft_edge_sides(vals, sigma=0.52) == ["left"]
+    assert E.soft_edge_sides(vals, sigma=0.52, k_sigma=0.4) == []
+    assert E.soft_edge_sides({1: 12.0, 2: 9.0, 3: 12.5}, sigma=0.52) == []
+    assert E.soft_edge_sides({1: 9.2, 2: 9.0, 3: 9.3}, sigma=0.52) == ["left", "right"]

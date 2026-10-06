@@ -353,26 +353,52 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
         if not path.is_file():
             raise SystemExit(f"{path} not found: run "
                              f"slurms/analyze.sh scripts/stage2_preview.py first")
-        fitted = json.load(open(path))["by_metric"]["pooled"]["rungs"]
+        pooled = json.load(open(path))["by_metric"]["pooled"]
+        fitted, sigma = pooled["rungs"], pooled.get("noise_sigma_lo", 0.0)
+        # SOFT edges too: an end point within SOFT_EDGE_SIGMA seed-sigmas of
+        # the rung's minimum has not let the minimum be located on that
+        # side, even when the argmin is formally interior. Judged only on a
+        # rung whose every point has landed, since a missing end point is
+        # exactly what would decide it. SOFT_EDGE_SIGMA=0 turns it off.
+        k_sigma = float(os.environ.get("SOFT_EDGE_SIGMA", 1.0))
+        pts_path = path.with_name("isoflop_stage2.json")
+        pts = json.load(open(pts_path))["runs"] if pts_path.is_file() else []
         from src.scaling.configs import achievable_sizes
         from src.scaling.flops import train_flops_per_example
         ladder = achievable_sizes()
         out = []
         for r in fitted:
             b = min(tuned, key=lambda x: abs(x - r["budget"]))
-            if abs(b - r["budget"]) / b > 0.02 or not r.get("on_edge"):
+            if abs(b - r["budget"]) / b > 0.02:
                 continue
             ns = [c["n_params"] for c in base + extra if c["budget"] == b]
-            side, sizes = E.rung_extension_sizes(ns, r["n_star_akima"], ladder)
-            if not sizes:
-                print(f"[WARN] C={b:.2e}: minimum on its {side or '?'} edge "
-                      f"and the shape-bounded ladder has nothing further out",
-                      file=sys.stderr)
-            for n, d, se in sizes:
-                D = int(round(b / train_flops_per_example(E.arch_for(d, se))))
-                c = _cell(n, D, beta2, budget=b)
-                c["lr_source"] = f"edge {side}"
-                out.append(c)
+            if r.get("on_edge"):
+                side, sizes = E.rung_extension_sizes(ns, r["n_star_akima"], ladder)
+                todo = [(side, sizes, "edge")]
+            else:
+                vals = {p["n_params"]: p["val_de"]["pooled"] for p in pts
+                        if abs(p["flops"] - b) / b < 0.02
+                        and p["val_de"].get("pooled") is not None}
+                missing = set(ns) - set(vals)
+                if not k_sigma or not vals:
+                    continue
+                if missing:
+                    print(f"[WARN] C={b:.2e}: {len(missing)} point(s) not in "
+                          f"{pts_path.name} yet; soft edges not judged",
+                          file=sys.stderr)
+                    continue
+                todo = [(side, E.sizes_beyond(ns, side, ladder), "soft edge")
+                        for side in E.soft_edge_sides(vals, sigma, k_sigma)]
+            for side, sizes, why in todo:
+                if not sizes:
+                    print(f"[WARN] C={b:.2e}: {why} on the {side or '?'} and "
+                          f"the shape-bounded ladder has nothing further out",
+                          file=sys.stderr)
+                for n, d, se in sizes:
+                    D = int(round(b / train_flops_per_example(E.arch_for(d, se))))
+                    c = _cell(n, D, beta2, budget=b)
+                    c["lr_source"] = f"{why} {side}"
+                    out.append(c)
         return out
 
     if stage == 2:

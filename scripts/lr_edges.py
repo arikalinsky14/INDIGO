@@ -105,13 +105,39 @@ def rung_extension_sizes(rung_ns: List[int], argmin_n: float,
     """
     lo, hi = min(rung_ns), max(rung_ns)
     if argmin_n <= lo * 1.0001:
-        side, pool = "left", sorted((s for s in ladder if s[0] < lo),
-                                    key=lambda s: -s[0])
+        side = "left"
     elif argmin_n >= hi * 0.9999:
-        side, pool = "right", sorted((s for s in ladder if s[0] > hi),
-                                     key=lambda s: s[0])
+        side = "right"
     else:
         return "", []
+    return side, sizes_beyond(rung_ns, side, ladder, k, min_ratio)
+
+
+def soft_edge_sides(values: dict, sigma: float, k_sigma: float = 1.0) -> List[str]:
+    """Ends of a rung that sit within k_sigma * sigma of its minimum.
+
+    A rung can pass the bracketing rule (its argmin is interior) while an end
+    point is as good as the minimum within seed noise; then the minimum has
+    not really been located on that side. `values` maps N to the metric.
+    """
+    ns = sorted(values)
+    vmin = min(values.values())
+    out = []
+    if values[ns[0]] - vmin < k_sigma * sigma:
+        out.append("left")
+    if values[ns[-1]] - vmin < k_sigma * sigma:
+        out.append("right")
+    return out
+
+
+def sizes_beyond(rung_ns: List[int], side: str,
+                 ladder: List[Tuple[int, int, int]], k: int = 2,
+                 min_ratio: float = 1.25) -> list:
+    """Up to k ladder sizes beyond one end of a rung, >= min_ratio apart."""
+    lo, hi = min(rung_ns), max(rung_ns)
+    pool = (sorted((s for s in ladder if s[0] < lo), key=lambda s: -s[0])
+            if side == "left" else
+            sorted((s for s in ladder if s[0] > hi), key=lambda s: s[0]))
     picked, edge = [], lo if side == "left" else hi
     for s in pool:
         far = (s[0] <= edge / min_ratio) if side == "left" else (s[0] >= edge * min_ratio)
@@ -120,7 +146,7 @@ def rung_extension_sizes(rung_ns: List[int], argmin_n: float,
             edge = s[0]
         if len(picked) == k:
             break
-    return side, picked
+    return picked
 
 
 CELL_RE = re.compile(r"^lr_search_ep(\d+)_lim(\d+)_d(\d+)_se(\d+)_bs(\d+)"
