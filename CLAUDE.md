@@ -256,6 +256,8 @@ steps from the end of their seventh rate. The ΔE slice and the token-weighted
 CE are unchanged, so cells already finished stay valid and paired. Each trial
 now logs `[time] train / val / dE`.
 
+**Decided Oct 6: four curves (`RUNGS=4`, now the default in `lr_grid.sh`, `lr_grid_cells.py` and `collect_isoflop.py`) and β₂ = 0.999 (`BETA2_WINNER`, now the default). 24 cells, ~110 GPU-h at 2033 ex/s; the largest cell (d96/se3 at D = 18.5M) alone is ~18.5 h, so it sets the wall time and is submitted on its own with headroom.**
+
 **2. `STAGE=2`** — **the LR search runs inside the IsoFLOP test.** Every model
 on the `RUNGS` lowest curves is tuned directly; at the default 3 that is 18
 cells, ~57 GPU-h at 2171 ex/s.

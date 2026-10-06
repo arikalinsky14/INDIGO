@@ -396,7 +396,7 @@ def main() -> None:
                         "learning rate each lower-rung repeat seed reuses")
     p.add_argument("--fit", default="analyses/scaling/results/porian_fit.json")
     p.add_argument("--beta2", type=float, default=0.99)
-    p.add_argument("--rungs", type=int, default=3,
+    p.add_argument("--rungs", type=int, default=4,
                    help="stage 2: how many of the LOWEST IsoFLOP curves to "
                         "tune in full, the rest being projected from the "
                         "fitted law. Two is the minimum that separates the N "
