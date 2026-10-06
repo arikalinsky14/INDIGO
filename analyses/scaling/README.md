@@ -922,7 +922,31 @@ the mirror below) into `outputs/lr_search/beta2_ext/`, which the analysis
 merges into the same cells. In the interim data (23 of 45 cells, Oct 4) five
 cells were open, all for the leading β₂ values; about 7 GPU-h to close.
 
-**Result, all 45 cells (Oct 5), under the pre-registered rule.**
+**Result, 54 cells (Oct 6): 0.9995 added, open edges closed, 0.999 stands.**
+`results/beta2_fit_oct6_54cells.json`. The 45-cell grid plus `BETA2_VALUES=0.9995`
+(9 cells) and the `STAGE=beta2x` extensions merged in.
+
+| | |
+|---|---|
+| β₂ effect | F(5, 30) = 4.74, **p = 0.0026** |
+| size × β₂ | p = 0.21: one β₂ for all sizes |
+| winner | **0.999**, now bracketed on both sides |
+| vs 0.9995 | +0.01 ΔE [−0.21, +0.24], p = 0.90: a tie |
+| vs 0.99, 0.95 | +0.13, +0.27: indistinguishable |
+| vs 0.98, 0.9 | +0.52 (p = 0.021), +0.65 (p = 0.015); Holm 0.086, 0.077 |
+| continuous β₂* | pooled: no interior minimum (40% of draws interior, CI [0.9968, 0.9995]); low chroma 0.9988 [0.9969, 0.9994], high chroma 0.9982 [0.9958, 0.9994] |
+| per size | 0.999 at 100k, 0.99 at 1M, 0.95 at 6.6M, each within noise |
+
+Reading: a broad plateau from 0.99 to 0.9995, with the bottom near 0.998 to
+0.9995; below 0.99 ΔE rises. **Stage 2 runs at β₂ = 0.999.** Six LR edges are
+still open, all on 0.9995 cells (up: d40 s42/s43, d120 s43/s44; down: d288
+s43/s44). Closing them can only lower 0.9995's tuned ΔE, which could move the
+nominal winner from 0.999 to 0.9995 but not off the plateau, so it is optional
+(`STAGE=beta2x`, ~8 GPU-h). Panel E also shows the LR optimum at ~0.5 to 0.7×
+the prior at 6.6M and 1.2 to 2× at 100k for β₂ ≥ 0.99: the old LR law is too
+shallow in N, which is what stage 2 refits.
+
+**Result, all 45 cells (Oct 5), under the pre-registered rule.** Superseded by the 54-cell result above.
 `results/beta2_fit_oct5_45cells.json`.
 
 | | |

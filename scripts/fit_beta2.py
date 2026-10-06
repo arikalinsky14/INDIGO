@@ -555,6 +555,22 @@ FAILED_DE = 25.0
 INK, INK2, MUTED, GRID, SURF = "#0b0b0b", "#52514e", "#8a8984", "#e6e5e1", "#fcfcfb"
 
 
+def _beta_tick_labels(betas: Sequence[float], min_decades: float = 0.45) -> List[str]:
+    """beta2 tick labels, dropping a line where neighbours would collide.
+
+    The axis is log(1 - beta2), so 0.999 and 0.9995 sit 0.3 decades apart and
+    their labels ran together ("0.9990.9995"). Any label closer than
+    `min_decades` to the one before it goes on a second line.
+    """
+    labels, prev, low = [], None, False
+    for b in betas:
+        x = math.log10(1 - b)
+        low = prev is not None and abs(x - prev) < min_decades and not low
+        labels.append(("\n" if low else "") + f"{b:g}")
+        prev = x
+    return labels
+
+
 def plot(cells: List[dict], result: dict, out: Path, title_note: str = "") -> None:
     import matplotlib
     matplotlib.use("Agg")
@@ -661,7 +677,7 @@ def plot(cells: List[dict], result: dict, out: Path, title_note: str = "") -> No
     ax.set_xscale("log")
     ax.invert_xaxis()
     ax.set_xticks(xt)
-    ax.set_xticklabels([f"{b:g}" for b in betas])
+    ax.set_xticklabels(_beta_tick_labels(betas))
     ax.minorticks_off()
     ax.axhline(0, color=MUTED, linewidth=0.8)
     ax.set_xlabel("AdamW β₂  (log scale in 1 − β₂)")
@@ -695,15 +711,12 @@ def plot(cells: List[dict], result: dict, out: Path, title_note: str = "") -> No
     ax.set_yticklabels([f"{t:.2g}×" for t in ticks])
     ax.invert_xaxis()
     ax.set_xticks(xt)
-    ax.set_xticklabels([f"{b:g}" for b in betas])
+    ax.set_xticklabels(_beta_tick_labels(betas))
     ax.minorticks_off()
     ax.axhline(1, color=MUTED, linewidth=0.8)
-    ax.set_xlabel("AdamW β₂")
+    ax.set_xlabel("AdamW β₂   (hollow: LR optimum not bracketed)")
     ax.set_ylabel("optimal LR / prior (geometric mean over seeds)")
     ax.set_title("E.  Where each β₂'s LR optimum sits", loc="left", fontsize=10)
-    ax.text(1.0, -0.17, "hollow: not bracketed by the LR grid",
-            transform=ax.transAxes, ha="right", va="top", fontsize=7.5,
-            color=MUTED)
     ax.legend(frameon=False, fontsize=8)
 
     # F: forest plot, every alternative minus the winner, per size and pooled.
