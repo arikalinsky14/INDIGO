@@ -51,6 +51,8 @@ from typing import Optional, Sequence
 
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.scaling.configs import (CORPUS_EXAMPLES,                  # noqa: E402
                                  DEFAULT_BATCH_SIZE, SEC_PER_DE_EXAMPLE,
@@ -317,6 +319,62 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
             out.append(c)
         return out
 
+    if stage in ("2x", "2edge"):
+        # Closing stage 2's open edges, decided from its results on disk
+        # (scripts/lr_edges.py). Points STAGE=2edge added are found in
+        # stage2_dir by their FLOPs, so a second round sees the first.
+        import lr_edges as E
+        sdir = Path(stage2_dir or "outputs/lr_search/cross_attn")
+        tuned = budgets[:rungs]
+        base = cells_for(2, fit_path_sweep, beta2, rungs)
+        have = {(c["d_model"], c["se"], c["limit"]) for c in base}
+        extra = [c for c in E.discover_cells(str(sdir), tuned, beta2)
+                 if (c["d_model"], c["se"], c["limit"]) not in have]
+        if stage == "2x":
+            out = []
+            for c in base + extra:
+                main = sdir / (f"lr_search_ep{c['epochs']}_lim{c['limit']}"
+                               f"_d{c['d_model']}_se{c['se']}"
+                               f"_bs{DEFAULT_BATCH_SIZE}_b2{c['beta2']:g}.json")
+                _, trials = E.cell_trials(main)
+                ext = E.lr_extension(trials)
+                if not ext:
+                    continue
+                kind, rates = ext
+                c["lr"] = (f"{rates[0]:.6e}" if len(rates) == 1 else
+                           f"{min(rates):.6e}:{max(rates):.6e}:{len(rates)}")
+                c["lr_source"] = f"extend {kind}"
+                c["suffix"] = E.next_ext_suffix(main)
+                out.append(c)
+            return out
+        # 2edge: rungs whose DeltaE minimum is their smallest or largest model.
+        path = Path(extension_from or
+                    "analyses/scaling/results/stage2/porian_fit_stage2.json")
+        if not path.is_file():
+            raise SystemExit(f"{path} not found: run "
+                             f"slurms/analyze.sh scripts/stage2_preview.py first")
+        fitted = json.load(open(path))["by_metric"]["pooled"]["rungs"]
+        from src.scaling.configs import achievable_sizes
+        from src.scaling.flops import train_flops_per_example
+        ladder = achievable_sizes()
+        out = []
+        for r in fitted:
+            b = min(tuned, key=lambda x: abs(x - r["budget"]))
+            if abs(b - r["budget"]) / b > 0.02 or not r.get("on_edge"):
+                continue
+            ns = [c["n_params"] for c in base + extra if c["budget"] == b]
+            side, sizes = E.rung_extension_sizes(ns, r["n_star_akima"], ladder)
+            if not sizes:
+                print(f"[WARN] C={b:.2e}: minimum on its {side or '?'} edge "
+                      f"and the shape-bounded ladder has nothing further out",
+                      file=sys.stderr)
+            for n, d, se in sizes:
+                D = int(round(b / train_flops_per_example(E.arch_for(d, se))))
+                c = _cell(n, D, beta2, budget=b)
+                c["lr_source"] = f"edge {side}"
+                out.append(c)
+        return out
+
     if stage == 2:
         # EVERY model on the lowest `rungs` IsoFLOP curves, tuned directly.
         #
@@ -469,7 +527,8 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--stage", required=True,
-                   choices=("probe", "speed", "1", "beta2", "beta2x", "2", "check", "3"),
+                   choices=("probe", "speed", "1", "beta2", "beta2x", "2", "2x",
+                            "2edge", "check", "3"),
                    help="probe: throughput. 1: beta2. 2: learning rate, tuned "
                         "on every point of the lowest RUNGS IsoFLOP curves. "
                         "check: the fitted law tested at one upper-rung point. "
@@ -531,7 +590,8 @@ def main() -> None:
                         "SLURM wrapper turns it on for stages 2 and check.")
     a = p.parse_args()
 
-    stage = (a.stage if a.stage in ("probe", "speed", "check", "beta2", "beta2x")
+    stage = (a.stage if a.stage in ("probe", "speed", "check", "beta2", "beta2x",
+                                    "2x", "2edge")
              else int(a.stage))
     b2v = ([float(x) for x in a.beta2_values.split(",")]
            if a.beta2_values else None)
@@ -541,6 +601,8 @@ def main() -> None:
     # 3 trains each point once at a rate it is given. Different jobs,
     # different grid widths.
     n_lrs = {"probe": 1, "speed": 1, 1: 3, 3: 1, "beta2x": 2}.get(stage, a.n_lrs)
+    if stage == "2x":
+        n_lrs = 2
     # Splitting needs every cell's learning rate settled, which stage 3's are
     # not before stage 2 is fitted; stage 3 cells are single-rate anyway.
     tasks = split_tasks(cells, n_lrs, None if stage == 3 else a.max_task_hours,
@@ -566,8 +628,9 @@ def main() -> None:
             lr = ("-" if c["lr"] is None else
                   c["lr"] if isinstance(c["lr"], str) else f"{c['lr']:.6e}")
             part = "-" if c["part"] is None else "{}-{}/{}".format(*c["part"])
+            # Ninth field: the results-file suffix (2x writes _ext<k>).
             print(f"{c['d_model']} {c['se']} {c['limit']} {c['beta2']:g} "
-                  f"{c['epochs']} {c['seed']} {lr} {part}")
+                  f"{c['epochs']} {c['seed']} {lr} {part} {c.get('suffix') or '-'}")
         return
 
     print(f"STAGE {a.stage}: {len(cells)} cell(s), "
@@ -583,7 +646,7 @@ def main() -> None:
     total = 0.0
     for i, (c, h) in enumerate(zip(tasks, hours)):
         total += h
-        if stage == "beta2x":
+        if stage in ("beta2x", "2x", "2edge"):
             lr = c["lr_source"]
         elif stage == 3:
             lr = (f"{c['lr']:.2e}" if c["lr"] is not None

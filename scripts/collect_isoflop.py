@@ -43,6 +43,8 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.lr_grid_cells import cells_for                      # noqa: E402
+from scripts.lr_edges import cell_trials, discover_cells         # noqa: E402
+from scripts.merge_lr_parts import select                        # noqa: E402
 from src.materials_vocab import VOCAB_SIZE                        # noqa: E402
 from src.scaling.configs import (CORPUS_EXAMPLES,                 # noqa: E402
                                  DEFAULT_BATCH_SIZE, n_heads_for)
@@ -127,7 +129,15 @@ def main() -> None:
     a = p.parse_args()
 
     s2, s3 = Path(a.stage2_dir), Path(a.stage3_dir)
-    expected = ([(c, s2, "2") for c in cells_for(2, a.fit, a.beta2, a.rungs)]
+    base2 = cells_for(2, a.fit, a.beta2, a.rungs)
+    # Points STAGE=2edge added beyond a rung's end: found in the stage-2
+    # directory by their FLOPs, so they join their rung like any other.
+    have = {(c["d_model"], c["se"], c["limit"]) for c in base2}
+    budgets_all = sorted(json.load(open(a.fit))["budgets"])
+    edge = [c for c in discover_cells(str(s2), budgets_all[:a.rungs], a.beta2)
+            if (c["d_model"], c["se"], c["limit"]) not in have]
+    expected = ([(c, s2, "2") for c in base2]
+                + [(c, s2, "2edge") for c in edge]
                 + [(c, s3, "3") for c in cells_for(3, a.fit, a.beta2, a.rungs,
                                                    a.stage2_dir)])
     runs, problems = [], []
@@ -138,7 +148,14 @@ def main() -> None:
         if not path.is_file():
             problems.append(f"{label}: missing ({path})")
             continue
-        run, why = to_run(c, json.load(open(path)), stage, a.allow_mixed)
+        # STAGE=2x's extra rates live beside the cell as <cell>_ext<k>.json;
+        # the point's run is the best trial over all of them, chosen by
+        # lr_tuning.py's own rule.
+        d, trials = cell_trials(path)
+        if len(trials) > len(d.get("results", [])):
+            d = dict(d, results=trials, optimal_lr=select(
+                trials, d.get("selection_metric", "delta_e"))["lr"])
+        run, why = to_run(c, d, stage, a.allow_mixed)
         if why:
             problems.append(f"{label}: {why}")
         else:

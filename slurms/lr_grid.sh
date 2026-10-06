@@ -323,7 +323,7 @@ case "${STAGE}" in
   beta2)   N_LRS="${N_LRS:-7}"
            LR_SPAN_DOWN="${LR_SPAN_DOWN:-2.828427}"
            LR_SPAN_UP="${LR_SPAN_UP:-2.828427}" ;;
-  2|check) LR_SPAN_DOWN="${LR_SPAN_DOWN:-${LR_SPAN:-8}}"
+  2|2edge|check) LR_SPAN_DOWN="${LR_SPAN_DOWN:-${LR_SPAN:-8}}"
            LR_SPAN_UP="${LR_SPAN_UP:-${LR_SPAN:-5}}" ;;
   3)       N_LRS=1 ;;               # one rate per point, given by the cell
 esac
@@ -398,7 +398,7 @@ EVAL_FRACTIONS="${EVAL_FRACTIONS-}"
 # MAX_TASK_HOURS=0 runs every cell as one task, the old behaviour. Change it
 # only between submissions: the task numbering depends on it.
 case "${STAGE}" in
-  2|check) MAX_TASK_HOURS="${MAX_TASK_HOURS:-6}" ;;
+  2|2edge|check) MAX_TASK_HOURS="${MAX_TASK_HOURS:-6}" ;;
   *)       MAX_TASK_HOURS="${MAX_TASK_HOURS:-0}" ;;
 esac
 
@@ -416,19 +416,50 @@ fi
 # --list prices the stage, so it must work BEFORE the stage can run: stage 3's
 # learning rates do not exist until stage 2 is fitted, but its cells and cost
 # do. It therefore asks for a table and a count, never the runnable lines.
+# STAGE=2x and STAGE=2edge derive their cells from results on disk, which
+# change while their own array runs (a closed edge drops out, a new edge point
+# moves its rung). So their list is FROZEN by --list into TASK_LIST and every
+# task reads that file: the numbering cannot shift under a running array.
+FROZEN=0
+case "${STAGE}" in
+  2x|2edge) FROZEN=1
+            TASK_LIST="${TASK_LIST:-outputs/lr_search/tasklists/${STAGE}.txt}" ;;
+esac
+
 if [[ "${1:-}" == "--list" ]]; then
     python3 scripts/lr_grid_cells.py "${CELL_ARGS[@]}" --format table \
         --wall-hours "${WALL_HOURS:-6}"
     N_TASKS="$(python3 scripts/lr_grid_cells.py "${CELL_ARGS[@]}" --format count)"
+    if (( FROZEN )); then
+        mkdir -p "$(dirname "${TASK_LIST}")"
+        python3 scripts/lr_grid_cells.py "${CELL_ARGS[@]}" > "${TASK_LIST}"
+        N_TASKS="$(grep -c . "${TASK_LIST}" || true)"
+        echo
+        echo "task list frozen in ${TASK_LIST} (${N_TASKS} tasks); submit"
+        echo "before running --list again, which rewrites it."
+    fi
     echo
-    echo "batch size ${BATCH_SIZE};  submit with --array=0-$((N_TASKS - 1))%${THROTTLE:-6}"
+    if (( N_TASKS )); then
+        echo "batch size ${BATCH_SIZE};  submit with --array=0-$((N_TASKS - 1))%${THROTTLE:-6}"
+    else
+        echo "nothing to run for STAGE=${STAGE}."
+    fi
     exit 0
 fi
 
 # Cells come from scripts/lr_grid_cells.py, not from a ladder written here,
 # because they are DERIVED from the sweep's own grid. See that script's
 # docstring for why they have to be.
-mapfile -t CELL_LINES < <(python3 scripts/lr_grid_cells.py "${CELL_ARGS[@]}")
+if (( FROZEN )); then
+    if [[ ! -f "${TASK_LIST}" ]]; then
+        echo "[ERROR] ${TASK_LIST} not found: run STAGE=${STAGE} bash" \
+             "slurms/lr_grid.sh --list first, then submit." >&2
+        exit 1
+    fi
+    mapfile -t CELL_LINES < <(grep . "${TASK_LIST}")
+else
+    mapfile -t CELL_LINES < <(python3 scripts/lr_grid_cells.py "${CELL_ARGS[@]}")
+fi
 N_TASKS=${#CELL_LINES[@]}
 if (( ! N_TASKS )); then
     echo "no cells for STAGE=${STAGE}." >&2
@@ -442,8 +473,9 @@ fi
 # seed, and a fixed learning rate or "-" for "search the grid around the prior".
 cell_of() {   # $1 = task index
     read -r D_MODEL SLOT_ENCODER_LAYERS LIMIT_EXAMPLES BETA2 EPOCHS SEED CELL_LR \
-        CELL_PART <<< "${CELL_LINES[$1]}"
+        CELL_PART CELL_SUFFIX <<< "${CELL_LINES[$1]}"
     CELL_PART="${CELL_PART:--}"
+    CELL_SUFFIX="${CELL_SUFFIX:--}"
 }
 
 # Everything past here trains, so torch has to be importable. Fail now rather
@@ -508,6 +540,11 @@ fi
 # handed its two ends and its length, and trains exactly those points.
 OUTPUT_SUFFIX=""
 RESULTS_DIR="${OUTPUT_DIR}"
+# STAGE=2x: extra rates for a finished cell, written beside it as
+# <cell>_ext<k>.json and merged back by scripts/lr_edges.py cell_trials.
+if [[ "${CELL_SUFFIX}" != "-" ]]; then
+    OUTPUT_SUFFIX="${CELL_SUFFIX}"
+fi
 if [[ "${CELL_PART}" != "-" ]]; then
     IFS='-/' read -r K0 K1 N_GRID <<< "${CELL_PART}"
     if (( N_GRID != N_LRS )); then

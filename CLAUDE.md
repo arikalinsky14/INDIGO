@@ -333,6 +333,32 @@ yet on main).**
   rate(N) in the credit cost model, ~1.1 GPU-h. Run with
   `LIMIT_DE_EXAMPLES=0`: throughput needs no DeltaE eval.
 
+**Closing stage 2's open edges (Oct 7): `STAGE=2x` and `STAGE=2edge`.**
+Both are decided from results on disk (`scripts/lr_edges.py`) and freeze
+their task list at `--list` time (`outputs/lr_search/tasklists/<stage>.txt`),
+since their own results change what they would list.
+
+- `2x`: a cell is open when, over its NON-diverged rates, the Akima argmin
+  is outside the second and second-to-last rates (porian `tuned_optimum`, the
+  fit's own rule). Best at the bottom: two rates below. Best at the top with
+  nothing above: two above. Best stable rate just under a diverged one: one
+  rate at their geometric midpoint. Written as `<cell>_ext<k>.json` beside the
+  cell; `fit_lr_law.py` reads them as more trials of the same (N, D), and
+  `collect_isoflop.py` re-selects the point's best trial over all of them.
+- `fit_lr_law.py` now drops diverged trials (as lr_tuning.py's selection
+  always did), so "best just under a diverged rate" counts as unbracketed.
+  In the 22 finished cells, 10 chose 2.7x the prior, the second-highest
+  rate; they are open under this rule if 5x diverged.
+- `2edge`: for each tuned rung whose pooled-DeltaE minimum is its smallest or
+  largest model (from the stage-2 preview's porian_fit_stage2.json), two more
+  ladder sizes beyond that end, >= 1.25x apart, at the rung's FLOPs, full
+  stage-2 grid. Found again later by their FLOPs (`discover_cells`), so the
+  collector puts them on their rung and a second round goes further.
+- **The 1e14 rung cannot be bracketed on the left.** Its minimum is at 81k,
+  the smallest model, and below that the shape-bounded ladder (aspect 28 to
+  72) has only d28/se1 at 72.6k: the parameter count floors on ~50k of fixed
+  encoder parameters. It stays an edge rung, excluded by the estimator.
+
 **Nothing finished is invalidated**, and new runs are comparable to the beta2
 study and the first sweep: `tests/test_fast_data_path.py` checks bit-for-bit
 equality of every example, every batch, the batch order through 6 workers

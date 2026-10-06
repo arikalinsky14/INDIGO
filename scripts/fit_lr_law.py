@@ -46,6 +46,10 @@ from src.scaling.porian import (nested_hparam_optimum,          # noqa: E402
 METRIC_FIELD = {"delta_e": "final_val_de", "val_loss": "best_val_loss"}
 
 
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lr_edges import diverged  # noqa: E402
+
 def load_cells(results_dir: Path, metric: str,
                beta2: Optional[float] = None) -> List[dict]:
     """Every (N, D, bs, beta2, lr) cell the sweep ran, one row per trial.
@@ -73,6 +77,13 @@ def load_cells(results_dir: Path, metric: str,
         for t in d.get("results", []):
             v = t.get(field)
             if v is None or not np.isfinite(v):
+                continue
+            # A diverged run can post an ordinary-looking DeltaE; lr_tuning.py
+            # never selects one, so it is no evidence of where the optimum is
+            # either. Dropping it makes a cell whose best stable rate sits
+            # just under a diverged one count as unbracketed, which is what
+            # STAGE=2x then closes.
+            if diverged(t):
                 continue
             out.append({
                 "n_params": int(d["n_params"]), "lr": float(t["lr"]),
