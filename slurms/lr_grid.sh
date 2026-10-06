@@ -223,10 +223,9 @@ set -euo pipefail
 #
 #   STAGE=1 sbatch --array=0-5%6 --time=<from the table> slurms/lr_grid.sh
 #
-#   # then, with BETA2_WINNER set to what stage 1 picked and RUNGS set to what
-#   # the probe justified (3 -> --array=0-17, 4 -> --array=0-23):
-#   STAGE=2 RUNGS=3 BETA2_WINNER=0.999 sbatch --array=0-17%6 \
-#       --time=<from the table> slurms/lr_grid.sh
+#   # then (defaults: RUNGS=4, BETA2_WINNER=0.999, long cells split into
+#   # tasks of at most MAX_TASK_HOURS=6; --list prints the task count):
+#   STAGE=2 sbatch --array=0-31%12 --time=10:00:00 slurms/lr_grid.sh
 #   python scripts/fit_lr_law.py --results-dir outputs/lr_search/cross_attn \
 #       --coverage-from analyses/scaling/results/isoflop_fit.json
 #
@@ -234,9 +233,9 @@ set -euo pipefail
 #       --time=<from the table> slurms/lr_grid.sh
 #
 #   # only if the check passes; RUNGS must be the value stage 2 ran with:
-#   STAGE=3 RUNGS=3 BETA2_WINNER=0.999 sbatch --array=0-29%6 \
+#   STAGE=3 sbatch --array=0-<count from --list>%6 \
 #       --time=<from the table> slurms/lr_grid.sh
-#   python scripts/collect_isoflop.py --beta2 0.999 --rungs 3
+#   python scripts/collect_isoflop.py --beta2 0.999 --rungs 4
 #   python scripts/fit_scaling_porian.py \
 #       --fit analyses/scaling/results/isoflop_tuned.json \
 #       --output analyses/scaling/results/porian_fit_tuned.json
@@ -377,8 +376,26 @@ EXAMPLES_PER_SEC="${EXAMPLES_PER_SEC:-2033}"
 LR_SCHEDULE="${LR_SCHEDULE:-cosine}"
 EVAL_FRACTIONS="${EVAL_FRACTIONS-}"
 
+# A grid cell that would run longer than MAX_TASK_HOURS is cut into several
+# array tasks, each training a contiguous run of its learning rates into
+# ${OUTPUT_DIR}/parts/; the last part to finish merges the cell
+# (scripts/merge_lr_parts.py). Same rates, same model, seed and data: only the
+# wall time changes. On for stage 2 and the check, whose top-curve cells run to
+# 18.5h unsplit; 6h costs stage 2 about 3.8 GPU-h of extra startup (3%).
+# MAX_TASK_HOURS=0 runs every cell as one task, the old behaviour. Change it
+# only between submissions: the task numbering depends on it.
+case "${STAGE}" in
+  2|check) MAX_TASK_HOURS="${MAX_TASK_HOURS:-6}" ;;
+  *)       MAX_TASK_HOURS="${MAX_TASK_HOURS:-0}" ;;
+esac
+
 CELL_ARGS=(--stage "${STAGE}" --fit "${FIT}" --beta2 "${BETA2_WINNER}"
            --rungs "${RUNGS}" --stage2-dir "${STAGE2_DIR}"
+           --n-lrs "${N_LRS}" --rate "${EXAMPLES_PER_SEC}"
+           --val-examples "${LIMIT_VAL_EXAMPLES:-10000}"
+           --de-examples "${LIMIT_DE_EXAMPLES:-2048}"
+           $( (( $(awk "BEGIN{print (${MAX_TASK_HOURS} > 0)}") )) \
+              && echo --max-task-hours "${MAX_TASK_HOURS}")
            ${EXTENSION_FROM:+--extension-from "${EXTENSION_FROM}"}
            ${BETA2_VALUES:+--beta2-values "${BETA2_VALUES}"})
 
@@ -387,9 +404,6 @@ CELL_ARGS=(--stage "${STAGE}" --fit "${FIT}" --beta2 "${BETA2_WINNER}"
 # do. It therefore asks for a table and a count, never the runnable lines.
 if [[ "${1:-}" == "--list" ]]; then
     python3 scripts/lr_grid_cells.py "${CELL_ARGS[@]}" --format table \
-        --n-lrs "${N_LRS}" --rate "${EXAMPLES_PER_SEC}" \
-        --val-examples "${LIMIT_VAL_EXAMPLES:-10000}" \
-        --de-examples "${LIMIT_DE_EXAMPLES:-2048}" \
         --wall-hours "${WALL_HOURS:-6}"
     N_TASKS="$(python3 scripts/lr_grid_cells.py "${CELL_ARGS[@]}" --format count)"
     echo
@@ -414,7 +428,8 @@ fi
 # seed, and a fixed learning rate or "-" for "search the grid around the prior".
 cell_of() {   # $1 = task index
     read -r D_MODEL SLOT_ENCODER_LAYERS LIMIT_EXAMPLES BETA2 EPOCHS SEED CELL_LR \
-        <<< "${CELL_LINES[$1]}"
+        CELL_PART <<< "${CELL_LINES[$1]}"
+    CELL_PART="${CELL_PART:--}"
 }
 
 # Everything past here trains, so torch has to be importable. Fail now rather
@@ -474,6 +489,31 @@ elif (( N_LRS == 1 )); then
     LR_MIN="${LR_PRIOR}"; LR_MAX="${LR_PRIOR}"
 fi
 
+# A split cell trains grid points k0..k1 of the cell's N_LRS-point grid. A
+# contiguous run of a log-spaced grid is itself log-spaced, so lr_tuning.py is
+# handed its two ends and its length, and trains exactly those points.
+OUTPUT_SUFFIX=""
+RESULTS_DIR="${OUTPUT_DIR}"
+if [[ "${CELL_PART}" != "-" ]]; then
+    IFS='-/' read -r K0 K1 N_GRID <<< "${CELL_PART}"
+    if (( N_GRID != N_LRS )); then
+        echo "[ERROR] task grid has ${N_GRID} points, N_LRS is ${N_LRS}" >&2
+        exit 1
+    fi
+    read -r LR_MIN LR_MAX <<< "$(python3 - "${LR_MIN}" "${LR_MAX}" \
+        "${N_GRID}" "${K0}" "${K1}" <<'PYEOF'
+import math, sys
+lo, hi, n, k0, k1 = (float(sys.argv[1]), float(sys.argv[2]),
+                     int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]))
+at = lambda k: 10 ** (math.log10(lo) + k * (math.log10(hi) - math.log10(lo)) / (n - 1))
+print(f"{at(k0):.10e} {at(k1):.10e}")
+PYEOF
+)"
+    N_LRS=$(( K1 - K0 + 1 ))
+    OUTPUT_SUFFIX="_part${K0}-${K1}of${N_GRID}"
+    RESULTS_DIR="${OUTPUT_DIR}/parts"
+fi
+
 echo "=================================================================="
 echo " STAGE ${STAGE}, cell ${TASK} of ${N_TASKS}"
 echo "   d_model / se        ${D_MODEL} / ${SLOT_ENCODER_LAYERS}  (n_heads ${N_HEADS})"
@@ -484,12 +524,13 @@ echo "   seed                ${SEED}"
 echo "   batch size          ${BATCH_SIZE}  (fixed; from configs.DEFAULT_BATCH_SIZE)"
 echo "   AdamW beta2         ${BETA2}"
 echo "   LR grid             ${N_LRS} points, ${LR_MIN} to ${LR_MAX}"
+[[ "${CELL_PART}" != "-" ]] && echo "   part of grid        points ${K0} to ${K1} of ${N_GRID} (merged when all land)"
 echo "   selection metric    ${SELECTION_METRIC}"
 echo "   LR schedule         ${LR_SCHEDULE}"
 [[ -n "${EVAL_FRACTIONS}" ]] && echo "   mid-run evals at    ${EVAL_FRACTIONS} of the run"
 echo "=================================================================="
 
-mkdir -p "${OUTPUT_DIR}"
+mkdir -p "${OUTPUT_DIR}" "${RESULTS_DIR}"
 
 # --skip-existing unless FORCE=1: a resubmitted array must never clobber a
 # finished cell.
@@ -515,12 +556,19 @@ srun python scripts/lr_tuning.py \
     --batch-size "${BATCH_SIZE}" \
     --num-workers "${NUM_WORKERS:-6}" --prefetch-factor 1 \
     --weight-decay 0.01 --grad-clip 1.0 --warmup-fraction 0.02 \
-    --output-dir "${OUTPUT_DIR}" \
+    --output-dir "${RESULTS_DIR}" ${OUTPUT_SUFFIX:+--output-suffix "${OUTPUT_SUFFIX}"} \
     "${OVERWRITE_FLAG}" \
     --log-every 100 --streaming --bf16 --plot \
     $([[ "${PER_EXAMPLE_DE:-1}" == "1" ]] && echo --per-example-de)
 
-echo "[INFO] STAGE ${STAGE} cell ${TASK} done."
+if [[ "${CELL_PART}" != "-" ]]; then
+    # Whichever part of a cell lands last writes the cell; the others report
+    # what they are waiting on. Safe to run concurrently and to re-run.
+    python3 scripts/merge_lr_parts.py --parts-dir "${RESULTS_DIR}" \
+        --out-dir "${OUTPUT_DIR}"
+fi
+
+echo "[INFO] STAGE ${STAGE} task ${TASK} done."
 if [[ "${STAGE}" == "3" ]]; then
     echo "  Once stage 3 has landed, assemble and fit the final IsoFLOP:"
     echo "  python scripts/collect_isoflop.py --stage2-dir ${STAGE2_DIR} \\"

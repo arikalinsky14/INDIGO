@@ -373,6 +373,47 @@ def cell_hours(D: int, n_lrs: int, rate: float, val_examples: int,
     return (STARTUP_SEC + n_lrs * per_lr) / 3600
 
 
+def split_tasks(cells: list, n_lrs: int, max_hours: Optional[float],
+                rate: float, val_examples: int, de_examples: int) -> list:
+    """Array tasks: one per cell, or a long cell's grid cut into runs of rates.
+
+    lr_tuning.py trains a cell's rates one after another, so a cell's wall
+    time is the sum of its trainings. Stage 2's smallest model on its top
+    curve (D = 18.5M) needs ~18.5h that way, against ~11h for the next. Cutting
+    its seven rates into contiguous runs, each an array task, takes the wall
+    down to the longest run while training exactly the same rates. Each extra
+    task pays STARTUP_SEC again, which is why only cells that would exceed
+    `max_hours` are cut, and only into as many runs as it takes: cutting every
+    cell into single rates would add ~68 GPU-h of startup to stage 2's 110.
+
+    A task's "part" is (k0, k1, n): grid indices k0..k1 of the cell's n-point
+    grid. None means the whole grid in one task, the old behaviour.
+    scripts/merge_lr_parts.py joins the parts back into the cell's file.
+    """
+    tasks = []
+    for c in cells:
+        if not max_hours or c["lr"] is not None or n_lrs <= 1:
+            tasks.append({**c, "part": None, "task_lrs": n_lrs})
+            continue
+        per_lr = (c["D"] + val_examples) / rate + de_examples * SEC_PER_DE_EXAMPLE
+        n_parts = 1
+        while (n_parts < n_lrs and
+               (STARTUP_SEC + math.ceil(n_lrs / n_parts) * per_lr) / 3600
+               > max_hours):
+            n_parts += 1
+        if n_parts == 1:
+            tasks.append({**c, "part": None, "task_lrs": n_lrs})
+            continue
+        # Contiguous and balanced: sizes differ by at most one.
+        k = 0
+        for i in range(n_parts):
+            size = n_lrs // n_parts + (1 if i < n_lrs % n_parts else 0)
+            tasks.append({**c, "part": (k, k + size - 1, n_lrs),
+                          "task_lrs": size})
+            k += size
+    return tasks
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -395,7 +436,7 @@ def main() -> None:
                    help="stage 3: where stage 2's results are, for the "
                         "learning rate each lower-rung repeat seed reuses")
     p.add_argument("--fit", default="analyses/scaling/results/porian_fit.json")
-    p.add_argument("--beta2", type=float, default=0.99)
+    p.add_argument("--beta2", type=float, default=0.999)
     p.add_argument("--rungs", type=int, default=4,
                    help="stage 2: how many of the LOWEST IsoFLOP curves to "
                         "tune in full, the rest being projected from the "
@@ -432,6 +473,11 @@ def main() -> None:
     p.add_argument("--de-examples", type=int, default=2048,
                    help="--limit-de-examples the cells run with; one DeltaE "
                         "eval per learning rate")
+    p.add_argument("--max-task-hours", type=float, default=None,
+                   help="cut any grid cell that would run longer than this "
+                        "into several array tasks, each a contiguous run of "
+                        "its rates (see split_tasks). Off by default; the "
+                        "SLURM wrapper turns it on for stages 2 and check.")
     a = p.parse_args()
 
     stage = (a.stage if a.stage in ("probe", "check", "beta2", "beta2x")
@@ -444,8 +490,12 @@ def main() -> None:
     # 3 trains each point once at a rate it is given. Different jobs,
     # different grid widths.
     n_lrs = {"probe": 1, 1: 3, 3: 1, "beta2x": 2}.get(stage, a.n_lrs)
+    # Splitting needs every cell's learning rate settled, which stage 3's are
+    # not before stage 2 is fitted; stage 3 cells are single-rate anyway.
+    tasks = split_tasks(cells, n_lrs, None if stage == 3 else a.max_task_hours,
+                        a.rate, a.val_examples, a.de_examples)
     if a.format == "count":
-        print(len(cells))
+        print(len(tasks))
         return
     if a.format == "lines":
         missing = [c for c in cells if stage == 3 and c["lr"] is None]
@@ -459,27 +509,36 @@ def main() -> None:
                 f"lr_vs_n_and_d, and check --stage2-dir={a.stage2_dir}.")
         # epochs and limit are what lr_tuning.py is given; lr "-" means the
         # SLURM wrapper builds its usual grid around the prior.
-        for c in cells:
+        # The eighth field is the part of the grid this task trains,
+        # "k0-k1/n", or "-" for all of it.
+        for c in tasks:
             lr = ("-" if c["lr"] is None else
                   c["lr"] if isinstance(c["lr"], str) else f"{c['lr']:.6e}")
+            part = "-" if c["part"] is None else "{}-{}/{}".format(*c["part"])
             print(f"{c['d_model']} {c['se']} {c['limit']} {c['beta2']:g} "
-                  f"{c['epochs']} {c['seed']} {lr}")
+                  f"{c['epochs']} {c['seed']} {lr} {part}")
         return
 
     print(f"STAGE {a.stage}: {len(cells)} cell(s), "
-          f"{n_lrs} learning rate(s) each")
+          f"{n_lrs} learning rate(s) each"
+          + (f", run as {len(tasks)} array tasks (long cells split by "
+             f"learning rate, at most {a.max_task_hours:g}h each)"
+             if len(tasks) != len(cells) else ""))
     print(f"{'idx':>4} {'model':<12} {'N':>11} {'D':>12} {'M = D/N':>9} "
           f"{'beta2':>6} {'seed':>5} {'lr':>10} {'GPU-h':>7}")
-    hours = [cell_hours(c["D"], n_lrs, a.rate, a.val_examples, a.de_examples)
-             for c in cells]
+    hours = [cell_hours(c["D"], c["task_lrs"], a.rate, a.val_examples,
+                        a.de_examples)
+             for c in tasks]
     total = 0.0
-    for i, (c, h) in enumerate(zip(cells, hours)):
+    for i, (c, h) in enumerate(zip(tasks, hours)):
         total += h
         if stage == "beta2x":
             lr = c["lr_source"]
         elif stage == 3:
             lr = (f"{c['lr']:.2e}" if c["lr"] is not None
                   else f"({c['lr_source']})")
+        elif c["part"] is not None:
+            lr = "grid {}-{}/{}".format(*c["part"])
         else:
             lr = "grid"
         print(f"{i:>4} d{c['d_model']}/se{c['se']:<8} {c['n_params']:>11,} "
@@ -487,10 +546,15 @@ def main() -> None:
               f"{c['beta2']:>6g} {c['seed']:>5} {lr:>10} {h:>7.1f}")
     print(f"\n{'':>4} {'total':<12} {'':>11} {'':>12} {'':>9} {'':>6} "
           f"{'':>5} {'':>10} {total:>7.1f}")
-    train_only = sum(n_lrs * c["D"] / a.rate / 3600 for c in cells)
+    train_only = sum(c["task_lrs"] * c["D"] / a.rate / 3600 for c in tasks)
+    startup = len(tasks) * STARTUP_SEC / 3600
     print(f"{'':>4} (of which training {train_only:.1f}; startup "
-          f"{len(cells) * STARTUP_SEC / 3600:.1f}; evals "
-          f"{total - train_only - len(cells) * STARTUP_SEC / 3600:.1f})")
+          f"{startup:.1f}; evals {total - train_only - startup:.1f})")
+    if len(tasks) != len(cells):
+        print(f"{'':>4} splitting adds {(len(tasks) - len(cells)) * STARTUP_SEC / 3600:.1f} "
+              f"GPU-h of startup; the longest task is {max(hours):.1f}h "
+              f"(unsplit, the longest cell would be "
+              f"{max(cell_hours(c['D'], n_lrs, a.rate, a.val_examples, a.de_examples) for c in cells):.1f}h)")
     if stage == 3 and any(c["lr"] is None for c in cells):
         print(f"{'':>4} learning rates in parentheses are filled in once "
               f"stage 2 is finished and fitted; the cells and costs are final.")
@@ -503,7 +567,7 @@ def main() -> None:
     if at_risk:
         worst = max(hours)
         need = int(worst / MARGIN) + 1
-        print(f"\n[WARN] {len(at_risk)} of {len(cells)} cells need more than "
+        print(f"\n[WARN] {len(at_risk)} of {len(tasks)} tasks need more than "
               f"{MARGIN:.0%} of the {a.wall_hours:g}h wall "
               f"({worst:.1f}h for the largest at {a.rate:g} ex/s).")
         print(f"       The rate is a MEDIAN and the slow tail runs 15x under "
@@ -512,7 +576,7 @@ def main() -> None:
         # needed, and long caps how many cards a group holds at once.
         qos = "" if need <= QOS_SHORT_MAX_HOURS else " --qos=long"
         print(f"       Submit with --time={need:02d}:00:00{qos}, and "
-              f"throttle the array (--array=0-{len(cells) - 1}%{DEFAULT_THROTTLE}): "
+              f"throttle the array (--array=0-{len(tasks) - 1}%{DEFAULT_THROTTLE}): "
               f"these runs are input-bound, so concurrent cells slow each "
               f"other down.")
 

@@ -601,6 +601,13 @@ def main() -> None:
     parser.add_argument("--lr-min", type=float, default=1e-5)
     parser.add_argument("--lr-max", type=float, default=1e-2)
     parser.add_argument("--n-lrs", type=int, default=8)
+    parser.add_argument("--output-suffix", default="",
+                        help="appended to the result's filename tag. The SLURM "
+                             "wrapper uses it to run one cell's learning-rate "
+                             "grid as several array tasks, each writing its "
+                             "own part (e.g. _part0-1of7); "
+                             "scripts/merge_lr_parts.py joins them into the "
+                             "cell's usual file.")
 
     parser.add_argument("--feature-mode", type=str, default="raw_spectrum",
                         choices=["raw_spectrum", "compact"])
@@ -677,7 +684,7 @@ def main() -> None:
                 f"_d{args.d_model}_se{args.slot_encoder_layers}"
                 f"_bs{args.batch_size}_b2{args.beta2:g}"
                 + ("" if args.lr_schedule == "cosine" else f"_{args.lr_schedule}")
-                + _seed_suffix(args.seed) + ".json")
+                + _seed_suffix(args.seed) + args.output_suffix + ".json")
     _existing = sorted(_out_dir.glob(_pattern))
     if _existing:
         if args.skip_existing:
@@ -839,7 +846,7 @@ def main() -> None:
            f"_d{args.d_model}_se{args.slot_encoder_layers}"
            f"_bs{args.batch_size}_b2{args.beta2:g}"
            + ("" if args.lr_schedule == "cosine" else f"_{args.lr_schedule}")
-           + _seed_suffix(args.seed))
+           + _seed_suffix(args.seed) + args.output_suffix)
     results_file = output_dir / f"lr_search_{tag}.json"
     # Never silently replace a finished sweep. The grid is submitted as an
     # array and arrays get resubmitted, so a clobber here would quietly

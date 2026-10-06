@@ -258,6 +258,26 @@ now logs `[time] train / val / dE`.
 
 **Decided Oct 6: four curves (`RUNGS=4`, now the default in `lr_grid.sh`, `lr_grid_cells.py` and `collect_isoflop.py`) and β₂ = 0.999 (`BETA2_WINNER`, now the default). 24 cells, ~110 GPU-h at 2033 ex/s; the largest cell (d96/se3 at D = 18.5M) alone is ~18.5 h, so it sets the wall time and is submitted on its own with headroom.**
 
+**Long cells run as several array tasks (Oct 6).** `lr_tuning.py` trains a
+cell's rates one after another, so stage 2's d96/se3 cell at D = 18.5M would
+take ~18.5 h. Any stage-2 or check cell longer than `MAX_TASK_HOURS` (6) is cut
+into contiguous runs of its rates, each its own array task writing to
+`<OUTPUT_DIR>/parts/`; the last part to land merges the cell into its usual
+file (`scripts/merge_lr_parts.py`, which re-selects the optimum by
+`lr_tuning.py`'s own rule, so nothing downstream can tell). Same rates, model,
+seed and data; 32 tasks instead of 24, +3.8 GPU-h of startup (3%), longest
+task 6 h instead of 18.5 h. Task numbering depends on `MAX_TASK_HOURS`, so
+change it only between submissions. If a cell's parts all finished but its
+file is missing (a part died after training), run the merge by hand through
+`slurms/analyze.sh scripts/merge_lr_parts.py --parts-dir <dir>/parts --out-dir <dir>`.
+
+**Why the expensive points stay (Oct 6).** The costly cells are the small-N,
+high-D left ends of each curve (time tracks examples, not FLOPs). They were
+kept: the lowest curves' minima sit at or next to their left edge, tuning may
+move minima further left (panel E: small models wanted 1.2 to 2x the old
+prior, large ones 0.5 to 0.7x), and they are the only tuned points at high M
+for moderate N, which stage 3's leftmost points need the law to reach.
+
 **2. `STAGE=2`** — **the LR search runs inside the IsoFLOP test.** Every model
 on the `RUNGS` lowest curves is tuned directly; at the default 3 that is 18
 cells, ~57 GPU-h at 2171 ex/s.
