@@ -341,6 +341,19 @@ collate under 15% of worker time, `data_wait` 80 to 95%. So the 18.5M and
 took ~5.5 to 6.5 h. Fewer bytes per row (float32 spectra) or node-local
 staging of a cell's shards is the next throughput lever, not more loader work.
 
+**Presentation figures (Oct 7).** `stage2_preview.py --final` now also writes,
+non-fatally: `isoflop_tuned_low.png`; `run_times.json/.png`
+(`scripts/collect_run_times.py`: measured training GPU-hours per run from the
+lr_grid.sh logs, first rate = cold read = the cost basis); the same IsoFLOP
+fits against those GPU-hours with an SU top axis (`plot_porian.py --x-axis
+gpu-hours --run-times`); and `lr_law_tuned.png` (`plot_lr_law_tuned.py`: tuned
+optima, the law along each rung, ratios, every cell's LR curve centred on the
+law). Tuned result on the uploaded 55-run collection: CE alpha 0.59 [0.55,
+0.65] on 6 of 6 rungs, low-chroma 0.55, pooled DeltaE 0.80 on 5 of 6 (noisy;
+stage-2 points are best of 7 on DeltaE, stage-3 points one reading). Best CE
+per rung flattens: 6.151, 6.084, 6.053, 6.030, 6.022, 6.021 against a seed
+sigma of 0.008, so a 7th rung would add a flat-bottomed curve.
+
 **Closing stage 2's open edges (Oct 7): `STAGE=2x` and `STAGE=2edge`.**
 Both are decided from results on disk (`scripts/lr_edges.py`) and freeze
 their task list at `--list` time (`outputs/lr_search/tasklists/<stage>.txt`),

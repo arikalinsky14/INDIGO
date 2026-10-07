@@ -57,7 +57,7 @@ def style(ax):
     ax.set_axisbelow(True)
 
 
-def plain_log_ticks(ax) -> None:
+def plain_log_ticks(ax, minor: bool = True) -> None:
     """Plain decimal labels on a log axis: 1, 2, 5 rather than 10^0.
 
     Service units span well under a decade here, so every tick is a power of
@@ -76,10 +76,22 @@ def plain_log_ticks(ax) -> None:
             return f"{v:g}"
         return f"{v:.2f}".rstrip("0").rstrip(".")
 
+    from matplotlib.ticker import NullFormatter
     for axis in (ax.xaxis,):
         axis.set_major_formatter(FuncFormatter(fmt))
-        axis.set_minor_formatter(FuncFormatter(fmt))
+        # Label the minor ticks only when the axis spans under a decade and
+        # would otherwise show one or two labels; across decades they collide.
+        axis.set_minor_formatter(FuncFormatter(fmt) if minor else NullFormatter())
     ax.tick_params(axis="x", which="minor", labelsize=8)
+
+
+def su_axis(ax, su_per_gpu_hour: float) -> None:
+    """Service units along the top: a fixed multiple of GPU-hours on l40s."""
+    sec = ax.secondary_xaxis("top", functions=(lambda x: x * su_per_gpu_hour,
+                                               lambda x: x / su_per_gpu_hour))
+    sec.set_xlabel(f"Pitt CRC service units ({su_per_gpu_hour:g} per GPU-hour)",
+                   color=INK2, fontsize=8.5)
+    sec.tick_params(colors=INK2, labelsize=8)
 
 
 def value_of(run, metric):
@@ -92,7 +104,16 @@ def main() -> None:
     p.add_argument("--fit", default="analyses/scaling/results/isoflop_fit.json")
     p.add_argument("--metric", default="pooled",
                    choices=["pooled", "low", "mid", "high", "ce"])
-    p.add_argument("--x-axis", choices=["flops", "credits"], default="flops")
+    p.add_argument("--x-axis", choices=["flops", "credits", "gpu-hours"],
+                   default="flops",
+                   help="gpu-hours: each rung at the MEASURED training time of "
+                        "its compute-optimal run, from --run-times")
+    p.add_argument("--run-times", default=None,
+                   help="scripts/collect_run_times.py's JSON; examples/s by "
+                        "model size, for --x-axis gpu-hours")
+    p.add_argument("--rate-basis", choices=["cold", "warm"], default="cold",
+                   help="cold: a run reading its data once (what one training "
+                        "run costs); warm: re-reads through the file cache")
     p.add_argument("--su-per-gpu-hour", type=float, default=None)
     p.add_argument("--bootstrap-iters", type=int, default=P.BOOTSTRAP_ITERS)
     p.add_argument("--x-pad-left", type=float, default=2.2,
@@ -142,6 +163,14 @@ def main() -> None:
     credits = (CreditModel(su_per_gpu_hour=a.su_per_gpu_hour)
                if a.su_per_gpu_hour else CreditModel())
     use_credits = a.x_axis == "credits"
+    use_gpu = a.x_axis == "gpu-hours"
+    if use_gpu:
+        if not a.run_times:
+            sys.exit("--x-axis gpu-hours needs --run-times (scripts/collect_run_times.py)")
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+        from collect_run_times import RateModel
+        rates = RateModel.from_file(a.run_times, a.rate_basis)
+        su_rate = json.load(open(a.run_times)).get("su_per_gpu_hour", 8.0)
     if use_credits and credits.caveat:
         print(f"[WARN] {credits.caveat}")
 
@@ -152,6 +181,8 @@ def main() -> None:
         which is a property of that run rather than of the budget, so the law
         below is refitted against it rather than rescaled from the FLOP fit.
         """
+        if use_gpu:
+            return float(rates.gpu_hours(rung.n_star_median, rung.d_star_median))
         return credits.from_passes(rung.d_star_median) if use_credits else rung.budget
 
     xs = np.array([x_of(r) for r in good])
@@ -171,8 +202,11 @@ def main() -> None:
     ds = np.array([r.d_star_median for r in good])
     sig = np.array([r.log_sigma for r in good])
     xlabel = ("compute (Pitt CRC service units)" if use_credits
+              else f"training GPU-hours of the compute-optimal run "
+                   f"(measured, {a.rate_basis} read)" if use_gpu
               else "C (training FLOPs)")
 
+    xsym = "H" if use_gpu else "C"   # H: GPU-hours
     n_law = P.power_law_fit(xs, ns, sig)
     m_law = P.power_law_fit(xs, ds / ns, sig)
     # Confidence band: refit on bootstrap draw i of every rung.
@@ -240,14 +274,16 @@ def main() -> None:
                 markeredgecolor=SURF, markeredgewidth=1.0, zorder=4,
                 label="observations")
     ax.plot(grid, n_law(grid), "--", color=FIT_C, linewidth=2, zorder=3,
-            label=rf"$N^* \propto C^{{{n_law.exponent:.2f}}}$")
+            label=rf"$N^* \propto {xsym}^{{{n_law.exponent:.2f}}}$")
     anchor = ns[0] * (grid / xs[0]) ** 0.5
     ax.plot(grid, anchor, ls=(0, (5, 3)), color=REF, linewidth=1.8, zorder=2,
             label=r"Chinchilla  $\alpha$ = 0.50")
     ax.set_xscale("log"); ax.set_yscale("log")
-    if use_credits:
-        plain_log_ticks(ax)
+    if use_credits or use_gpu:
+        plain_log_ticks(ax, minor=x_span < 10)
     ax.set_xlabel(xlabel, color=INK2, fontsize=9.5)
+    if use_gpu:
+        su_axis(ax, su_rate)
     ax.set_ylabel(r"$N^*$ (parameters)", color=INK2, fontsize=9.5)
     ax.set_title(rf"B.  $\alpha$ = {n_law.exponent:+.3f}  "
                  rf"[{np.percentile(exps, 2.5):+.2f}, {np.percentile(exps, 97.5):+.2f}]",
@@ -262,13 +298,15 @@ def main() -> None:
     ax.plot(xs, mult, "o", color=FIT_C, markersize=8, markeredgecolor=SURF,
             markeredgewidth=1.1, zorder=3, label="observations")
     ax.plot(grid, m_law(grid), "--", color=FIT_C, linewidth=2, zorder=2,
-            label=rf"$D^*/N^* \propto C^{{{m_law.exponent:.2f}}}$")
+            label=rf"$D^*/N^* \propto {xsym}^{{{m_law.exponent:.2f}}}$")
     ax.plot(grid, np.full_like(grid, mult[0]), ls=(0, (5, 3)), color=REF,
             linewidth=1.8, zorder=1, label="Chinchilla: flat")
     ax.set_xscale("log"); ax.set_yscale("log")
-    if use_credits:
-        plain_log_ticks(ax)
+    if use_credits or use_gpu:
+        plain_log_ticks(ax, minor=x_span < 10)
     ax.set_xlabel(xlabel, color=INK2, fontsize=9.5)
+    if use_gpu:
+        su_axis(ax, su_rate)
     ax.set_ylabel(r"$D^*/N^*$ (examples per parameter)", color=INK2, fontsize=9.5)
     ax.set_title("C.  Examples per parameter falls with compute", color=INK,
                  fontsize=11.5, pad=10, loc="left")
@@ -284,6 +322,10 @@ def main() -> None:
            rf"$\sigma$ = {noise.sigma_lo:.3f} from repeat seeds"
            + (f" of {Path(a.noise_from).name}" if a.noise_from else "") + "), "
            f"1/$\\sigma^2$-weighted fit.")
+    if use_gpu:
+        sub += (f"\nx: measured training time of each rung's compute-optimal "
+                f"run, D*/rate(N*), rate from {Path(a.run_times).name} "
+                f"({a.rate_basis} read); startup and DeltaE eval excluded.")
     if use_credits and credits.caveat:
         sub += (f"  {credits.su_per_gpu_hour:g} SU/GPU-hour (published l40s weight; "
                 "core weight unconfirmed).")
@@ -294,10 +336,10 @@ def main() -> None:
                     transform=ax.transAxes, fontsize=13, color="#d03b3b",
                     ha="center", va="center", alpha=0.35, rotation=18,
                     zorder=10)
-    fig.text(0.008, 0.972, sub, fontsize=9, color=INK2, ha="left")
+    fig.text(0.008, 0.997, sub, fontsize=9, color=INK2, ha="left", va="top")
 
     out = a.output or (f"analyses/scaling/results/porian_{a.metric}"
-                       f"{'_credits' if use_credits else ''}.png")
+                       f"{'_credits' if use_credits else '_gpuh' if use_gpu else ''}.png")
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.savefig(out, dpi=170, bbox_inches="tight", facecolor=SURF)

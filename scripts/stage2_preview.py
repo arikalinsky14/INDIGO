@@ -51,6 +51,8 @@ def main() -> None:
     p.add_argument("--sweep", default="analyses/scaling/results/isoflop_fit.json",
                    help="the first sweep: noise source and comparison")
     p.add_argument("--out-dir", default=None)
+    p.add_argument("--logs", default="job-outputs",
+                   help="lr_grid.sh logs, for the measured GPU-hours (--final)")
     p.add_argument("--final", action="store_true",
                    help="stages 2 and 3 together: the seed noise comes from "
                         "the runs' own repeat seeds, outputs go to "
@@ -82,9 +84,29 @@ def main() -> None:
                 "--title", f"Tuned IsoFLOP ({metric}): learning rate tuned on "
                            f"rungs 1-{a.rungs}, law-extrapolated above",
                 required=False)
+        run("analyses/scaling/plot_porian.py", "--fit", str(pts), *noise,
+            "--metric", "low", "--output", str(out / "isoflop_tuned_low.png"),
+            required=False)
         run("analyses/scaling/plot_porian.py", "--fit", a.sweep,
             "--output", str(out / "isoflop_first_sweep.png"),
             "--title", "First sweep, old learning-rate law (for comparison)",
+            required=False)
+        # Supplementary: the same fits against measured GPU-hours, and the
+        # learning-rate law stage 3 ran on.
+        times = out / "run_times.json"
+        run("scripts/collect_run_times.py", "--logs", a.logs,
+            "--output", str(times), required=False)
+        if times.is_file():
+            for metric in ("ce", "pooled"):
+                run("analyses/scaling/plot_porian.py", "--fit", str(pts), *noise,
+                    "--metric", metric, "--x-axis", "gpu-hours",
+                    "--run-times", str(times),
+                    "--output", str(out / f"isoflop_tuned_{metric}_gpuh.png"),
+                    "--title", f"Tuned IsoFLOP ({metric}) against measured "
+                               f"GPU-hours (supplementary)", required=False)
+        run("analyses/scaling/plot_lr_law_tuned.py", "--results-dir",
+            a.stage2_dir, "--law", "analyses/scaling/results/lr_law_fit.json",
+            "--tuned", str(pts), "--output", str(out / "lr_law_tuned.png"),
             required=False)
         print(f"\n[INFO] final figures and fits in {out}/")
         return
