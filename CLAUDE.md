@@ -333,6 +333,14 @@ yet on main).**
   rate(N) in the credit cost model, ~1.1 GPU-h. Run with
   `LIMIT_DE_EXAMPLES=0`: throughput needs no DeltaE eval.
 
+**The input limit is the /ix1 read, measured (Oct 7, stage-2 tasks 18 and 26).**
+The loader's own timing: ~36 KB per row, read at 28 to 30 MB/s on a cell's
+first rate and 110 to 130 MB/s by its fifth (server-side caching), decode and
+collate under 15% of worker time, `data_wait` 80 to 95%. So the 18.5M and
+22.4M cells ran at ~2,700 to 4,000 ex/s, not the planner's 8,000, and each
+took ~5.5 to 6.5 h. Fewer bytes per row (float32 spectra) or node-local
+staging of a cell's shards is the next throughput lever, not more loader work.
+
 **Closing stage 2's open edges (Oct 7): `STAGE=2x` and `STAGE=2edge`.**
 Both are decided from results on disk (`scripts/lr_edges.py`) and freeze
 their task list at `--list` time (`outputs/lr_search/tasklists/<stage>.txt`),

@@ -39,7 +39,9 @@ set -euo pipefail
 #   3. submits STAGE=3 and STAGE=check (in parallel: the check no longer
 #      gates stage 3, to fit a deadline; if it fails, re-run stage 3's
 #      upper-rung points);
-#   4. submits the final analysis to run once both are done:
+#   4. submits the final analysis to run once both are done, and once any
+#      job ids in AFTER (colon-separated, e.g. a 3seeds or 2pick array) are
+#      done too, so their points land in the final figure:
 #      scripts/stage2_preview.py --final, figures and fits in
 #      analyses/scaling/results/tuned/, zipped into
 #      job-outputs/analysis_<job>.zip.
@@ -99,6 +101,6 @@ echo "   stage 3: job ${J3} (tasks 0-${N3});  check: job ${JC} (tasks 0-${NC})"
 
 echo "== 4. final analysis after both"
 JF="$(sbatch --parsable --clusters=gpu --partition=l40s --gres=gpu:1 \
-      --dependency=afterany:${J3}:${JC} slurms/analyze.sh \
+      --dependency=afterany:${J3}:${JC}${AFTER:+:${AFTER}} slurms/analyze.sh \
       scripts/stage2_preview.py --final)"
 echo "   final analysis: job ${JF%%;*} -> job-outputs/analysis_${JF%%;*}.zip"
