@@ -89,15 +89,25 @@ def main() -> None:
         f = train_flops_per_example(arch_for(int(d_model), int(se))) * D
         return int(np.argmin([abs(np.log(f / x)) for x in budgets]))
 
-    cells = load_cells(Path(a.results_dir), a.metric, a.beta2)
-    rows = tune_per_config(cells)
+    # Without the stage-2 results on disk (a results zip, say), fall back to
+    # the per-configuration optima the law file records, and drop panel C,
+    # which needs every trial.
+    cells = (load_cells(Path(a.results_dir), a.metric, a.beta2)
+             if Path(a.results_dir).is_dir() else [])
+    if cells:
+        rows = tune_per_config(cells)
+    else:
+        print(f"[WARN] no trials under {a.results_dir}; optima from {a.law}, "
+              f"no landscape panel")
+        rows = [dict(r) for r in json.load(open(a.law))["configs"]]
     for r in rows:
         r["rung"] = rung(r["d_model"], r["slot_encoder_layers"], r["train_examples"])
         r["pred"] = float(pred(r["n_params"], r["train_examples"]))
     stage3 = [r for r in tuned["runs"] if r.get("stage") == "3" and r["seed"] == 42]
     tuned_rungs = {r["rung"] for r in rows}
 
-    fig, axes = plt.subplots(1, 3, figsize=(16.2, 4.9), facecolor=SURF)
+    n_pan = 3 if cells else 2
+    fig, axes = plt.subplots(1, n_pan, figsize=(5.4 * n_pan, 4.9), facecolor=SURF)
     for ax in axes:
         style(ax)
 
@@ -139,7 +149,7 @@ def main() -> None:
                   color=INK2, fontsize=9.5)
     ax.set_title(rf"A.  lr = {A:.3g} N$^{{{b:+.2f}}}$ D$^{{{c:+.2f}}}$",
                  color=INK, fontsize=11.5, loc="left", pad=10)
-    legend(ax, loc="upper right", ncol=1)
+    legend(ax, loc="upper center", bbox_to_anchor=(0.5, -0.17), ncol=3)
 
     # ---- B: measured / predicted ------------------------------------------
     ax = axes[1]
@@ -177,46 +187,47 @@ def main() -> None:
     if top and "worst_ratio" in top[0]:
         note += (f"\ntop tuned rung held out of the fit: median "
                  f"{top[0]['median_ratio']:.2f}x, worst {top[0]['worst_ratio']:.2f}x")
-    ax.text(0.02, 0.03, note, transform=ax.transAxes, fontsize=8, color=INK2,
-            va="bottom")
+    ax.text(0.0, -0.17, note, transform=ax.transAxes, fontsize=8.5, color=INK2,
+            va="top")
     ax.set_title("B.  How far each optimum sits from the law", color=INK,
                  fontsize=11.5, loc="left", pad=10)
     legend(ax, loc="upper right")
 
     # ---- C: the landscape in units of the law ------------------------------
-    ax = axes[2]
-    by = collections.defaultdict(list)
-    for t in cells:
-        by[(t["n_params"], t["train_examples"])].append(t)
-    for (n, D), ts in by.items():
-        ts = sorted(ts, key=lambda t: t["lr"])
-        if len(ts) < 3:
-            continue
-        r0 = next((r for r in rows if r["n_params"] == n and r["train_examples"] == D), None)
-        if r0 is None:
-            continue
-        col = RAMP[r0["rung"] % len(RAMP)]
-        v = np.array([t["value"] for t in ts])
-        x = np.array([t["lr"] for t in ts]) / float(pred(n, D))
-        ax.plot(x, v - v.min(), "-", color=col, alpha=0.75, linewidth=1.2,
-                marker="o", markersize=2.5, zorder=2)
-    ax.axvline(1, color=FIT_C, linewidth=1.6, linestyle="--", zorder=3,
-               label="law's prediction")
-    ax.axvspan(1 / GRID_STEP, GRID_STEP, color=REF, alpha=0.13, zorder=0)
-    ax.set_xscale("log")
-    ymax = 6.0 if a.metric == "delta_e" else 0.15
-    ax.set_ylim(-0.05 * ymax, ymax)
-    ax.set_xlabel("learning rate / law-predicted rate", color=INK2, fontsize=9.5)
-    ax.set_ylabel(("DeltaE" if a.metric == "delta_e" else "val CE")
-                  + " above the cell's best (diverged rates dropped)",
-                  color=INK2, fontsize=9.5)
-    ax.set_title("C.  Every cell's LR curve, centred on the law", color=INK,
-                 fontsize=11.5, loc="left", pad=10)
-    legend(ax, loc="upper left")
+    if cells:
+        ax = axes[2]
+        by = collections.defaultdict(list)
+        for t in cells:
+            by[(t["n_params"], t["train_examples"])].append(t)
+        for (n, D), ts in by.items():
+            ts = sorted(ts, key=lambda t: t["lr"])
+            if len(ts) < 3:
+                continue
+            r0 = next((r for r in rows if r["n_params"] == n and r["train_examples"] == D), None)
+            if r0 is None:
+                continue
+            col = RAMP[r0["rung"] % len(RAMP)]
+            v = np.array([t["value"] for t in ts])
+            x = np.array([t["lr"] for t in ts]) / float(pred(n, D))
+            ax.plot(x, v - v.min(), "-", color=col, alpha=0.75, linewidth=1.2,
+                    marker="o", markersize=2.5, zorder=2)
+        ax.axvline(1, color=FIT_C, linewidth=1.6, linestyle="--", zorder=3,
+                   label="law's prediction")
+        ax.axvspan(1 / GRID_STEP, GRID_STEP, color=REF, alpha=0.13, zorder=0)
+        ax.set_xscale("log")
+        ymax = 6.0 if a.metric == "delta_e" else 0.15
+        ax.set_ylim(-0.05 * ymax, ymax)
+        ax.set_xlabel("learning rate / law-predicted rate", color=INK2, fontsize=9.5)
+        ax.set_ylabel(("DeltaE" if a.metric == "delta_e" else "val CE")
+                      + " above the cell's best (diverged rates dropped)",
+                      color=INK2, fontsize=9.5)
+        ax.set_title("C.  Every cell's LR curve, centred on the law", color=INK,
+                     fontsize=11.5, loc="left", pad=10)
+        legend(ax, loc="upper left")
 
     fig.suptitle("Tuned learning-rate law from the stage-2 IsoFLOP cells",
                  fontsize=13.5, color=INK, x=0.008, ha="left", y=1.03)
-    fig.text(0.008, 0.965, f"{len(rows)} configurations, {len(cells)} trials, "
+    fig.text(0.008, 0.965, f"{len(rows)} configurations, {len(cells) or 'no'} trials on disk, "
              f"beta2 = {a.beta2:g}; {len(ok)} bracketed and fitted. Stage 3 "
              "trains the rungs above at the law's rate, one rate per point.",
              fontsize=9, color=INK2, ha="left")
