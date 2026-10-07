@@ -136,10 +136,16 @@ def main() -> None:
     budgets_all = sorted(json.load(open(a.fit))["budgets"])
     edge = [c for c in discover_cells(str(s2), budgets_all[:a.rungs], a.beta2)
             if (c["d_model"], c["se"], c["limit"]) not in have]
+    base3 = cells_for(3, a.fit, a.beta2, a.rungs, a.stage2_dir)
+    have3 = {(c["d_model"], c["se"], c["limit"], c["seed"]) for c in base3}
+    # Repeat seeds STAGE=3seeds added at other tuned points, found likewise.
+    seeds = [c for s in (43, 44)
+             for c in discover_cells(str(s3), budgets_all[:a.rungs], a.beta2, seed=s)
+             if (c["d_model"], c["se"], c["limit"], c["seed"]) not in have3]
     expected = ([(c, s2, "2") for c in base2]
                 + [(c, s2, "2edge") for c in edge]
-                + [(c, s3, "3") for c in cells_for(3, a.fit, a.beta2, a.rungs,
-                                                   a.stage2_dir)])
+                + [(c, s3, "3") for c in base3]
+                + [(c, s3, "3seed") for c in seeds])
     runs, problems = [], []
     for c, root, stage in expected:
         path = result_path(root, c)

@@ -142,3 +142,33 @@ def test_soft_edge_sides():
     assert E.soft_edge_sides(vals, sigma=0.52, k_sigma=0.4) == []
     assert E.soft_edge_sides({1: 12.0, 2: 9.0, 3: 12.5}, sigma=0.52) == []
     assert E.soft_edge_sides({1: 9.2, 2: 9.0, 3: 9.3}, sigma=0.52) == ["left", "right"]
+
+
+def test_pick_and_seeds(tmp_path):
+    """2pick adds a new point at a rung's FLOPs; 3seeds repeats a finished
+    stage-2 point at its exact D and the learning rate stage 2 chose."""
+    import os
+    cells = cells_for(2, str(REPO / FIT), 0.999, 5)
+    c = min((c for c in cells), key=lambda c: c["n_params"])
+    _write(tmp_path, c, curve(0.8))
+    tag = f"d{c['d_model']}/se{c['se']}@{c['budget']:.3g}"
+    env = dict(os.environ, PICK=tag)
+    r = subprocess.run([sys.executable, "scripts/lr_grid_cells.py", "--stage",
+                        "3seeds", "--format", "lines", "--stage2-dir", str(tmp_path)],
+                       cwd=REPO, env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    lines = [l.split() for l in r.stdout.split("\n") if l.strip()]
+    assert [int(l[5]) for l in lines] == [43, 44]
+    assert all(int(l[2]) == c["limit"] for l in lines)
+    best = min(curve(0.8), key=lambda t: t["final_val_de"])["lr"]
+    assert all(abs(float(l[6]) / best - 1) < 1e-5 for l in lines)
+    env["PICK"] = tag
+    r = subprocess.run([sys.executable, "scripts/lr_grid_cells.py", "--stage",
+                        "2pick", "--format", "lines", "--stage2-dir", str(tmp_path)],
+                       cwd=REPO, env=env, capture_output=True, text=True)
+    assert r.returncode != 0 and "already a stage-2 point" in r.stderr
+    env["PICK"] = "d80/se2@9.1e14"
+    r = subprocess.run([sys.executable, "scripts/lr_grid_cells.py", "--stage",
+                        "2pick", "--format", "lines", "--stage2-dir", str(tmp_path)],
+                       cwd=REPO, env=env, capture_output=True, text=True)
+    assert r.returncode == 0 and r.stdout.split()[:2] == ["80", "2"]

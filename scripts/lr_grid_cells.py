@@ -319,6 +319,68 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
             out.append(c)
         return out
 
+    if stage in ("2pick", "3seeds"):
+        # Hand-picked IsoFLOP points, PICK="d64/se1@1e14; d80/se2@9.1e14".
+        # 2pick: each a full stage-2 grid, seed 42, into the stage-2
+        #   directory, where the collector finds it by its FLOPs.
+        # 3seeds: repeat seeds of FINISHED stage-2 points (":s43,s44" after
+        #   the point, default both), one run each at the rate stage 2 chose
+        #   for the seed-42 twin (extensions included), as stage 3 does for
+        #   its repeats; into the stage-3 directory, found the same way.
+        import lr_edges as E
+        from merge_lr_parts import select
+        from src.scaling.flops import n_params, train_flops_per_example
+        spec = os.environ.get("PICK", "")
+        if not spec.strip():
+            raise SystemExit("set PICK, e.g. PICK='d64/se1@1e14; d80/se2@9.1e14'")
+        sdir = Path(stage2_dir or "outputs/lr_search/cross_attn")
+        # Points already on a tuned rung keep their exact D (the sweep's, or
+        # the 2edge/2pick cell's), which the result filenames carry.
+        known = {}
+        for c in (cells_for(2, fit_path_sweep, beta2, rungs)
+                  + E.discover_cells(str(sdir), budgets[:rungs], beta2)):
+            known[(c["d_model"], c["se"], c["budget"])] = c
+        out = []
+        for item in filter(None, (x.strip() for x in spec.split(";"))):
+            m = re.fullmatch(r"d(\d+)/se(\d+)@([0-9.eE+-]+)(?::(s[\d,s]+))?", item)
+            if not m:
+                raise SystemExit(f"cannot read PICK entry {item!r}; "
+                                 f"expected like d64/se1@1e14 or d64/se1@1e14:s43,s44")
+            d, se, cval, seeds = int(m.group(1)), int(m.group(2)), float(m.group(3)), m.group(4)
+            b = min(budgets, key=lambda x: abs(math.log(x / cval)))
+            if abs(math.log(b / cval)) > math.log(1.5):
+                raise SystemExit(f"{item}: no IsoFLOP budget near {cval:g}")
+            arch = E.arch_for(d, se)
+            if (d, se, b) in known:
+                if stage == "2pick":
+                    raise SystemExit(f"{item}: already a stage-2 point; use "
+                                     f"STAGE=3seeds for more seeds of it")
+                base_c = dict(known[(d, se, b)])
+            else:
+                if stage == "3seeds":
+                    raise SystemExit(f"{item}: not a finished stage-2 point")
+                D = int(round(b / train_flops_per_example(arch)))
+                base_c = _cell(int(n_params(arch)), D, beta2, budget=b)
+                if (base_c["d_model"], base_c["se"]) != (d, se):
+                    # _cell maps N to the ladder; keep the shape asked for.
+                    base_c.update(d_model=d, se=se, n_params=int(n_params(arch)))
+                    base_c["M"] = D / base_c["n_params"]
+            if stage == "2pick":
+                base_c["lr_source"] = "picked"
+                out.append(base_c)
+                continue
+            main = sdir / (f"lr_search_ep{base_c['epochs']}_lim{base_c['limit']}"
+                           f"_d{d}_se{se}_bs{DEFAULT_BATCH_SIZE}_b2{beta2:g}.json")
+            dct, trials = E.cell_trials(main)
+            if not trials:
+                raise SystemExit(f"{item}: stage-2 result {main.name} not found; "
+                                 f"its repeat seeds reuse its learning rate")
+            lr = select(trials, dct.get("selection_metric", "delta_e"))["lr"]
+            for sd in [int(x) for x in (seeds or "s43,s44").replace("s", "").split(",") if x]:
+                c = dict(base_c, seed=sd, lr=lr, lr_source=f"stage-2 lr s{sd}")
+                out.append(c)
+        return out
+
     if stage in ("2x", "2edge"):
         # Closing stage 2's open edges, decided from its results on disk
         # (scripts/lr_edges.py). Points STAGE=2edge added are found in
@@ -554,7 +616,7 @@ def main() -> None:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--stage", required=True,
                    choices=("probe", "speed", "1", "beta2", "beta2x", "2", "2x",
-                            "2edge", "check", "3"),
+                            "2edge", "2pick", "3seeds", "check", "3"),
                    help="probe: throughput. 1: beta2. 2: learning rate, tuned "
                         "on every point of the lowest RUNGS IsoFLOP curves. "
                         "check: the fitted law tested at one upper-rung point. "
@@ -617,7 +679,7 @@ def main() -> None:
     a = p.parse_args()
 
     stage = (a.stage if a.stage in ("probe", "speed", "check", "beta2", "beta2x",
-                                    "2x", "2edge")
+                                    "2x", "2edge", "2pick", "3seeds")
              else int(a.stage))
     b2v = ([float(x) for x in a.beta2_values.split(",")]
            if a.beta2_values else None)
@@ -629,6 +691,8 @@ def main() -> None:
     n_lrs = {"probe": 1, "speed": 1, 1: 3, 3: 1, "beta2x": 2}.get(stage, a.n_lrs)
     if stage == "2x":
         n_lrs = 2
+    if stage == "3seeds":
+        n_lrs = 1
     # Splitting needs every cell's learning rate settled, which stage 3's are
     # not before stage 2 is fitted; stage 3 cells are single-rate anyway.
     tasks = split_tasks(cells, n_lrs, None if stage == 3 else a.max_task_hours,
@@ -672,7 +736,7 @@ def main() -> None:
     total = 0.0
     for i, (c, h) in enumerate(zip(tasks, hours)):
         total += h
-        if stage in ("beta2x", "2x", "2edge"):
+        if stage in ("beta2x", "2x", "2edge", "2pick", "3seeds"):
             lr = c["lr_source"]
         elif stage == 3:
             lr = (f"{c['lr']:.2e}" if c["lr"] is not None

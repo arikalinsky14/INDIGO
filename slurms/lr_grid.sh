@@ -323,9 +323,9 @@ case "${STAGE}" in
   beta2)   N_LRS="${N_LRS:-7}"
            LR_SPAN_DOWN="${LR_SPAN_DOWN:-2.828427}"
            LR_SPAN_UP="${LR_SPAN_UP:-2.828427}" ;;
-  2|2edge|check) LR_SPAN_DOWN="${LR_SPAN_DOWN:-${LR_SPAN:-8}}"
+  2|2edge|2pick|check) LR_SPAN_DOWN="${LR_SPAN_DOWN:-${LR_SPAN:-8}}"
            LR_SPAN_UP="${LR_SPAN_UP:-${LR_SPAN:-5}}" ;;
-  3)       N_LRS=1 ;;               # one rate per point, given by the cell
+  3|3seeds) N_LRS=1 ;;             # one rate per point, given by the cell
 esac
 FIT="${FIT:-analyses/scaling/results/porian_fit.json}"
 BETA2_WINNER="${BETA2_WINNER:-0.999}"
@@ -359,7 +359,7 @@ case "${STAGE}" in
   # merges the two.
   beta2x) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/beta2_ext/${HEAD_MODE}}" ;;
   check) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/check/${HEAD_MODE}}" ;;
-  3)     OUTPUT_DIR="${OUTPUT_DIR:-outputs/isoflop_tuned/${HEAD_MODE}}" ;;
+  3|3seeds) OUTPUT_DIR="${OUTPUT_DIR:-outputs/isoflop_tuned/${HEAD_MODE}}" ;;
   *)     OUTPUT_DIR="${OUTPUT_DIR:-${STAGE2_DIR}}" ;;
 esac
 # MEASURED by the shard-aligned probe (job 4125957, d120/se4, D = 614,400):
@@ -398,7 +398,7 @@ EVAL_FRACTIONS="${EVAL_FRACTIONS-}"
 # MAX_TASK_HOURS=0 runs every cell as one task, the old behaviour. Change it
 # only between submissions: the task numbering depends on it.
 case "${STAGE}" in
-  2|2edge|check) MAX_TASK_HOURS="${MAX_TASK_HOURS:-6}" ;;
+  2|2edge|2pick|check) MAX_TASK_HOURS="${MAX_TASK_HOURS:-6}" ;;
   *)       MAX_TASK_HOURS="${MAX_TASK_HOURS:-0}" ;;
 esac
 
@@ -422,7 +422,7 @@ fi
 # task reads that file: the numbering cannot shift under a running array.
 FROZEN=0
 case "${STAGE}" in
-  2x|2edge) FROZEN=1
+  2x|2edge|2pick|3seeds) FROZEN=1
             TASK_LIST="${TASK_LIST:-outputs/lr_search/tasklists/${STAGE}.txt}" ;;
 esac
 
