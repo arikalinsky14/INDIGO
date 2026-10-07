@@ -33,9 +33,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 
 
-def run(*args: str) -> None:
+def run(*args: str, required: bool = True) -> None:
     print(f"\n$ {' '.join(args)}", flush=True)
-    subprocess.run([sys.executable, *args], cwd=REPO, check=True)
+    r = subprocess.run([sys.executable, *args], cwd=REPO)
+    if r.returncode:
+        if required:
+            raise SystemExit(f"failed: {args[0]}")
+        print(f"[WARN] {args[0]} failed (exit {r.returncode}); continuing")
 
 
 def main() -> None:
@@ -46,10 +50,46 @@ def main() -> None:
     p.add_argument("--stage2-dir", default="outputs/lr_search/cross_attn")
     p.add_argument("--sweep", default="analyses/scaling/results/isoflop_fit.json",
                    help="the first sweep: noise source and comparison")
-    p.add_argument("--out-dir", default="analyses/scaling/results/stage2")
+    p.add_argument("--out-dir", default=None)
+    p.add_argument("--final", action="store_true",
+                   help="stages 2 and 3 together: the seed noise comes from "
+                        "the runs' own repeat seeds, outputs go to "
+                        "analyses/scaling/results/tuned/, and the learning-"
+                        "rate law (which stage 3 ran on) is not refitted")
     a = p.parse_args()
 
-    out = Path(a.out_dir)
+    if a.final:
+        out = Path(a.out_dir or "analyses/scaling/results/tuned")
+        pts = out / "isoflop_tuned.json"
+        run("scripts/collect_isoflop.py", "--beta2", a.beta2, "--rungs", a.rungs,
+            "--stage2-dir", a.stage2_dir, "--output", str(pts))
+        # Own repeat seeds when there are any (stage 3 brings them), else the
+        # first sweep's, said so in the figure.
+        import collections, json
+        clusters = collections.Counter(
+            (round(r["flops"], -11), r["n_params"])
+            for r in json.load(open(pts))["runs"])
+        noise = ([] if any(n >= 2 for n in clusters.values())
+                 else ["--noise-from", a.sweep])
+        if noise:
+            print("[WARN] no repeat seeds yet; seed noise from the first sweep")
+        run("scripts/fit_scaling_porian.py", "--fit", str(pts), *noise,
+            "--output", str(out / "porian_fit_tuned.json"))
+        for metric in ("pooled", "ce"):
+            run("analyses/scaling/plot_porian.py", "--fit", str(pts), *noise,
+                "--metric", metric,
+                "--output", str(out / f"isoflop_tuned_{metric}.png"),
+                "--title", f"Tuned IsoFLOP ({metric}): learning rate tuned on "
+                           f"rungs 1-{a.rungs}, law-extrapolated above",
+                required=False)
+        run("analyses/scaling/plot_porian.py", "--fit", a.sweep,
+            "--output", str(out / "isoflop_first_sweep.png"),
+            "--title", "First sweep, old learning-rate law (for comparison)",
+            required=False)
+        print(f"\n[INFO] final figures and fits in {out}/")
+        return
+
+    out = Path(a.out_dir or "analyses/scaling/results/stage2")
     pts = out / "isoflop_stage2.json"
     run("scripts/collect_isoflop.py", "--beta2", a.beta2, "--rungs", a.rungs,
         "--stage2-dir", a.stage2_dir, "--output", str(pts))
