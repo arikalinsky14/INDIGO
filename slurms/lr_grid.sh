@@ -472,10 +472,22 @@ fi
 # One line per cell: d_model, slot layers, examples per epoch, beta2, epochs,
 # seed, and a fixed learning rate or "-" for "search the grid around the prior".
 cell_of() {   # $1 = task index
-    read -r D_MODEL SLOT_ENCODER_LAYERS LIMIT_EXAMPLES BETA2 EPOCHS SEED CELL_LR \
-        CELL_PART CELL_SUFFIX <<< "${CELL_LINES[$1]}"
-    CELL_PART="${CELL_PART:--}"
-    CELL_SUFFIX="${CELL_SUFFIX:--}"
+    # By position, so a line from an older or newer lr_grid_cells.py (7, 8
+    # or 9 fields) still parses. sbatch copies THIS script at submission but
+    # the tasks run the checkout's lr_grid_cells.py, so a `git pull` between
+    # submitting and starting can pair them across versions.
+    local -a F
+    read -r -a F <<< "${CELL_LINES[$1]}"
+    if (( ${#F[@]} < 7 || ${#F[@]} > 9 )); then
+        echo "[ERROR] task line has ${#F[@]} fields: '${CELL_LINES[$1]}'." >&2
+        echo "        slurms/lr_grid.sh and scripts/lr_grid_cells.py look like" >&2
+        echo "        different versions (git pull after sbatch?). Resubmit." >&2
+        exit 1
+    fi
+    D_MODEL="${F[0]}"; SLOT_ENCODER_LAYERS="${F[1]}"; LIMIT_EXAMPLES="${F[2]}"
+    BETA2="${F[3]}"; EPOCHS="${F[4]}"; SEED="${F[5]}"; CELL_LR="${F[6]}"
+    CELL_PART="${F[7]:--}"
+    CELL_SUFFIX="${F[8]:--}"
 }
 
 # Everything past here trains, so torch has to be importable. Fail now rather
