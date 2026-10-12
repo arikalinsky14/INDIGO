@@ -545,9 +545,23 @@ def existing_results(out_dir: Path, args) -> List[Path]:
             continue
         if (d.get("limit_examples") == args.limit_examples
                 and d.get("epochs") == args.epochs
-                and d.get("seed", 42) == args.seed):
+                and d.get("seed", 42) == args.seed
+                and _same_single_rate(d, args)):
             out.append(path)
     return out
+
+
+def _same_single_rate(d: dict, args) -> bool:
+    """A one-rate run (a repeat seed, a law-rate point) counts as done only at
+    the rate asked for now. Repeat seeds follow their seed-42 twin's winning
+    rate, which a later STAGE=2x round can move; a file at the old rate must
+    be re-run (and is overwritten), or the seed cluster mixes two rates."""
+    if getattr(args, "n_lrs", None) != 1:
+        return True
+    lrs = [t.get("lr") for t in d.get("results", [])]
+    if len(lrs) != 1 or not lrs[0]:
+        return True
+    return abs(lrs[0] / args.lr_min - 1) < 1e-3
 
 
 def resolve_output_dir(output_dir: Optional[str], head_mode: str) -> Path:

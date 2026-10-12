@@ -26,6 +26,7 @@ Everything lands in analyses/scaling/results/stage2/ except the law.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -58,9 +59,20 @@ def main() -> None:
                         "the runs' own repeat seeds, outputs go to "
                         "analyses/scaling/results/tuned/, and the learning-"
                         "rate law (which stage 3 ran on) is not refitted")
+    p.add_argument("--refit-law", action="store_true",
+                   help="with --final: refit the learning-rate law on every "
+                        "tuned cell first (when every rung is tuned, stage 3 "
+                        "no longer depends on it, so it is a result, not an input)")
     a = p.parse_args()
 
     if a.final:
+        if a.refit_law:
+            run("scripts/fit_lr_law.py", "--results-dir", a.stage2_dir,
+                "--coverage-from", a.sweep, required=False)
+        n_budgets = len(json.load(open(a.sweep))["budgets"])
+        tuned_note = ("learning rate tuned at every point"
+                      if int(a.rungs) >= n_budgets else
+                      f"learning rate tuned on rungs 1-{a.rungs}, law-extrapolated above")
         out = Path(a.out_dir or "analyses/scaling/results/tuned")
         pts = out / "isoflop_tuned.json"
         run("scripts/collect_isoflop.py", "--beta2", a.beta2, "--rungs", a.rungs,
@@ -81,8 +93,7 @@ def main() -> None:
             run("analyses/scaling/plot_porian.py", "--fit", str(pts), *noise,
                 "--metric", metric,
                 "--output", str(out / f"isoflop_tuned_{metric}.png"),
-                "--title", f"Tuned IsoFLOP ({metric}): learning rate tuned on "
-                           f"rungs 1-{a.rungs}, law-extrapolated above",
+                "--title", f"Tuned IsoFLOP ({metric}): {tuned_note}",
                 required=False)
         run("analyses/scaling/plot_porian.py", "--fit", str(pts), *noise,
             "--metric", "low", "--output", str(out / "isoflop_tuned_low.png"),
@@ -91,6 +102,10 @@ def main() -> None:
             "--output", str(out / "isoflop_first_sweep.png"),
             "--title", "First sweep, old learning-rate law (for comparison)",
             required=False)
+        run("analyses/scaling/plot_metric_alphas.py", "--fit", str(pts),
+            "--output", str(out / "alpha_by_metric.png"),
+            "--title", f"Tuned IsoFLOP: compute-optimal model size by metric "
+                       f"({tuned_note})", required=False)
         # Supplementary: the same fits against measured GPU-hours, and the
         # learning-rate law stage 3 ran on.
         times = out / "run_times.json"

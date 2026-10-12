@@ -408,3 +408,22 @@ def test_existing_results_pins_the_cell(tmp_path):
     mine = tmp_path / "lr_search_ep1_lim2395648_d96_se2_bs256_b20.999.json"
     json.dump({"limit_examples": 2395648, "epochs": 1, "seed": 42}, open(mine, "w"))
     assert L.existing_results(tmp_path, args) == [mine]
+
+
+def test_existing_results_single_rate_must_match(tmp_path):
+    """A one-rate run (a repeat seed) at an older rate is not done: its twin's
+    winning rate moved, so it re-runs. A grid run ignores the check."""
+    import argparse
+    import lr_tuning as L
+    base = dict(epochs=1, d_model=96, slot_encoder_layers=2, batch_size=256,
+                beta2=0.999, lr_schedule="cosine", seed=43, output_suffix="",
+                limit_examples=793088)
+    f = tmp_path / "lr_search_ep1_lim793088_d96_se2_bs256_b20.999_s43.json"
+    json.dump({"limit_examples": 793088, "epochs": 1, "seed": 43,
+               "results": [{"lr": 2.614897e-3}]}, open(f, "w"))
+    same = argparse.Namespace(**base, n_lrs=1, lr_min=0.0026148966)
+    moved = argparse.Namespace(**base, n_lrs=1, lr_min=4.8e-3)
+    grid = argparse.Namespace(**base, n_lrs=7, lr_min=1e-4)
+    assert L.existing_results(tmp_path, same) == [f]
+    assert L.existing_results(tmp_path, moved) == []
+    assert L.existing_results(tmp_path, grid) == [f]

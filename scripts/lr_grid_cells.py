@@ -165,7 +165,15 @@ def stage2_optimum(stage2_dir: Path, cell: dict) -> Optional[float]:
             f"_b2{cell['beta2']:g}.json")
     if not path.is_file():
         return None
-    return float(json.load(open(path))["optimal_lr"])
+    # STAGE=2x's extra rates (<cell>_ext<k>.json) can move the winner; the
+    # point's run is then the best over all of them, which is what the
+    # collector reads, so the repeats must run at that rate too.
+    from lr_edges import cell_trials
+    from merge_lr_parts import select
+    d, trials = cell_trials(path)
+    if len(trials) > len(d.get("results", [])):
+        return float(select(trials, d.get("selection_metric", "delta_e"))["lr"])
+    return float(d["optimal_lr"])
 
 
 def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,

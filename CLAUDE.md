@@ -341,6 +341,17 @@ collate under 15% of worker time, `data_wait` 80 to 95%. So the 18.5M and
 took ~5.5 to 6.5 h. Fewer bytes per row (float32 spectra) or node-local
 staging of a cell's shards is the next throughput lever, not more loader work.
 
+**Final plan (Oct 12): tune the top rung directly, no extrapolated rates.**
+`STAGE=2 RUNGS=6 EXAMPLES_PER_SEC=3500` tasks 39-56 (the 2.5e16 rung, 6 cells,
+~87 GPU-h at 3,500 ex/s, split to <=6 h parts). With every rung tuned, every
+IsoFLOP point is the best of 7 rates, which also removes the stage-2/stage-3
+selection asymmetry on DeltaE. Then `STAGE=2x` closes open LR edges (round 1
+now on rungs 1-5, round 2 on all six after the top rung lands), and
+`STAGE=3 RUNGS=6` re-runs repeat seeds whose twin's winning rate moved:
+`existing_results` now treats a one-rate file at another rate as not done (it
+is re-run and overwritten), and `stage2_optimum` includes extension trials.
+`stage2_preview.py --final --rungs 6 --refit-law` makes the final figures.
+
 **Presentation figures (Oct 7).** `stage2_preview.py --final` now also writes,
 non-fatally: `isoflop_tuned_low.png`; `run_times.json/.png`
 (`scripts/collect_run_times.py`: measured training GPU-hours per run from the

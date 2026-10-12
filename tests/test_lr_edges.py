@@ -172,3 +172,16 @@ def test_pick_and_seeds(tmp_path):
                         "2pick", "--format", "lines", "--stage2-dir", str(tmp_path)],
                        cwd=REPO, env=env, capture_output=True, text=True)
     assert r.returncode == 0 and r.stdout.split()[:2] == ["80", "2"]
+
+
+def test_stage2_optimum_follows_extensions(tmp_path):
+    """Repeat seeds run at the point's final winning rate: once a STAGE=2x
+    extension beats the grid, that is the extension's rate."""
+    from lr_grid_cells import stage2_optimum
+    cells = cells_for(2, str(REPO / FIT), 0.999, 5)
+    c = cells[0]
+    _write(tmp_path, c, curve(20))                 # best at the grid's top
+    top = max(t["lr"] for t in curve(20))
+    assert stage2_optimum(tmp_path, c) == top
+    _write(tmp_path, c, [trial(top * 1.85, 5.0), trial(top * 3.4, 9.0)], "_ext1")
+    assert abs(stage2_optimum(tmp_path, c) / (top * 1.85) - 1) < 1e-12
