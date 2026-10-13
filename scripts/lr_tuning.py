@@ -909,7 +909,13 @@ def main() -> None:
     # array and arrays get resubmitted, so a clobber here would quietly
     # destroy GPU-hours of someone else's cell. --force to overwrite,
     # --skip-existing to make a resubmission a no-op.
+    stale = False
     if results_file.exists():
+        try:
+            stale = not _same_single_rate(json.load(open(results_file)), args)
+        except (OSError, ValueError):
+            stale = False
+    if results_file.exists() and not stale:
         if args.skip_existing:
             print(f"[INFO] {results_file} exists; --skip-existing, nothing to do")
             return
@@ -919,6 +925,11 @@ def main() -> None:
                 f"        Pass --skip-existing to leave it alone (safe for "
                 f"re-running an array), or --force to overwrite it.")
         print(f"[WARN] overwriting {results_file} because --force was passed")
+    if stale:
+        # A one-rate run at a rate its cell no longer asks for (a repeat seed
+        # whose twin's winner moved): existing_results let it run, so the
+        # newer result replaces the old one rather than being thrown away.
+        print(f"[INFO] replacing {results_file.name}: it was run at another rate")
     with open(results_file, "w") as f:
         json.dump({
             "epochs": args.epochs,
