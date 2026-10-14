@@ -79,7 +79,7 @@ def main() -> None:
             "--stage2-dir", a.stage2_dir, "--output", str(pts))
         # Own repeat seeds when there are any (stage 3 brings them), else the
         # first sweep's, said so in the figure.
-        import collections, json
+        import collections
         clusters = collections.Counter(
             (round(r["flops"], -11), r["n_params"])
             for r in json.load(open(pts))["runs"])
