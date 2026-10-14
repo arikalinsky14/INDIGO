@@ -103,7 +103,6 @@ def main() -> None:
     for r in rows:
         r["rung"] = rung(r["d_model"], r["slot_encoder_layers"], r["train_examples"])
         r["pred"] = float(pred(r["n_params"], r["train_examples"]))
-    stage3 = [r for r in tuned["runs"] if r.get("stage") == "3" and r["seed"] == 42]
     tuned_rungs = {r["rung"] for r in rows}
 
     n_pan = 3 if cells else 2
@@ -111,43 +110,37 @@ def main() -> None:
     for ax in axes:
         style(ax)
 
-    # ---- A: optima and the law along each rung ----------------------------
+    # ---- A: one law, every curve ------------------------------------------
+    # lr depends on N and D, so the law is a plane, not a line. Dividing each
+    # optimum by its own D^c (D in millions) takes the D term out, and every
+    # rung's points should then fall on the single line A' N^b. That is the
+    # test of "one law for all curves": no per-curve fit anywhere.
     ax = axes[0]
+    D0 = 1e6
+    def collapse(r):
+        return r["lr_star"] / (r["train_examples"] / D0) ** c
     for k in sorted(tuned_rungs):
         col = RAMP[k % len(RAMP)]
-        rr = sorted((r for r in rows if r["rung"] == k), key=lambda r: r["n_params"])
+        rr = [r for r in rows if r["rung"] == k]
         for r in rr:
-            ax.plot(r["n_params"], r["lr_star"], "o", markersize=6.5, zorder=3,
+            ax.plot(r["n_params"], collapse(r), "o", markersize=6.5, zorder=3,
                     color=col if r["usable"] else SURF, markeredgecolor=col,
                     markeredgewidth=1.3)
-        ax.plot([r["n_params"] for r in rr], [r["pred"] for r in rr], "--",
-                color=col, linewidth=1.4, zorder=2, label=f"C = {budgets[k]:.2g}")
-    if stage3:
-        s3 = sorted(stage3, key=lambda r: r["n_params"])
-        k = rung_of_run = int(np.argmin([abs(np.log(s3[0]["flops"] / x)) for x in budgets]))
-        col = RAMP[k % len(RAMP)]
-        ax.plot([r["n_params"] for r in s3], [r["lr"] for r in s3], "D--",
-                color=col, markersize=5.5, linewidth=1.2, markeredgecolor=INK,
-                markeredgewidth=0.5, zorder=3,
-                label=f"C = {budgets[rung_of_run]:.2g}, law-assigned (stage 3)")
-    try:
-        from src.scaling.configs import MEASURED_LR, fit_lr_law
-        a0, b0 = fit_lr_law(MEASURED_LR)
-        g = np.geomspace(min(r["n_params"] for r in rows) / 1.3,
-                         max([r["n_params"] for r in rows] +
-                             [r["n_params"] for r in stage3]) * 1.3, 40)
-        ax.plot(g, np.exp(a0) * g ** b0, ls=(0, (1.5, 2.5)), color=REF,
-                linewidth=1.8, zorder=1, label=f"old law, N only (b = {b0:+.2f})")
-    except Exception as exc:  # the comparison line is optional
-        print(f"[WARN] old law not drawn: {exc}")
+        ax.plot([], [], "o", color=col, markersize=6, label=f"C = {budgets[k]:.2g}")
+    ns_all = [r["n_params"] for r in rows]
+    g = np.geomspace(min(ns_all) / 1.3, max(ns_all) * 1.3, 40)
+    ax.plot(g, A * D0 ** c * g ** b, "-", color=FIT_C, linewidth=2, zorder=2,
+            label="the law (one fit, all curves)")
+    ax.fill_between(g, A * D0 ** c * g ** b / GRID_STEP, A * D0 ** c * g ** b * GRID_STEP,
+                    color=REF, alpha=0.13, zorder=0, label=f"one grid step ({GRID_STEP}x)")
     ax.plot([], [], "o", color=INK2, markersize=6, label="bracketed (fitted)")
     ax.plot([], [], "o", color=SURF, markeredgecolor=INK2, markersize=6,
-            label="optimum on grid edge (excluded)")
+            label="optimum on grid edge (not fitted)")
     ax.set_xscale("log"); ax.set_yscale("log")
     ax.set_xlabel("N (parameters)", color=INK2, fontsize=9.5)
-    ax.set_ylabel(f"tuned learning rate (Akima argmin of {a.metric})",
+    ax.set_ylabel(rf"tuned lr $\times$ (D / 1M)$^{{{-c:.2f}}}$  (D term divided out)",
                   color=INK2, fontsize=9.5)
-    ax.set_title(rf"A.  lr = {A:.3g} N$^{{{b:+.2f}}}$ D$^{{{c:+.2f}}}$",
+    ax.set_title(rf"A.  One law for all curves: lr = {A:.3g} N$^{{{b:+.2f}}}$ D$^{{{c:+.2f}}}$",
                  color=INK, fontsize=11.5, loc="left", pad=10)
     legend(ax, loc="upper center", bbox_to_anchor=(0.5, -0.17), ncol=3)
 
@@ -225,11 +218,11 @@ def main() -> None:
                      fontsize=11.5, loc="left", pad=10)
         legend(ax, loc="upper left")
 
-    fig.suptitle("Tuned learning-rate law from the stage-2 IsoFLOP cells",
+    fig.suptitle("Learning-rate law, fitted jointly across all IsoFLOP curves",
                  fontsize=13.5, color=INK, x=0.008, ha="left", y=1.03)
-    fig.text(0.008, 0.965, f"{len(rows)} configurations, {len(cells) or 'no'} trials on disk, "
-             f"beta2 = {a.beta2:g}; {len(ok)} bracketed and fitted. Stage 3 "
-             "trains the rungs above at the law's rate, one rate per point.",
+    fig.text(0.008, 0.965, f"{len(rows)} tuned configurations, "
+             f"beta2 = {a.beta2:g}; one lr(N, D) fitted jointly on the {len(ok)} bracketed "
+             "optima from every IsoFLOP curve.",
              fontsize=9, color=INK2, ha="left")
     out = Path(a.output)
     out.parent.mkdir(parents=True, exist_ok=True)
