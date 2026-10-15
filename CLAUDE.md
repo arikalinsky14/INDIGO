@@ -341,6 +341,22 @@ collate under 15% of worker time, `data_wait` 80 to 95%. So the 18.5M and
 took ~5.5 to 6.5 h. Fewer bytes per row (float32 spectra) or node-local
 staging of a cell's shards is the next throughput lever, not more loader work.
 
+**Next week (Oct 15): confirmation runs, a third metric, LR curves.**
+The tuning runs never saved weights, so a third metric needs a retrain.
+`STAGE=confirm` (frozen list) retrains every tuned IsoFLOP point once at the
+rate it won with (`stage2_optimum`, extensions included), seed
+`CONFIRM_SEED=45`, into `outputs/isoflop_confirm/cross_attn`, saving weights
+(`lr_tuning.py --save-weights-dir`, under `weights/<cell tag>/lr<rate>/`,
+loadable by `inference.src.generate.load_inference_model`). Each point then
+also has an unselected CE and DeltaE and a second seed. `slurms/eval_pipeline.sh`
+scores each checkpoint with a light pipeline (best of 16 at T=1, 5 refine
+steps, top-1, no MC, both test tiers, 500 rows each); `scripts/collect_confirm.py`
+writes `isoflop_confirm.json` and `isoflop_pipeline.json` (fit with
+`--noise-from` the tuned collection: one seed). `plot_lr_curves.py` draws CE
+and DeltaE against learning rate for chosen points. Still to build: training a
+cell's rates together off one data stream, to close the long-D gaps without
+the /ix1 contention that timed them out.
+
 **Final plan (Oct 12): tune the top rung directly, no extrapolated rates.**
 `STAGE=2 RUNGS=6 EXAMPLES_PER_SEC=3500` tasks 39-56 (the 2.5e16 rung, 6 cells,
 ~87 GPU-h at 3,500 ex/s, split to <=6 h parts). With every rung tuned, every

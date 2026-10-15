@@ -183,6 +183,7 @@ def train_with_lr(
     lr_schedule: str = "cosine",
     eval_fractions: Optional[Sequence[float]] = None,
     per_example_de: bool = False,
+    save_weights_dir: Optional[Path] = None,
 ) -> LRSearchResult:
     # Re-seed before EVERY trial, not once for the sweep. Seeding once would
     # give trial 1 one initialisation, trial 2 another, and so on -- so the
@@ -346,6 +347,25 @@ def train_with_lr(
         print(f"    [time] train {t_train / 60:.1f} min, val {t_val / 60:.1f} min, "
               f"dE {t_de / 60:.1f} min", flush=True)
 
+    if save_weights_dir is not None:
+        # The final weights of this trial, so any later evaluation (an
+        # inference pipeline, a larger DeltaE slice) can run without
+        # retraining. Weights and the config are enough to rebuild the model;
+        # the optimizer state is not kept.
+        wdir = Path(save_weights_dir) / f"lr{lr:.6e}"
+        wdir.mkdir(parents=True, exist_ok=True)
+        sd_model = getattr(model, "_orig_mod", model)
+        torch.save(sd_model.state_dict(), wdir / "model.pt")
+        with open(wdir / "config.json", "w") as f:
+            json.dump(config.to_dict(), f, indent=2)
+        with open(wdir / "meta.json", "w") as f:
+            json.dump({"lr": lr, "seed": seed, "epochs": epochs,
+                       "train_examples": len(train_dataset),
+                       "final_val_loss": val_losses[-1],
+                       "final_val_de": (de_result or {}).get("delta_e_median")},
+                      f, indent=2)
+        print(f"    [weights] saved to {wdir}", flush=True)
+
     scored = bool(de_result and de_result.get("n_scored"))
     return LRSearchResult(
         lr=lr,
@@ -397,6 +417,7 @@ def lr_tuning(
     lr_schedule: str = "cosine",
     eval_fractions: Optional[Sequence[float]] = None,
     per_example_de: bool = False,
+    save_weights_dir: Optional[Path] = None,
 ) -> Tuple[float, List[LRSearchResult]]:
     lrs = np.logspace(np.log10(lr_min), np.log10(lr_max), n_lrs)
     print(f"\n{'=' * 70}")
@@ -429,6 +450,7 @@ def lr_tuning(
             de_simulator=de_simulator, seed=seed, betas=betas,
             lr_schedule=lr_schedule, eval_fractions=eval_fractions,
             per_example_de=per_example_de,
+            save_weights_dir=save_weights_dir,
         )
         results.append(result)
         de_str = ("" if result.final_val_de is None
@@ -564,6 +586,19 @@ def _same_single_rate(d: dict, args) -> bool:
     return abs(lrs[0] / args.lr_min - 1) < 1e-3
 
 
+def _weights_dir(args) -> Optional[Path]:
+    """Where this cell's trial weights go, or None when not saving: one
+    directory per cell, named like its results file."""
+    if not getattr(args, "save_weights_dir", None):
+        return None
+    tag = (f"ep{args.epochs}_lim{args.limit_examples}"
+           f"_d{args.d_model}_se{args.slot_encoder_layers}"
+           f"_bs{args.batch_size}_b2{args.beta2:g}"
+           + ("" if args.lr_schedule == "cosine" else f"_{args.lr_schedule}")
+           + _seed_suffix(args.seed) + args.output_suffix)
+    return Path(args.save_weights_dir) / tag
+
+
 def resolve_output_dir(output_dir: Optional[str], head_mode: str) -> Path:
     """Where this run's results land. Shared by the pre-flight existence check
     and the writer, so the two cannot disagree about which file to look for."""
@@ -621,6 +656,10 @@ def main() -> None:
                              "instead of one run per multiplier. Requires "
                              "--lr-schedule constant: a cosine prefix is not a "
                              "valid shorter run.")
+    parser.add_argument("--save-weights-dir", type=str, default=None,
+                        help="save every trial's final weights under "
+                             "<dir>/<cell tag>/lr<rate>/ (model.pt, "
+                             "config.json, meta.json)")
     parser.add_argument("--per-example-de", action="store_true",
                         help="store every scored example's DeltaE (and chroma "
                              "bucket) in each trial's de_result, so cells "
@@ -839,6 +878,7 @@ def main() -> None:
         lr_schedule=args.lr_schedule,
         eval_fractions=args.eval_fractions,
         per_example_de=args.per_example_de,
+        save_weights_dir=_weights_dir(args),
         epochs=args.epochs,
         train_dataset=train_dataset, val_dataset=val_examples,
         config=config, device=device,

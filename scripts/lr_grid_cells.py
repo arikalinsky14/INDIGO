@@ -327,6 +327,31 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
             out.append(c)
         return out
 
+    if stage == "confirm":
+        # Every finished IsoFLOP point retrained ONCE at the rate it won with
+        # (extensions included), on a new seed, with its weights saved. That
+        # gives each point an unselected CE and DeltaE (no best-of-7 bias), a
+        # second seed everywhere, and a checkpoint any later evaluation can
+        # load. Points whose tuning has not finished are left out and named.
+        import lr_edges as E
+        sdir = Path(stage2_dir or "outputs/lr_search/cross_attn")
+        base = cells_for(2, fit_path_sweep, beta2, rungs)
+        have = {(c["d_model"], c["se"], c["limit"]) for c in base}
+        extra = [c for c in E.discover_cells(str(sdir), budgets[:rungs], beta2)
+                 if (c["d_model"], c["se"], c["limit"]) not in have]
+        seed = int(os.environ.get("CONFIRM_SEED", 45))
+        out, missing = [], []
+        for c in base + extra:
+            lr = stage2_optimum(sdir, c)
+            if lr is None:
+                missing.append(f"d{c['d_model']}/se{c['se']}@{c['budget']:.3g}")
+                continue
+            out.append(dict(c, seed=seed, lr=lr, lr_source="stage-2 winner"))
+        if missing:
+            print(f"[WARN] confirm: {len(missing)} point(s) not tuned yet, "
+                  f"left out: {', '.join(missing)}", file=sys.stderr)
+        return out
+
     if stage in ("2pick", "3seeds"):
         # Hand-picked IsoFLOP points, PICK="d64/se1@1e14; d80/se2@9.1e14".
         # 2pick: each a full stage-2 grid, seed 42, into the stage-2
@@ -624,7 +649,7 @@ def main() -> None:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--stage", required=True,
                    choices=("probe", "speed", "1", "beta2", "beta2x", "2", "2x",
-                            "2edge", "2pick", "3seeds", "check", "3"),
+                            "2edge", "2pick", "3seeds", "confirm", "check", "3"),
                    help="probe: throughput. 1: beta2. 2: learning rate, tuned "
                         "on every point of the lowest RUNGS IsoFLOP curves. "
                         "check: the fitted law tested at one upper-rung point. "
@@ -687,7 +712,7 @@ def main() -> None:
     a = p.parse_args()
 
     stage = (a.stage if a.stage in ("probe", "speed", "check", "beta2", "beta2x",
-                                    "2x", "2edge", "2pick", "3seeds")
+                                    "2x", "2edge", "2pick", "3seeds", "confirm")
              else int(a.stage))
     b2v = ([float(x) for x in a.beta2_values.split(",")]
            if a.beta2_values else None)
@@ -699,7 +724,7 @@ def main() -> None:
     n_lrs = {"probe": 1, "speed": 1, 1: 3, 3: 1, "beta2x": 2}.get(stage, a.n_lrs)
     if stage == "2x":
         n_lrs = 2
-    if stage == "3seeds":
+    if stage in ("3seeds", "confirm"):
         n_lrs = 1
     # Splitting needs every cell's learning rate settled, which stage 3's are
     # not before stage 2 is fitted; stage 3 cells are single-rate anyway.
@@ -744,7 +769,9 @@ def main() -> None:
     total = 0.0
     for i, (c, h) in enumerate(zip(tasks, hours)):
         total += h
-        if stage in ("beta2x", "2x", "2edge", "2pick", "3seeds"):
+        if stage == "confirm":
+            lr = f"{c['lr']:.2e}"
+        elif stage in ("beta2x", "2x", "2edge", "2pick", "3seeds"):
             lr = c["lr_source"]
         elif stage == 3:
             lr = (f"{c['lr']:.2e}" if c["lr"] is not None

@@ -325,7 +325,7 @@ case "${STAGE}" in
            LR_SPAN_UP="${LR_SPAN_UP:-2.828427}" ;;
   2|2edge|2pick|check) LR_SPAN_DOWN="${LR_SPAN_DOWN:-${LR_SPAN:-8}}"
            LR_SPAN_UP="${LR_SPAN_UP:-${LR_SPAN:-5}}" ;;
-  3|3seeds) N_LRS=1 ;;             # one rate per point, given by the cell
+  3|3seeds|confirm) N_LRS=1 ;;             # one rate per point, given by the cell
 esac
 FIT="${FIT:-analyses/scaling/results/porian_fit.json}"
 BETA2_WINNER="${BETA2_WINNER:-0.999}"
@@ -360,6 +360,9 @@ case "${STAGE}" in
   beta2x) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/beta2_ext/${HEAD_MODE}}" ;;
   check) OUTPUT_DIR="${OUTPUT_DIR:-outputs/lr_search/check/${HEAD_MODE}}" ;;
   3|3seeds) OUTPUT_DIR="${OUTPUT_DIR:-outputs/isoflop_tuned/${HEAD_MODE}}" ;;
+  # Every tuned point once more at its winning rate, new seed, weights kept.
+  confirm) OUTPUT_DIR="${OUTPUT_DIR:-outputs/isoflop_confirm/${HEAD_MODE}}"
+           SAVE_WEIGHTS_DIR="${SAVE_WEIGHTS_DIR:-${OUTPUT_DIR}/weights}" ;;
   *)     OUTPUT_DIR="${OUTPUT_DIR:-${STAGE2_DIR}}" ;;
 esac
 # MEASURED by the shard-aligned probe (job 4125957, d120/se4, D = 614,400):
@@ -422,7 +425,7 @@ fi
 # task reads that file: the numbering cannot shift under a running array.
 FROZEN=0
 case "${STAGE}" in
-  2x|2edge|2pick|3seeds) FROZEN=1
+  2x|2edge|2pick|3seeds|confirm) FROZEN=1
             TASK_LIST="${TASK_LIST:-outputs/lr_search/tasklists/${STAGE}.txt}" ;;
 esac
 
@@ -628,6 +631,7 @@ srun python scripts/lr_tuning.py \
     --weight-decay 0.01 --grad-clip 1.0 --warmup-fraction 0.02 \
     --output-dir "${RESULTS_DIR}" ${OUTPUT_SUFFIX:+--output-suffix "${OUTPUT_SUFFIX}"} \
     "${OVERWRITE_FLAG}" \
+    ${SAVE_WEIGHTS_DIR:+--save-weights-dir "${SAVE_WEIGHTS_DIR}"} \
     --log-every 100 --streaming --bf16 --plot \
     $([[ "${PER_EXAMPLE_DE:-1}" == "1" ]] && echo --per-example-de)
 

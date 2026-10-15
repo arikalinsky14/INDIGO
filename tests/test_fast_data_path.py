@@ -427,3 +427,29 @@ def test_existing_results_single_rate_must_match(tmp_path):
     assert L.existing_results(tmp_path, same) == [f]
     assert L.existing_results(tmp_path, moved) == []
     assert L.existing_results(tmp_path, grid) == [f]
+
+
+def test_train_with_lr_saves_loadable_weights(shards, tmp_path):
+    """--save-weights-dir writes each trial's final weights where the
+    inference pipeline's loader can rebuild the same model from them."""
+    import json as _json
+    import lr_tuning as L
+    from src.model import ModelConfig
+    from inference.src.generate import load_inference_model
+    cfg = ModelConfig(d_model=32, n_layers=2, n_heads=4, dropout=0.1,
+                      encoder_hidden=32, encoder_out=16, head_mode="cross_attn",
+                      slot_encoder_layers=1, decoder_layers=1)
+    ds = FlexThinFilmDataset(shards, split="all", streaming=True)
+    val = list(FlexThinFilmDataset(shards, split="all", streaming=True))[:64]
+    L.train_with_lr(2e-3, 1, ds, val, cfg, torch.device("cpu"), batch_size=32,
+                    num_workers=0, packed_tf=True, verbose=False,
+                    save_weights_dir=tmp_path)
+    wdir = tmp_path / f"lr{2e-3:.6e}"
+    meta = _json.load(open(wdir / "meta.json"))
+    assert meta["lr"] == 2e-3 and meta["seed"] == 42
+    model, loaded_cfg, _ = load_inference_model(wdir, torch.device("cpu"))
+    assert loaded_cfg.to_dict() == cfg.to_dict()
+    saved = torch.load(wdir / "model.pt", weights_only=True)
+    for k, v in model.state_dict().items():
+        if k in saved:
+            assert torch.equal(v, saved[k]), k
