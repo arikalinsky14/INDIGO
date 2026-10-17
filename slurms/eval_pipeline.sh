@@ -65,6 +65,11 @@ export JAX_PLATFORMS="${JAX_PLATFORMS:-cpu}"
 export TOKENIZERS_PARALLELISM=false
 
 TASK="${SLURM_ARRAY_TASK_ID:-0}"
+if [[ ! -s "${LIST}" ]]; then
+    echo "[ERROR] ${LIST} is missing or empty. Run 'bash slurms/eval_pipeline.sh --list'" >&2
+    echo "        on the login node first (after the confirm runs have saved weights)." >&2
+    exit 1
+fi
 CKPT="$(sed -n "$(( TASK + 1 ))p" "${LIST}")"
 if [[ -z "${CKPT}" ]]; then
     echo "[ERROR] no checkpoint at line $(( TASK + 1 )) of ${LIST}" >&2
