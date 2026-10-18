@@ -65,12 +65,14 @@ export JAX_PLATFORMS="${JAX_PLATFORMS:-cpu}"
 export TOKENIZERS_PARALLELISM=false
 
 TASK="${SLURM_ARRAY_TASK_ID:-0}"
-if [[ ! -s "${LIST}" ]]; then
-    echo "[ERROR] ${LIST} is missing or empty. Run 'bash slurms/eval_pipeline.sh --list'" >&2
-    echo "        on the login node first (after the confirm runs have saved weights)." >&2
-    exit 1
+if [[ -s "${LIST}" ]]; then
+    CKPT="$(sed -n "$(( TASK + 1 ))p" "${LIST}")"
+else
+    # No frozen list: derive the same sorted list on the fly. Stable as long
+    # as no new weights land while the array runs.
+    echo "[WARN] ${LIST} missing; listing ${WEIGHTS_DIR} directly"
+    CKPT="$(find "${WEIGHTS_DIR}" -name model.pt -printf '%h\n' 2>/dev/null | sort | sed -n "$(( TASK + 1 ))p")"
 fi
-CKPT="$(sed -n "$(( TASK + 1 ))p" "${LIST}")"
 if [[ -z "${CKPT}" ]]; then
     echo "[ERROR] no checkpoint at line $(( TASK + 1 )) of ${LIST}" >&2
     exit 1

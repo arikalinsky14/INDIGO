@@ -25,7 +25,9 @@ collection, whose repeat seeds calibrate the bootstrap.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -57,6 +59,43 @@ def pipeline_scores(pipe_dir: Path) -> dict:
     return out
 
 
+def _point_key(r):
+    d, se = re.search(r"_d(\d+)_se(\d+)_", r["name"]).groups()
+    return d, se, round(float(np.log10(r["flops"])), 2)
+
+
+def write_two_seed(tuned: dict, confirm_runs: list, out: Path) -> None:
+    """Each point as the mean of its stage-2 winner (seed 42) and its
+    unselected rerun (seed 45), plus the pairs themselves for the noise model.
+
+    One seed moves the flat upper curves' minima by more than the bootstrap's
+    repeat-seed sigma allows (Oct 18: a seed-45-only fit put two of six CE
+    minima on their edges); the mean halves that variance. Fit with
+    --noise-from isoflop_pairs.json, which estimates per-run noise from the
+    pairs (conservative for a two-run mean)."""
+    cmap = {_point_key(r): r for r in confirm_runs}
+    mean_runs, pairs = [], []
+    for r in tuned["runs"]:
+        if r["seed"] != 42:
+            continue
+        m = copy.deepcopy(r)
+        s = cmap.get(_point_key(r))
+        if s is not None:
+            m["val_loss"] = (r["val_loss"] + s["val_loss"]) / 2
+            m["val_de"] = {b: ((v + s["val_de"][b]) / 2
+                               if v is not None and s["val_de"].get(b) is not None else v)
+                           for b, v in r["val_de"].items()}
+            pairs += [r, dict(s, seed=45)]
+        m["n_seeds"] = 1 + (s is not None)
+        mean_runs.append(m)
+    base = {k: v for k, v in tuned.items() if k != "runs"}
+    json.dump(dict(base, runs=mean_runs, note="seed 42 (stage 2) and 45 (confirm) "
+                   "averaged per point"), open(out / "isoflop_twoseed_mean.json", "w"), indent=1)
+    json.dump(dict(base, runs=pairs), open(out / "isoflop_pairs.json", "w"), indent=1)
+    print(f"two-seed mean: {sum(m['n_seeds'] == 2 for m in mean_runs)} of "
+          f"{len(mean_runs)} points have both seeds")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -66,6 +105,9 @@ def main() -> None:
     p.add_argument("--fit", default="analyses/scaling/results/porian_fit.json",
                    help="for the IsoFLOP budgets")
     p.add_argument("--out-dir", default="analyses/scaling/results/confirm")
+    p.add_argument("--tuned", default="analyses/scaling/results/tuned/isoflop_tuned.json",
+                   help="stage 2's collection: with it, also write the two-seed "
+                        "mean per point and the seed pairs for the noise model")
     a = p.parse_args()
 
     cdir = Path(a.confirm_dir)
@@ -108,6 +150,8 @@ def main() -> None:
     json.dump(dict(meta, n_runs=len(pipe_runs), runs=pipe_runs,
                    metric="light inference pipeline DeltaE, both test tiers"),
               open(out / "isoflop_pipeline.json", "w"), indent=1)
+    if a.tuned and Path(a.tuned).is_file():
+        write_two_seed(json.load(open(a.tuned)), runs, out)
     per = {b: sum(1 for r in runs if r["flops"] and
                   min(budgets, key=lambda x: abs(np.log(r["flops"] / x))) == b)
            for b in budgets}
