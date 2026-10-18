@@ -50,7 +50,7 @@ set -euo pipefail
 # gpu cluster); nothing here uses the GPU.
 # ============================================================================
 
-cd "${SLURM_SUBMIT_DIR:-$HOME/Github/INDIGO}"
+cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 mkdir -p job-outputs
 
 module purge

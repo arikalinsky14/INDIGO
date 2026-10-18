@@ -42,7 +42,7 @@ set -euo pipefail
 # missing. The physics runs on CPU (JAX_PLATFORMS=cpu); the GPU holds the model.
 # ============================================================================
 
-cd "${SLURM_SUBMIT_DIR:-$HOME/Github/INDIGO}"
+cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 mkdir -p job-outputs
 
 CONFIRM_DIR="${CONFIRM_DIR:-outputs/isoflop_confirm/cross_attn}"
@@ -51,6 +51,10 @@ PIPE_DIR="${PIPE_DIR:-${CONFIRM_DIR}/pipeline}"
 LIST="${LIST:-${CONFIRM_DIR}/pipeline_checkpoints.txt}"
 
 if [[ "${1:-}" == "--list" ]]; then
+    if [[ ! -d "${WEIGHTS_DIR}" ]]; then
+        echo "[ERROR] no ${WEIGHTS_DIR} under $(pwd); run STAGE=confirm first" >&2
+        exit 1
+    fi
     find "${WEIGHTS_DIR}" -name model.pt -printf '%h\n' | sort > "${LIST}"
     N="$(grep -c . "${LIST}" || true)"
     echo "${N} checkpoint(s) listed in ${LIST}"

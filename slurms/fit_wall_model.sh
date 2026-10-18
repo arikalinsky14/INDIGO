@@ -75,7 +75,7 @@ if [[ -f "$HOME/envs/llm-env/bin/activate" ]]; then
 fi
 export TOKENIZERS_PARALLELISM=false
 
-cd "${SLURM_SUBMIT_DIR:-$HOME/Github/INDIGO}"
+cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 mkdir -p job-outputs
 
 if [[ -n "${RUNS_ROOT}" ]]; then

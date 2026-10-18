@@ -41,7 +41,7 @@ set -euo pipefail
 # match and the GPU tasks will build their own (correct, just slower).
 # ============================================================================
 
-cd "${SLURM_SUBMIT_DIR:-$HOME/Github/INDIGO}"
+cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 mkdir -p job-outputs
 
 module purge

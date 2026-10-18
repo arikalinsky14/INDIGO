@@ -57,7 +57,7 @@ if (( $# < 1 )); then
     exit 1
 fi
 
-cd "${SLURM_SUBMIT_DIR:-$HOME/Github/INDIGO}"
+cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 mkdir -p job-outputs
 
 # -------------------- Environment Setup --------------------
