@@ -44,6 +44,8 @@ RAMP = ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#124782", "#0d366b"]
 FIT_C, BAD = "#eb6834", "#d03b3b"
 SURF, INK, INK2, FAINT, REF = "#fcfcfb", "#0b0b0b", "#52514e", "#d8d7d2", "#8a8880"
 ROWS = [("final_val_loss", "val cross-entropy"), ("final_val_de", r"val $\Delta E_{00}$ (greedy)")]
+PIPE_ROW = ("pipeline", r"$\Delta E_{00}$ after light pipeline")
+RERUN = "#eb6834"
 
 
 def find_cell(rdir: Path, d: int, se: int, budget: float, beta2: float):
@@ -67,6 +69,10 @@ def main() -> None:
     p.add_argument("--select", default=None,
                    help='"d64/se1@1e14; d192/se4@2.75e15" (default: each curve\'s lowest-CE point)')
     p.add_argument("--beta2", type=float, default=0.999)
+    p.add_argument("--confirm-dir", default=None,
+                   help="collect_confirm.py's output dir: adds each point's "
+                        "unselected retrain (seed 45) at its chosen rate, and "
+                        "a third row with its light-pipeline DeltaE")
     p.add_argument("--output", default="analyses/scaling/results/tuned/lr_curves.png")
     a = p.parse_args()
 
@@ -92,6 +98,16 @@ def main() -> None:
     if law and law.get("status") != "ok":
         law = None
 
+    conf, pipe = {}, {}
+    if a.confirm_dir:
+        cdir = Path(a.confirm_dir)
+        for fn, dst in (("isoflop_confirm.json", conf), ("isoflop_pipeline.json", pipe)):
+            if (cdir / fn).is_file():
+                for r in json.load(open(cdir / fn))["runs"]:
+                    m = re.search(r"_d(\d+)_se(\d+)_", r["name"])
+                    dst[(int(m.group(1)), int(m.group(2)), r["passes"])] = r
+    rows = ROWS + ([PIPE_ROW] if pipe else [])
+
     cols = []
     for d, se, b in picks:
         path, D = find_cell(Path(a.results_dir), d, se, b, a.beta2)
@@ -106,15 +122,16 @@ def main() -> None:
         cols.append({"d": d, "se": se, "budget": b, "D": D,
                      "N": int(n_params(arch_for(d, se))), "ok": ok,
                      "div": [t["lr"] for t in trials if diverged(t)],
-                     "chosen": chosen, "rung": budgets.index(b)})
+                     "chosen": chosen, "rung": budgets.index(b),
+                     "conf": conf.get((d, se, D)), "pipe": pipe.get((d, se, D))})
     if not cols:
         sys.exit("nothing to plot")
 
-    fig, axes = plt.subplots(2, len(cols), figsize=(3.3 * len(cols), 6.4),
+    fig, axes = plt.subplots(len(rows), len(cols), figsize=(3.3 * len(cols), 3.2 * len(rows)),
                              facecolor=SURF, squeeze=False, sharex="col")
     for j, c in enumerate(cols):
         col = RAMP[c["rung"] % len(RAMP)]
-        for i, (field, label) in enumerate(ROWS):
+        for i, (field, label) in enumerate(rows):
             ax = axes[i][j]
             ax.set_facecolor(SURF)
             for s in ("top", "right"):
@@ -124,6 +141,26 @@ def main() -> None:
             ax.tick_params(colors=INK2, labelsize=8)
             ax.grid(True, color="#ebeae5", linewidth=0.8)
             ax.set_axisbelow(True)
+            rerun = None
+            if c["conf"]:
+                rerun = {"final_val_loss": c["conf"]["val_loss"],
+                         "final_val_de": c["conf"]["val_de"]["pooled"]}.get(field)
+            if field == "pipeline":
+                ax.set_xscale("log")
+                if c["pipe"]:
+                    v = c["pipe"]["val_de"]["pooled"]
+                    ax.plot([c["conf"]["lr"]], [v], "D", color=RERUN, markersize=8,
+                            markeredgecolor=INK, markeredgewidth=0.6, zorder=4)
+                    ax.annotate(f"{v:.2f}", (c["conf"]["lr"], v), xytext=(8, 0),
+                                textcoords="offset points", va="center",
+                                fontsize=8.5, color=INK2)
+                    ax.text(0.03, 0.06, "scored at the chosen rate only",
+                            transform=ax.transAxes, fontsize=7.5, color=INK2)
+                if j == 0:
+                    ax.set_ylabel(label, color=INK2, fontsize=9)
+                if i == len(rows) - 1:
+                    ax.set_xlabel("learning rate", color=INK2, fontsize=9)
+                continue
             pts = sorted((t["lr"], t[field]) for t in c["ok"]
                          if t.get(field) is not None and np.isfinite(t[field]))
             if not pts:
@@ -138,7 +175,11 @@ def main() -> None:
             if yc is not None:
                 ax.plot([c["chosen"]], [yc], "*", color=col, markersize=15,
                         markeredgecolor=INK, markeredgewidth=0.7, zorder=4)
-            lo, hi = min(ys), max(ys)
+            if rerun is not None and np.isfinite(rerun):
+                ax.plot([c["conf"]["lr"]], [rerun], "D", color=RERUN, markersize=7,
+                        markeredgecolor=INK, markeredgewidth=0.6, zorder=5)
+            lo, hi = min(ys + ((rerun,) if rerun is not None else ())), \
+                max(ys + ((rerun,) if rerun is not None else ()))
             pad = 0.08 * (hi - lo or abs(hi) * 0.01 or 1)
             ax.set_ylim(lo - pad, hi + 2.2 * pad)
             for x in c["div"]:
@@ -151,7 +192,7 @@ def main() -> None:
             ax.set_xscale("log")
             if j == 0:
                 ax.set_ylabel(label, color=INK2, fontsize=9)
-            if i == 1:
+            if i == len(rows) - 1:
                 ax.set_xlabel("learning rate", color=INK2, fontsize=9)
         axes[0][j].set_title(f"C = {c['budget']:.2g}\nd{c['d']}/se{c['se']}, "
                              f"N = {c['N'] / 1e6:.2g}M, D = {c['D'] / 1e6:.3g}M",
@@ -162,7 +203,8 @@ def main() -> None:
     fig.text(0.008, 0.995,
              "Every probed rate (extensions merged). Star: the rate the point was "
              "selected at, by DeltaE. Red crosses along the top: rates that "
-             "diverged." + (" Dotted: the joint law's rate." if law else ""),
+             "diverged." + (" Dotted: the joint law's rate." if law else "")
+             + (" Orange diamond: the seed-45 retrain at the chosen rate." if conf else ""),
              fontsize=8.5, color=INK2, ha="left")
     out = Path(a.output)
     out.parent.mkdir(parents=True, exist_ok=True)
