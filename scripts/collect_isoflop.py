@@ -124,6 +124,13 @@ def main() -> None:
                    help="the RUNGS stage 2 ran with")
     p.add_argument("--output",
                    default="analyses/scaling/results/isoflop_tuned.json")
+    p.add_argument("--select-by", choices=["delta_e", "val_loss"], default=None,
+                   help="re-pick each multi-rate point's run by this metric "
+                        "instead of the one lr_tuning.py used (DeltaE). "
+                        "val_loss gives a CE IsoFLOP whose points are each "
+                        "their best CE over the probed rates, the usual "
+                        "convention for a loss curve; one-rate points are "
+                        "unchanged")
     p.add_argument("--allow-mixed", action="store_true",
                    help="accept results not run with --limit-shard-aligned")
     a = p.parse_args()
@@ -158,9 +165,9 @@ def main() -> None:
         # the point's run is the best trial over all of them, chosen by
         # lr_tuning.py's own rule.
         d, trials = cell_trials(path)
-        if len(trials) > len(d.get("results", [])):
-            d = dict(d, results=trials, optimal_lr=select(
-                trials, d.get("selection_metric", "delta_e"))["lr"])
+        metric = a.select_by or d.get("selection_metric", "delta_e")
+        if len(trials) > len(d.get("results", [])) or a.select_by:
+            d = dict(d, results=trials, optimal_lr=select(trials, metric)["lr"])
         run, why = to_run(c, d, stage, a.allow_mixed)
         if why:
             problems.append(f"{label}: {why}")

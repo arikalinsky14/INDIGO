@@ -39,12 +39,12 @@ def value_of(run, metric):
     return run["val_loss"] if metric == "ce" else run["val_de"][metric]
 
 
-def fit_metric(src, metric, n_boot):
+def fit_metric(src, metric, n_boot, noise_runs=None):
     by_b = collections.defaultdict(list)
     for r in src["runs"]:
         by_b[min(src["budgets"], key=lambda b: abs(b - r["flops"]))].append(r)
     clusters = collections.defaultdict(list)
-    for r in src["runs"]:
+    for r in noise_runs or src["runs"]:
         clusters[(round(r["flops"], -11), r["n_params"])].append(value_of(r, metric))
     noise = P.NoiseModel.from_clusters(list(clusters.values()))
     rungs = [P.fit_rung(b, [r["n_params"] for r in by_b[b]],
@@ -73,11 +73,15 @@ def main() -> None:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--fit", default="analyses/scaling/results/tuned/isoflop_tuned.json")
     p.add_argument("--bootstrap-iters", type=int, default=P.BOOTSTRAP_ITERS)
+    p.add_argument("--noise-from", default=None,
+                   help="calibrate seed noise from this file's repeat seeds "
+                        "(e.g. confirm/isoflop_pairs.json for the two-seed mean)")
     p.add_argument("--title", default="Compute-optimal model size by metric")
     p.add_argument("--output", default="analyses/scaling/results/tuned/alpha_by_metric.png")
     a = p.parse_args()
     src = json.load(open(a.fit))
-    fits = {m: fit_metric(src, m, a.bootstrap_iters) for m, _, _ in METRICS}
+    noise_runs = json.load(open(a.noise_from))["runs"] if a.noise_from else None
+    fits = {m: fit_metric(src, m, a.bootstrap_iters, noise_runs) for m, _, _ in METRICS}
 
     fig, axes = plt.subplots(1, 2, figsize=(12.4, 4.6), facecolor=SURF,
                              gridspec_kw={"width_ratios": [1.35, 1]})
