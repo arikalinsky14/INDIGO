@@ -172,10 +172,12 @@ def main() -> None:
             if len(xs) >= 3:
                 grid, yg, _ = akima_argmin(list(xs), list(ys))
                 ax.plot(grid, yg, "-", color=col, linewidth=1.5, alpha=0.75, zorder=2)
-            yc = dict(pts).get(c["chosen"])
-            if yc is not None:
-                ax.plot([c["chosen"]], [yc], "*", color=col, markersize=15,
-                        markeredgecolor=INK, markeredgewidth=0.7, zorder=4)
+            # Each row's own best rate: the point's selected rate (by DeltaE)
+            # need not be the CE minimum, and a star off a row's minimum reads
+            # as an error.
+            kb = int(np.argmin(ys))
+            ax.plot([xs[kb]], [ys[kb]], "*", color=col, markersize=15,
+                    markeredgecolor=INK, markeredgewidth=0.7, zorder=4)
             if rerun is not None and np.isfinite(rerun):
                 ax.plot([c["conf"]["lr"]], [rerun], "D", color=RERUN, markersize=7,
                         markeredgecolor=INK, markeredgewidth=0.6, zorder=5)
@@ -202,9 +204,8 @@ def main() -> None:
     fig.suptitle("Loss against learning rate at selected IsoFLOP points",
                  fontsize=13, color=INK, x=0.008, ha="left", y=1.04)
     fig.text(0.008, 0.995,
-             "Every probed rate (extensions merged). Star: the rate the point was "
-             "selected at, by DeltaE. Red crosses along the top: rates that "
-             "diverged." + (" Dotted: the joint law's rate." if law else "")
+             "Every probed rate (extensions merged). Star: the best rate on that "
+             "row. Red crosses along the top: rates that diverged." + (" Dotted: the joint law's rate." if law else "")
              + (" Orange diamond: the seed-45 retrain at the chosen rate." if conf else ""),
              fontsize=8.5, color=INK2, ha="left")
     out = Path(a.output)

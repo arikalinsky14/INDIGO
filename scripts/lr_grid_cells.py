@@ -176,6 +176,12 @@ def stage2_optimum(stage2_dir: Path, cell: dict) -> Optional[float]:
     return float(d["optimal_lr"])
 
 
+#: STAGE=lrcurve's default points: the top curve's four, each centred
+#: between its CE and DeltaE optima as measured by stages 2 and 2x.
+DEFAULT_CURVES = ("d160/se4@2.5e16=3.2e-5; d256/se4@2.5e16=4e-5; "
+                  "d352/se6@2.5e16=6e-5; d416/se7@2.5e16=6e-5")
+
+
 def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
               stage2_dir: Optional[str] = None,
               extension_from: Optional[str] = None,
@@ -350,6 +356,49 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
         if missing:
             print(f"[WARN] confirm: {len(missing)} point(s) not tuned yet, "
                   f"left out: {', '.join(missing)}", file=sys.stderr)
+        return out
+
+    if stage == "lrcurve":
+        # Clean loss-against-learning-rate curves for a few finished points:
+        # each rate trained fresh, once, on seed 42 (the stage-2 point's own
+        # init, data order and eval slice), weights kept, on an even grid
+        # centre * STEP^k, k = -K..K. CURVES="d160/se4@2.5e16=3.2e-5; ..."
+        # names each point and its centre. A rate at or above the lowest rate
+        # that diverged in the point's stage-2 trials is not run: it is
+        # shown as diverged from those trials. One task per rate, each with
+        # its own suffix (_r<k>), so files and weights never collide.
+        import lr_edges as E
+        from lr_edges import diverged as _div
+        spec = os.environ.get("CURVES", DEFAULT_CURVES)
+        step = float(os.environ.get("CURVE_STEP", 2.0))
+        half = int(os.environ.get("CURVE_HALF", 3))
+        sdir = Path(stage2_dir or "outputs/lr_search/cross_attn")
+        known = {(c["d_model"], c["se"], c["budget"]): c
+                 for c in (cells_for(2, fit_path_sweep, beta2, rungs)
+                           + E.discover_cells(str(sdir), budgets[:rungs], beta2))}
+        out = []
+        for item in filter(None, (x.strip() for x in spec.split(";"))):
+            m = re.fullmatch(r"d(\d+)/se(\d+)@([0-9.eE+-]+)=([0-9.eE+-]+)", item)
+            if not m:
+                raise SystemExit(f"cannot read CURVES entry {item!r}; "
+                                 f"expected like d160/se4@2.5e16=3.2e-5")
+            d, se = int(m.group(1)), int(m.group(2))
+            cval, centre = float(m.group(3)), float(m.group(4))
+            b = min(budgets[:rungs], key=lambda x: abs(math.log(x / cval)))
+            if (d, se, b) not in known:
+                raise SystemExit(f"{item}: not a stage-2 point on a tuned rung")
+            base_c = dict(known[(d, se, b)])
+            main = sdir / (f"lr_search_ep{base_c['epochs']}_lim{base_c['limit']}"
+                           f"_d{d}_se{se}_bs{DEFAULT_BATCH_SIZE}_b2{beta2:g}.json")
+            _, trials = E.cell_trials(main)
+            ceiling = min((t["lr"] for t in trials if _div(t)), default=math.inf)
+            for k in range(-half, half + 1):
+                lr = centre * step ** k
+                if lr >= ceiling:
+                    continue
+                out.append(dict(base_c, seed=42, lr=float(f"{lr:.6e}"),
+                                suffix=f"_r{k + half}",
+                                lr_source=f"curve r{k + half}"))
         return out
 
     if stage in ("2pick", "3seeds"):
@@ -649,7 +698,8 @@ def main() -> None:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--stage", required=True,
                    choices=("probe", "speed", "1", "beta2", "beta2x", "2", "2x",
-                            "2edge", "2pick", "3seeds", "confirm", "check", "3"),
+                            "2edge", "2pick", "3seeds", "confirm", "lrcurve",
+                            "check", "3"),
                    help="probe: throughput. 1: beta2. 2: learning rate, tuned "
                         "on every point of the lowest RUNGS IsoFLOP curves. "
                         "check: the fitted law tested at one upper-rung point. "
@@ -712,7 +762,8 @@ def main() -> None:
     a = p.parse_args()
 
     stage = (a.stage if a.stage in ("probe", "speed", "check", "beta2", "beta2x",
-                                    "2x", "2edge", "2pick", "3seeds", "confirm")
+                                    "2x", "2edge", "2pick", "3seeds", "confirm",
+                                    "lrcurve")
              else int(a.stage))
     b2v = ([float(x) for x in a.beta2_values.split(",")]
            if a.beta2_values else None)
@@ -724,7 +775,7 @@ def main() -> None:
     n_lrs = {"probe": 1, "speed": 1, 1: 3, 3: 1, "beta2x": 2}.get(stage, a.n_lrs)
     if stage == "2x":
         n_lrs = 2
-    if stage in ("3seeds", "confirm"):
+    if stage in ("3seeds", "confirm", "lrcurve"):
         n_lrs = 1
     # Splitting needs every cell's learning rate settled, which stage 3's are
     # not before stage 2 is fitted; stage 3 cells are single-rate anyway.
@@ -769,7 +820,7 @@ def main() -> None:
     total = 0.0
     for i, (c, h) in enumerate(zip(tasks, hours)):
         total += h
-        if stage == "confirm":
+        if stage in ("confirm", "lrcurve"):
             lr = f"{c['lr']:.2e}"
         elif stage in ("beta2x", "2x", "2edge", "2pick", "3seeds"):
             lr = c["lr_source"]
