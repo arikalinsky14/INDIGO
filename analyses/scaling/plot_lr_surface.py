@@ -55,8 +55,11 @@ def main() -> None:
         r = match[0]
         b = min(budgets, key=lambda x: abs(np.log(x / r["flops"])))
         pts.append({"N": n, "D": r["passes"], "lr": c["lr_star"],
-                    "ok": bool(c["usable"]), "rung": budgets.index(b)})
-    print(f"{len(pts)} tuned points, {sum(q['ok'] for q in pts)} bracketed")
+                    "ok": bool(c["usable"]), "cliff": c.get("bracket") == "cliff",
+                    "rung": budgets.index(b)})
+    n_cliff = sum(q["cliff"] for q in pts)
+    print(f"{len(pts)} tuned points, {sum(q['ok'] for q in pts)} bracketed"
+          + (f" ({n_cliff} by a diverged rate above)" if n_cliff else ""))
 
     cmap = LinearSegmentedColormap.from_list("lr", RAMP)
     lrs = np.array([q["lr"] for q in pts])
@@ -99,8 +102,9 @@ def main() -> None:
     for q in pts:
         col = cmap(norm(q["lr"]))
         if q["ok"]:
-            ax.scatter(q["N"], q["D"], s=90, color=col, edgecolor=INK,
-                       linewidth=0.8, zorder=4)
+            ax.scatter(q["N"], q["D"], s=110 if q["cliff"] else 90, color=col,
+                       edgecolor=INK, linewidth=0.8, zorder=4,
+                       marker="^" if q["cliff"] else "o")
         else:
             ax.scatter(q["N"], q["D"], s=70, facecolor=SURF, edgecolor=col,
                        linewidth=2.2, zorder=3)
@@ -117,6 +121,9 @@ def main() -> None:
     cb.ax.tick_params(colors=INK2, labelsize=8)
     cb.outline.set_visible(False)
     ax.scatter([], [], s=80, color=RAMP[3], edgecolor=INK, label="optimum bracketed (fitted)")
+    if n_cliff:
+        ax.scatter([], [], s=100, color=RAMP[3], edgecolor=INK, marker="^",
+                   label="bracketed by a diverged rate above (fitted)")
     ax.scatter([], [], s=60, facecolor=SURF, edgecolor=RAMP[3], linewidth=2,
                label="best rate at the grid edge (a bound)")
     ax.plot([], [], "-", color=REF, label="fitted law, rate labelled")
@@ -127,7 +134,8 @@ def main() -> None:
     fig.suptitle("Optimal learning rate falls with both model size and data",
                  fontsize=13.5, color=INK, x=0.01, ha="left", y=1.0)
     fig.text(0.01, 0.945, f"lr* = {law['coef']:.0f} · N^{law['n_exponent']:.2f} · "
-             f"D^{law['d_exponent']:.2f}, fitted on {law['n_points']} bracketed points, "
+             f"D^{law['d_exponent']:.2f}, fitted on {law['n_points']} bracketed points"
+             + (f" ({n_cliff} closed by divergence)" if n_cliff else "") + ", "
              f"r² = {law['r2']:.2f}", fontsize=9.5, color=INK2)
     out = Path(a.output)
     out.parent.mkdir(parents=True, exist_ok=True)

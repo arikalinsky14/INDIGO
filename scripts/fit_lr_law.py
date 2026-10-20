@@ -51,7 +51,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lr_edges import diverged  # noqa: E402
 
 def load_cells(results_dir: Path, metric: str,
-               beta2: Optional[float] = None) -> List[dict]:
+               beta2: Optional[float] = None,
+               keep_diverged: bool = False) -> List[dict]:
     """Every (N, D, bs, beta2, lr) cell the sweep ran, one row per trial.
 
     Only shard-aligned results, and with `beta2` only that beta2's: the
@@ -75,34 +76,65 @@ def load_cells(results_dir: Path, metric: str,
                   f"Re-run with the current lr_tuning.py, which saves it.")
             continue
         for t in d.get("results", []):
-            v = t.get(field)
-            if v is None or not np.isfinite(v):
-                continue
             # A diverged run can post an ordinary-looking DeltaE; lr_tuning.py
-            # never selects one, so it is no evidence of where the optimum is
-            # either. Dropping it makes a cell whose best stable rate sits
+            # never selects one, so its value is no evidence of where the
+            # optimum is. Dropping it makes a cell whose best stable rate sits
             # just under a diverged one count as unbracketed, which is what
-            # STAGE=2x then closes.
-            if diverged(t):
+            # STAGE=2x then closes. With keep_diverged its RATE is kept, as a
+            # ceiling (tune_per_config's diverged_brackets), never its value.
+            is_div = diverged(t)
+            v = t.get(field)
+            if is_div and not keep_diverged:
                 continue
-            out.append({
+            if not is_div and (v is None or not np.isfinite(v)):
+                continue
+            out.append({"diverged": is_div,
                 "n_params": int(d["n_params"]), "lr": float(t["lr"]),
                 "batch_size": float(t.get("batch_size", d.get("batch_size"))),
                 "beta2": float(t.get("beta2", d.get("beta2", 0.999))),
                 "train_examples": d.get("train_examples"),
                 "d_model": d.get("d_model"),
                 "slot_encoder_layers": d.get("slot_encoder_layers"),
-                "value": float(v), "file": Path(path).name,
+                "value": float("inf") if is_div else float(v),
+                "file": Path(path).name,
             })
     return out
 
 
+def cliff_bracketed(stable_lrs: List[float], lr_star: float,
+                    diverged_lrs: List[float]) -> bool:
+    """Is an optimum at the TOP of the stable rates bounded by a divergence?
+
+    Porian's rule calls a sweep unbracketed when its interpolated argmin is
+    past the second-to-last grid point. When the next rate up diverged, the
+    loss cannot keep falling beyond it: the optimum lies at the edge of
+    stability, between the best stable rate and the diverged one. This
+    counts that as bracketed, with the optimum taken from the stable rates
+    (so at most one grid step below the true edge). Needs three stable rates,
+    as the interpolation does; an optimum at the BOTTOM is never closed by
+    this, since nothing below it diverged.
+    """
+    xs = sorted(set(stable_lrs))
+    if len(xs) < 3 or lr_star < xs[-2]:
+        return False
+    return any(d > xs[-1] for d in diverged_lrs)
+
+
 def tune_per_config(cells: List[dict],
-                    batch_size_swept: bool = False) -> List[dict]:
-    """Nested minimisation per (model size, dataset size), as they do."""
-    groups = {}
+                    batch_size_swept: bool = False,
+                    diverged_brackets: bool = False) -> List[dict]:
+    """Nested minimisation per (model size, dataset size), as they do.
+
+    Diverged trials (present only with load_cells(keep_diverged=True)) never
+    enter the minimisation; with diverged_brackets their rates can close an
+    optimum at the top of the stable rates (cliff_bracketed)."""
+    groups, div = {}, {}
     for c in cells:
-        groups.setdefault((c["n_params"], c["train_examples"]), []).append(c)
+        key = (c["n_params"], c["train_examples"])
+        if c.get("diverged"):
+            div.setdefault(key, []).append(c["lr"])
+        else:
+            groups.setdefault(key, []).append(c)
     rows = []
     for (n, D), group in sorted(groups.items()):
         try:
@@ -122,7 +154,14 @@ def tune_per_config(cells: List[dict],
             "n_batch_sizes": len({c["batch_size"] for c in group}),
             "n_lrs": len({c["lr"] for c in group}),
             "n_beta2": len({c["beta2"] for c in group}),
+            "n_diverged": len(div.get((n, D), [])),
+            "bracket": "interior" if o.usable else "open",
         })
+        r = rows[-1]
+        if (diverged_brackets and r["lr_on_edge"] and not r["bs_on_edge"]
+                and cliff_bracketed([c["lr"] for c in group], r["lr_star"],
+                                    div.get((n, D), []))):
+            r.update(lr_on_edge=False, usable=True, bracket="cliff")
     return rows
 
 
@@ -289,14 +328,21 @@ def main() -> None:
                         "configs.DEFAULT_BATCH_SIZE, so a single value is "
                         "deliberate rather than an axis that failed to "
                         "bracket.")
+    p.add_argument("--diverged-brackets", action="store_true",
+                   help="count an optimum at the top of the stable rates as "
+                        "bracketed when the next rate up diverged (the edge "
+                        "of stability bounds it). Off by default: the strict "
+                        "rule is Porian's")
     p.add_argument("--output", default="analyses/scaling/results/lr_law_fit.json")
     a = p.parse_args()
 
     cells = load_cells(Path(a.results_dir), a.metric,
-                       a.beta2 if a.beta2 >= 0 else None)
+                       a.beta2 if a.beta2 >= 0 else None,
+                       keep_diverged=a.diverged_brackets)
     if not cells:
         sys.exit(f"no usable lr_search JSONs under {a.results_dir}")
-    rows = tune_per_config(cells, batch_size_swept=a.batch_size_swept)
+    rows = tune_per_config(cells, batch_size_swept=a.batch_size_swept,
+                           diverged_brackets=a.diverged_brackets)
     if not rows:
         sys.exit("no configuration produced a tuned optimum")
 
@@ -307,7 +353,8 @@ def main() -> None:
     for r in sorted(rows, key=lambda r: (r["n_params"], r["train_examples"] or 0)):
         tag = f"d{r['d_model']}/se{r['slot_encoder_layers']}"
         D = f"{r['train_examples']:,}" if r["train_examples"] else "?"
-        flag = ("yes" if r["usable"] else
+        flag = ("cliff" if r.get("bracket") == "cliff" else
+                "yes" if r["usable"] else
                 ",".join(x for x, on in (("lr", r["lr_on_edge"]),
                                          ("bs", r["bs_on_edge"])) if on) + " edge")
         b2 = f"{r['beta2_star']:.3g}" if r["beta2_star"] is not None else "-"
@@ -315,7 +362,10 @@ def main() -> None:
               f"{r['lr_star']:>10.3e} {r['bs_star']:>7.1f} {b2:>6} {flag:>10}")
 
     usable = [r for r in rows if r["usable"]]
-    print(f"\n{len(usable)} of {len(rows)} configurations bracketed on both axes.")
+    n_cliff = sum(r.get("bracket") == "cliff" for r in usable)
+    print(f"\n{len(usable)} of {len(rows)} configurations bracketed on both axes"
+          + (f", {n_cliff} of them by a diverged rate above (cliff)" if n_cliff else "")
+          + ".")
     if len(rows) - len(usable):
         print("   The rest are excluded: an optimum at a grid endpoint is a "
               "wall the sweep hit, not a minimum it found. Widen that axis "
@@ -337,6 +387,7 @@ def main() -> None:
         window = [r for r in window if r["n_params"] <= a.max_params]
 
     result = {"results_dir": a.results_dir, "metric": a.metric,
+              "diverged_brackets": a.diverged_brackets,
               "n_cells": len(cells), "configs": rows,
               "n_usable": len(usable),
               "window": {"min_params": a.min_params, "max_params": a.max_params,
