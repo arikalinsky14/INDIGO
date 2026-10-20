@@ -56,6 +56,8 @@ if (( $# < 1 )); then
     echo "usage: sbatch slurms/analyze.sh <script.py> [args...]" >&2
     exit 1
 fi
+# Keep the arguments as given, before module/activate run in this shell.
+ARGS=("$@")
 
 cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 mkdir -p job-outputs
@@ -70,8 +72,8 @@ if [[ -f "$HOME/envs/llm-env/bin/activate" ]]; then
     source "$HOME/envs/llm-env/bin/activate"
 fi
 
-SCRIPT="$1"
-shift
+SCRIPT="${ARGS[0]}"
+ARGS=("${ARGS[@]:1}")
 if [[ ! -f "${SCRIPT}" ]]; then
     echo "no such script: ${SCRIPT} (run sbatch from the INDIGO checkout)" >&2
     exit 1
@@ -82,13 +84,13 @@ MARKER="job-outputs/.analyze_start_${JOB}"
 touch "${MARKER}"
 
 echo "=================================================================="
-echo " ${SCRIPT} $*"
+echo " ${SCRIPT} ${ARGS[*]}"
 echo " commit $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 echo " started $(date)"
 echo "=================================================================="
 
 set +e
-python -u "${SCRIPT}" "$@"
+python -u "${SCRIPT}" "${ARGS[@]}"
 STATUS=$?
 set -e
 

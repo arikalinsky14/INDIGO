@@ -66,8 +66,9 @@ def main() -> None:
     p.add_argument("--tuned", default="analyses/scaling/results/tuned/isoflop_tuned.json",
                    help="for the budgets and the default selection")
     p.add_argument("--law", default=None, help="lr_law_fit.json, to mark the law's rate")
-    p.add_argument("--select", default=None,
-                   help='"d64/se1@1e14; d192/se4@2.75e15" (default: each curve\'s lowest-CE point)')
+    p.add_argument("--select", nargs="+", default=None,
+                   help='points as d64/se1@1e14, space- or ;-separated '
+                        '(default: each curve\'s lowest-CE point)')
     p.add_argument("--beta2", type=float, default=0.999)
     p.add_argument("--confirm-dir", default=None,
                    help="collect_confirm.py's output dir: adds each point's "
@@ -80,7 +81,7 @@ def main() -> None:
     budgets = sorted(tuned["budgets"])
     picks = []
     if a.select:
-        for item in filter(None, (x.strip() for x in a.select.split(";"))):
+        for item in filter(None, (x.strip() for x in ";".join(a.select).split(";"))):
             m = re.fullmatch(r"d(\d+)/se(\d+)@([0-9.eE+-]+)", item)
             if not m:
                 sys.exit(f"cannot read {item!r}; expected like d64/se1@1e14")
