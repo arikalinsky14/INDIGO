@@ -159,6 +159,17 @@ def main() -> None:
              fontsize=8.5, color=INK2, ha="left")
     out = Path(a.output)
     out.parent.mkdir(parents=True, exist_ok=True)
+    # The plotted values, one row per (point, rate), beside the figure.
+    with open(out.with_suffix(".csv"), "w") as f:
+        f.write("d_model,se,n_params,examples,lr,source,val_ce,greedy_de,pipeline_de,diverged\n")
+        for c in cols:
+            for q in c["pts"]:
+                v = lambda x: "" if x is None else f"{x:.6g}"
+                f.write(f"{c['d']},{c['se']},{c['N']},{c['D']},{q['lr']:.6e},"
+                        f"{'earlier' if q.get('old') else 'new'},{v(q['ce'])},"
+                        f"{v(q['de'])},{v(q['pipe'])},0\n")
+            for x in c["div"]:
+                f.write(f"{c['d']},{c['se']},{c['N']},{c['D']},{x:.6e},earlier,,,,1\n")
     plt.tight_layout(rect=[0, 0, 1, 0.975])
     plt.savefig(out, dpi=170, bbox_inches="tight", facecolor=SURF)
     print(f"wrote {out}: " + ", ".join(
