@@ -9,6 +9,12 @@ point's first divergence were not rerun; they are drawn as crosses along the
 top, from the stage-2 trials. The star on each row is that row's own best
 rate.
 
+Stage-2 trials of the same point (same configuration, seed, data and eval
+slice) are kept at rates the new grid did not repeat, drawn hollow; one
+within --same-rate (default 1.2x) of a new rate is replaced by it. The
+pipeline row is new runs only: the earlier pipeline scores are a different
+seed's retrain. --no-stage2 draws the new runs alone.
+
     python analyses/scaling/plot_lr_curves_clean.py \\
         --curves-dir outputs/lr_curves/cross_attn \\
         --stage2-dir outputs/lr_search/cross_attn
@@ -51,6 +57,11 @@ def main() -> None:
     p.add_argument("--curves-dir", default="outputs/lr_curves/cross_attn")
     p.add_argument("--stage2-dir", default="outputs/lr_search/cross_attn")
     p.add_argument("--pipeline-dir", default=None, help="default: <curves-dir>/pipeline")
+    p.add_argument("--same-rate", type=float, default=1.2,
+                   help="a stage-2 rate within this factor of a new rate counts "
+                        "as repeated and is replaced")
+    p.add_argument("--no-stage2", action="store_true",
+                   help="draw the new runs only")
     p.add_argument("--output", default="analyses/scaling/results/tuned/lr_curves_clean.png")
     a = p.parse_args()
     cdir = Path(a.curves_dir)
@@ -79,8 +90,14 @@ def main() -> None:
         main_file = Path(a.stage2_dir) / f"lr_search_ep{ep}_lim{lim}_d{d}_se{se}_bs256_b2{b2}.json"
         _, s2 = cell_trials(main_file) if main_file.is_file() else ({}, [])
         div = sorted(t["lr"] for t in s2 if diverged(t))
+        new = [q["lr"] for q in pts]
+        old = [] if a.no_stage2 else [
+            {"lr": t["lr"], "ce": t.get("final_val_loss"), "de": t.get("final_val_de"),
+             "pipe": None, "old": True}
+            for t in s2 if not diverged(t)
+            and all(max(t["lr"] / x, x / t["lr"]) > a.same_rate for x in new)]
         cols.append({"d": d, "se": se, "D": ep * lim, "N": int(n_params(arch_for(d, se))),
-                     "pts": sorted(pts, key=lambda q: q["lr"]), "div": div})
+                     "pts": sorted(pts + old, key=lambda q: q["lr"]), "div": div})
     cols.sort(key=lambda c: c["N"])
 
     fig, axes = plt.subplots(3, len(cols), figsize=(3.4 * len(cols), 9.4),
@@ -97,15 +114,22 @@ def main() -> None:
             ax.grid(True, color="#ebeae5", linewidth=0.8)
             ax.set_axisbelow(True)
             ax.set_xscale("log")
-            pts = [(q["lr"], q[field]) for q in c["pts"]
-                   if q[field] is not None and np.isfinite(q[field])]
+            rows = [q for q in c["pts"]
+                    if q[field] is not None and np.isfinite(q[field])]
+            pts = [(q["lr"], q[field]) for q in rows]
             if pts:
                 xs, ys = zip(*pts)
                 if len(xs) >= 3:
                     g, yg, _ = akima_argmin(list(xs), list(ys))
                     ax.plot(g, yg, "-", color=COL, linewidth=1.6, alpha=0.75, zorder=2)
-                ax.plot(xs, ys, "o", color=COL, markersize=6, markeredgecolor=SURF,
-                        markeredgewidth=0.9, zorder=3)
+                for q in rows:
+                    if q.get("old"):
+                        ax.plot([q["lr"]], [q[field]], "o", markerfacecolor=SURF,
+                                markeredgecolor=COL, markersize=6,
+                                markeredgewidth=1.6, zorder=3)
+                    else:
+                        ax.plot([q["lr"]], [q[field]], "o", color=COL, markersize=6,
+                                markeredgecolor=SURF, markeredgewidth=0.9, zorder=3)
                 k = int(np.argmin(ys))
                 ax.plot([xs[k]], [ys[k]], "*", color=COL, markersize=16,
                         markeredgecolor=INK, markeredgewidth=0.7, zorder=4)
@@ -127,15 +151,19 @@ def main() -> None:
                              loc="left", pad=6)
     fig.suptitle("Loss against learning rate at the largest compute budget",
                  fontsize=13, color=INK, x=0.008, ha="left", y=1.035)
-    fig.text(0.008, 0.997, "Each rate a fresh run, same seed, data and eval slice. "
-             "Star: the best rate on that row. Red crosses: rates that diverged.",
+    n_old = sum(bool(q.get("old")) for c in cols for q in c["pts"])
+    fig.text(0.008, 0.997, "Filled: each rate a fresh run, same seed, data and eval slice."
+             + (" Hollow: the earlier run of the same configuration at a rate not "
+                "repeated." if n_old else "")
+             + " Star: the best rate on that row. Red crosses: rates that diverged.",
              fontsize=8.5, color=INK2, ha="left")
     out = Path(a.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout(rect=[0, 0, 1, 0.975])
     plt.savefig(out, dpi=170, bbox_inches="tight", facecolor=SURF)
     print(f"wrote {out}: " + ", ".join(
-        f"d{c['d']}/se{c['se']} ({len(c['pts'])} rates, "
+        f"d{c['d']}/se{c['se']} ({sum(not q.get('old') for q in c['pts'])} new, "
+        f"{sum(bool(q.get('old')) for q in c['pts'])} earlier, "
         f"{sum(q['pipe'] is not None for q in c['pts'])} scored)" for c in cols))
 
 
