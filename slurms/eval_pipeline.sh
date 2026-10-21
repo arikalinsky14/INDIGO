@@ -58,7 +58,8 @@ if [[ "${1:-}" == "--list" ]]; then
     find "${WEIGHTS_DIR}" -name model.pt -printf '%h\n' | sort > "${LIST}"
     N="$(grep -c . "${LIST}" || true)"
     echo "${N} checkpoint(s) listed in ${LIST}"
-    (( N > 0 )) && echo "submit with: sbatch --array=0-$(( N - 1 ))%8 slurms/eval_pipeline.sh"
+    (( N > 0 )) && echo "submit with: sbatch --array=0-$(( N - 1 ))%8 slurms/eval_pipeline.sh" \
+        && echo "  or split by tier on CPU: SPLIT_TIERS=1 sbatch --array=0-$(( 2 * N - 1 )) slurms/eval_pipeline_cpu.sh"
     exit 0
 fi
 
@@ -69,6 +70,13 @@ export JAX_PLATFORMS="${JAX_PLATFORMS:-cpu}"
 export TOKENIZERS_PARALLELISM=false
 
 TASK="${SLURM_ARRAY_TASK_ID:-0}"
+# SPLIT_TIERS=1: two tasks per checkpoint, one per test tier (task 2k is
+# checkpoint k's tier a, 2k+1 its tier b), so each finishes in half the time.
+# Both tiers land in the same output folder, which collect_confirm.py reads.
+if [[ "${SPLIT_TIERS:-0}" == 1 ]]; then
+    TIERS=$([[ $(( TASK % 2 )) == 0 ]] && echo a || echo b)
+    TASK=$(( TASK / 2 ))
+fi
 if [[ -s "${LIST}" ]]; then
     CKPT="$(sed -n "$(( TASK + 1 ))p" "${LIST}")"
 else
@@ -84,9 +92,12 @@ fi
 REL="${CKPT#${WEIGHTS_DIR}/}"
 OUT="${PIPE_DIR}/${REL}"
 
-if compgen -G "${OUT}/*/tier_b/rows.json" > /dev/null \
-        && compgen -G "${OUT}/*/tier_a/rows.json" > /dev/null; then
-    echo "[INFO] ${OUT} already scored; nothing to do"
+DONE=1
+for t in ${TIERS:-a b}; do
+    compgen -G "${OUT}/*/tier_${t}/rows.json" > /dev/null || DONE=0
+done
+if (( DONE )); then
+    echo "[INFO] ${OUT} already scored (tiers ${TIERS:-a b}); nothing to do"
     exit 0
 fi
 
