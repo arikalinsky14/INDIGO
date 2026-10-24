@@ -369,36 +369,50 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
         # its own suffix (_r<k>), so files and weights never collide.
         import lr_edges as E
         from lr_edges import diverged as _div
+        # A point can also be any model at an explicit example count,
+        # "d352/se6@D=39960000=1.94e-5" (e.g. the production run): no stage-2
+        # trials, so no divergence ceiling. CURVE_DOWN / CURVE_UP set how many
+        # steps below and above the centre (default CURVE_HALF each).
         spec = os.environ.get("CURVES", DEFAULT_CURVES)
         step = float(os.environ.get("CURVE_STEP", 2.0))
         half = int(os.environ.get("CURVE_HALF", 3))
+        down = int(os.environ.get("CURVE_DOWN", half))
+        up = int(os.environ.get("CURVE_UP", half))
+        from src.scaling.flops import n_params as _np
         sdir = Path(stage2_dir or "outputs/lr_search/cross_attn")
         known = {(c["d_model"], c["se"], c["budget"]): c
                  for c in (cells_for(2, fit_path_sweep, beta2, rungs)
                            + E.discover_cells(str(sdir), budgets[:rungs], beta2))}
         out = []
         for item in filter(None, (x.strip() for x in spec.split(";"))):
-            m = re.fullmatch(r"d(\d+)/se(\d+)@([0-9.eE+-]+)=([0-9.eE+-]+)", item)
+            m = re.fullmatch(r"d(\d+)/se(\d+)@(D=)?([0-9.eE+-]+)=([0-9.eE+-]+)", item)
             if not m:
-                raise SystemExit(f"cannot read CURVES entry {item!r}; "
-                                 f"expected like d160/se4@2.5e16=3.2e-5")
+                raise SystemExit(f"cannot read CURVES entry {item!r}; expected "
+                                 f"d160/se4@2.5e16=3.2e-5 or d352/se6@D=39960000=2e-5")
             d, se = int(m.group(1)), int(m.group(2))
-            cval, centre = float(m.group(3)), float(m.group(4))
-            b = min(budgets[:rungs], key=lambda x: abs(math.log(x / cval)))
-            if (d, se, b) not in known:
-                raise SystemExit(f"{item}: not a stage-2 point on a tuned rung")
-            base_c = dict(known[(d, se, b)])
-            main = sdir / (f"lr_search_ep{base_c['epochs']}_lim{base_c['limit']}"
-                           f"_d{d}_se{se}_bs{DEFAULT_BATCH_SIZE}_b2{beta2:g}.json")
-            _, trials = E.cell_trials(main)
-            ceiling = min((t["lr"] for t in trials if _div(t)), default=math.inf)
-            for k in range(-half, half + 1):
+            cval, centre = float(m.group(4)), float(m.group(5))
+            if m.group(3):
+                arch = E.arch_for(d, se)
+                base_c = _cell(int(_np(arch)), int(cval), beta2)
+                base_c.update(d_model=d, se=se, n_params=int(_np(arch)))
+                base_c["M"] = base_c["D"] / base_c["n_params"]
+                ceiling = math.inf
+            else:
+                b = min(budgets[:rungs], key=lambda x: abs(math.log(x / cval)))
+                if (d, se, b) not in known:
+                    raise SystemExit(f"{item}: not a stage-2 point on a tuned rung")
+                base_c = dict(known[(d, se, b)])
+                main = sdir / (f"lr_search_ep{base_c['epochs']}_lim{base_c['limit']}"
+                               f"_d{d}_se{se}_bs{DEFAULT_BATCH_SIZE}_b2{beta2:g}.json")
+                _, trials = E.cell_trials(main)
+                ceiling = min((t["lr"] for t in trials if _div(t)), default=math.inf)
+            for k in range(-down, up + 1):
                 lr = centre * step ** k
                 if lr >= ceiling:
                     continue
                 out.append(dict(base_c, seed=42, lr=float(f"{lr:.6e}"),
-                                suffix=f"_r{k + half}",
-                                lr_source=f"curve r{k + half}"))
+                                suffix=f"_r{k + down}",
+                                lr_source=f"curve r{k + down}"))
         return out
 
     if stage in ("2pick", "3seeds"):

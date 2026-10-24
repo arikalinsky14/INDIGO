@@ -24,6 +24,9 @@ set -euo pipefail
 # inference/scripts/test_eval.py on the held-out test tiers with a light
 # version of the production search:
 #
+#   ROW_OFFSET=0      rows [ROW_OFFSET, ROW_OFFSET + LIMIT) of each tier. 0 is
+#                     the test set every figure reports; ROW_OFFSET=500 with
+#                     its own PIPE_DIR is a dev set for choosing a rate.
 #   ENSEMBLE_N=16     sample 16 stacks per target at TEMPERATURE=1.0
 #   REFINE_ITERS=5    a very short thickness refinement on the best one
 #   top-k 1, no Monte-Carlo robustness, tolerance 0
@@ -108,7 +111,7 @@ mkdir -p "${OUT}"
 python -u inference/scripts/test_eval.py \
     --checkpoint "${CKPT}" \
     --test-dir "${TEST_DIR:-data/test}" --tiers ${TIERS:-a b} \
-    --limit "${LIMIT:-500}" --plot-examples 0 \
+    --limit "${LIMIT:-500}" --offset "${ROW_OFFSET:-0}" --plot-examples 0 \
     --ensemble-n "${ENSEMBLE_N:-16}" --temperature "${TEMPERATURE:-1.0}" \
     --tolerance 0 --top-k 1 --refine-iters "${REFINE_ITERS:-5}" \
     --mc-samples 0 --seed 42 \

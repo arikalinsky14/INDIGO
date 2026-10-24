@@ -195,7 +195,11 @@ def evaluate_tier(
     rows: List[Dict[str, Any]] = []
     t_start = time.time()
     next_log = max(args.log_every, 1)
-    for row_idx, ex in enumerate(itertools.islice(dataset, args.limit)):
+    # Rows [offset, offset + limit). Row seeds use the absolute index, so a
+    # row scores the same whatever window it is read in.
+    for row_idx, ex in enumerate(itertools.islice(dataset, args.offset,
+                                                  args.offset + args.limit),
+                                 start=args.offset):
         pool, spec = _row_to_inputs(ex, args.seed, row_idx, knobs_template)
 
         try:
@@ -247,12 +251,13 @@ def evaluate_tier(
                       f"{type(exc).__name__}: {exc}", flush=True)
 
         # Periodic progress + rolling ΔE stat.
-        if (row_idx + 1) >= next_log:
+        n_done = row_idx + 1 - args.offset
+        if n_done >= next_log:
             ok = [float(r["delta_e"]) for r in rows if "delta_e" in r]
             de_str = (f"median ΔE = {np.median(ok):.3f}, p95 = {np.percentile(ok, 95):.3f}"
                       if ok else "no successes yet")
-            rate = (row_idx + 1) / max(time.time() - t_start, 1e-6)
-            print(f"[tier_{tier_label}] {row_idx + 1}/{args.limit} done  "
+            rate = n_done / max(time.time() - t_start, 1e-6)
+            print(f"[tier_{tier_label}] {n_done}/{args.limit} done  "
                   f"{de_str}  ({rate:.2f} rows/s)", flush=True)
             next_log += args.log_every
 
@@ -271,6 +276,7 @@ def evaluate_tier(
             "weight_lambda": args.weight_lambda,
             "top_k": args.top_k,
             "refine_iters": args.refine_iters,
+            "offset": args.offset,
             "mc_samples": args.mc_samples,
             "plot_examples": args.plot_examples,
             "seed": args.seed,
@@ -313,6 +319,11 @@ def parse_args() -> argparse.Namespace:
                    help="Which tier(s) to evaluate; default both.")
     p.add_argument("--limit", type=int, default=500,
                    help="Max rows per tier (default 500).")
+    p.add_argument("--offset", type=int, default=0,
+                   help="Skip this many rows of each tier first. Rows 0-499 "
+                        "are the test set every scaling figure reports; a "
+                        "later window (e.g. --offset 500) is a dev set for "
+                        "choosing hyperparameters without touching them.")
     p.add_argument("--plot-examples", type=int, default=20,
                    help="Number of rows per tier to render as composite PNGs "
                         "(default 20).")

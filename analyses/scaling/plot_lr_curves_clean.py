@@ -57,6 +57,13 @@ def main() -> None:
     p.add_argument("--curves-dir", default="outputs/lr_curves/cross_attn")
     p.add_argument("--stage2-dir", default="outputs/lr_search/cross_attn")
     p.add_argument("--pipeline-dir", default=None, help="default: <curves-dir>/pipeline")
+    p.add_argument("--match", default=None,
+                   help="only results files whose name contains this, e.g. "
+                        "lim39959808 for the production run")
+    p.add_argument("--pipeline-label", default=r"$\Delta E_{00}$ after light pipeline",
+                   help="y label of the pipeline row, e.g. to say it is scored "
+                        "on dev rows")
+    p.add_argument("--title", default="Loss against learning rate at the largest compute budget")
     p.add_argument("--same-rate", type=float, default=1.2,
                    help="a stage-2 rate within this factor of a new rate counts "
                         "as repeated and is replaced")
@@ -69,6 +76,8 @@ def main() -> None:
 
     cells = collections.defaultdict(list)
     for path in sorted(glob.glob(str(cdir / "lr_search_*_r*.json"))):
+        if a.match and a.match not in Path(path).name:
+            continue
         m = NAME.match(Path(path).name)
         if not m:
             continue
@@ -100,10 +109,11 @@ def main() -> None:
                      "pts": sorted(pts + old, key=lambda q: q["lr"]), "div": div})
     cols.sort(key=lambda c: c["N"])
 
+    rows_def = ROWS[:2] + [("pipe", a.pipeline_label)]
     fig, axes = plt.subplots(3, len(cols), figsize=(3.4 * len(cols), 9.4),
                              facecolor=SURF, squeeze=False, sharex="col")
     for j, c in enumerate(cols):
-        for i, (field, label) in enumerate(ROWS):
+        for i, (field, label) in enumerate(rows_def):
             ax = axes[i][j]
             ax.set_facecolor(SURF)
             for s in ("top", "right"):
@@ -149,7 +159,7 @@ def main() -> None:
         axes[0][j].set_title(f"N = {c['N'] / 1e6:.2g}M, D = {c['D'] / 1e6:.3g}M\n"
                              f"d{c['d']}/se{c['se']}", color=INK, fontsize=9.5,
                              loc="left", pad=6)
-    fig.suptitle("Loss against learning rate at the largest compute budget",
+    fig.suptitle(a.title,
                  fontsize=13, color=INK, x=0.008, ha="left", y=1.035)
     n_old = sum(bool(q.get("old")) for c in cols for q in c["pts"])
     fig.text(0.008, 0.997, "Filled: each rate a fresh run, same seed, data and eval slice."
