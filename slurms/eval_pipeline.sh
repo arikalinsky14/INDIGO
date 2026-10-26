@@ -51,6 +51,10 @@ mkdir -p job-outputs
 CONFIRM_DIR="${CONFIRM_DIR:-outputs/isoflop_confirm/cross_attn}"
 WEIGHTS_DIR="${WEIGHTS_DIR:-${CONFIRM_DIR}/weights}"
 PIPE_DIR="${PIPE_DIR:-${CONFIRM_DIR}/pipeline}"
+# A LIST given explicitly must exist: falling back to every checkpoint under
+# WEIGHTS_DIR would score the wrong models (Oct 26: a missing production list
+# scored the study models that sort first).
+LIST_GIVEN="${LIST:+1}"
 LIST="${LIST:-${CONFIRM_DIR}/pipeline_checkpoints.txt}"
 
 if [[ "${1:-}" == "--list" ]]; then
@@ -82,6 +86,10 @@ if [[ "${SPLIT_TIERS:-0}" == 1 ]]; then
 fi
 if [[ -s "${LIST}" ]]; then
     CKPT="$(sed -n "$(( TASK + 1 ))p" "${LIST}")"
+elif [[ -n "${LIST_GIVEN}" ]]; then
+    echo "[ERROR] LIST=${LIST} is missing or empty; not falling back to every" \
+         "checkpoint under ${WEIGHTS_DIR}. Build the list first." >&2
+    exit 1
 else
     # No frozen list: derive the same sorted list on the fly. Stable as long
     # as no new weights land while the array runs.
