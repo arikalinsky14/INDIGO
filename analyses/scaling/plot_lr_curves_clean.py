@@ -48,7 +48,7 @@ BAD = "#d03b3b"
 SURF, INK, INK2, FAINT = "#fcfcfb", "#0b0b0b", "#52514e", "#d8d7d2"
 ROWS = [("ce", "val cross-entropy"), ("de", r"val $\Delta E_{00}$ (greedy)"),
         ("pipe", r"$\Delta E_{00}$ after light pipeline")]
-NAME = re.compile(r"lr_search_ep(\d+)_lim(\d+)_d(\d+)_se(\d+)_bs\d+_b2([\d.]+)_r(\d+)\.json")
+NAME = re.compile(r"lr_search_ep(\d+)_lim(\d+)_d(\d+)_se(\d+)_bs\d+_b2([\d.]+)_[a-z]+(\d+)\.json")
 
 
 def main() -> None:
@@ -75,7 +75,7 @@ def main() -> None:
     pdir = Path(a.pipeline_dir) if a.pipeline_dir else cdir / "pipeline"
 
     cells = collections.defaultdict(list)
-    for path in sorted(glob.glob(str(cdir / "lr_search_*_r*.json"))):
+    for path in sorted(glob.glob(str(cdir / "lr_search_*.json"))):
         if a.match and a.match not in Path(path).name:
             continue
         m = NAME.match(Path(path).name)

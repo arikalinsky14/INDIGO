@@ -378,6 +378,11 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
         half = int(os.environ.get("CURVE_HALF", 3))
         down = int(os.environ.get("CURVE_DOWN", half))
         up = int(os.environ.get("CURVE_UP", half))
+        # File-suffix stem: a later extension of the same curve takes another
+        # (CURVE_TAG=_lo) so its files never overwrite the first grid's _r<k>.
+        tag = os.environ.get("CURVE_TAG", "_r")
+        if not re.fullmatch(r"_[a-z]+", tag):
+            raise SystemExit(f"CURVE_TAG must look like _lo, got {tag!r}")
         from src.scaling.flops import n_params as _np
         sdir = Path(stage2_dir or "outputs/lr_search/cross_attn")
         known = {(c["d_model"], c["se"], c["budget"]): c
@@ -411,8 +416,8 @@ def cells_for(stage, fit_path: str, beta2: float, rungs: int = 3,
                 if lr >= ceiling:
                     continue
                 out.append(dict(base_c, seed=42, lr=float(f"{lr:.6e}"),
-                                suffix=f"_r{k + down}",
-                                lr_source=f"curve r{k + down}"))
+                                suffix=f"{tag}{k + down}",
+                                lr_source=f"curve {tag[1:]}{k + down}"))
         return out
 
     if stage in ("2pick", "3seeds"):
