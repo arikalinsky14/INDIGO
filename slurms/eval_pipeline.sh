@@ -55,6 +55,15 @@ PIPE_DIR="${PIPE_DIR:-${CONFIRM_DIR}/pipeline}"
 # WEIGHTS_DIR would score the wrong models (Oct 26: a missing production list
 # scored the study models that sort first).
 LIST_GIVEN="${LIST:+1}"
+# Without a LIST, the checkpoints are every model.pt under WEIGHTS_DIR, sorted;
+# CKPT_MATCH keeps only paths containing it, CKPT_EXCLUDE drops paths
+# containing it. Each task derives the same list on its compute node, which
+# avoids building a list on a login node that may not see the same files.
+list_checkpoints() {
+    find "${WEIGHTS_DIR}" -name model.pt -printf '%h\n' 2>/dev/null | sort \
+        | { if [[ -n "${CKPT_MATCH:-}" ]]; then grep -F -- "${CKPT_MATCH}"; else cat; fi; } \
+        | { if [[ -n "${CKPT_EXCLUDE:-}" ]]; then grep -vF -- "${CKPT_EXCLUDE}"; else cat; fi; }
+}
 LIST="${LIST:-${CONFIRM_DIR}/pipeline_checkpoints.txt}"
 
 if [[ "${1:-}" == "--list" ]]; then
@@ -62,7 +71,7 @@ if [[ "${1:-}" == "--list" ]]; then
         echo "[ERROR] no ${WEIGHTS_DIR} under $(pwd); run STAGE=confirm first" >&2
         exit 1
     fi
-    find "${WEIGHTS_DIR}" -name model.pt -printf '%h\n' | sort > "${LIST}"
+    list_checkpoints > "${LIST}"
     N="$(grep -c . "${LIST}" || true)"
     echo "${N} checkpoint(s) listed in ${LIST}"
     (( N > 0 )) && echo "submit with: sbatch --array=0-$(( N - 1 ))%8 slurms/eval_pipeline.sh" \
@@ -94,7 +103,9 @@ else
     # No frozen list: derive the same sorted list on the fly. Stable as long
     # as no new weights land while the array runs.
     echo "[WARN] ${LIST} missing; listing ${WEIGHTS_DIR} directly"
-    CKPT="$(find "${WEIGHTS_DIR}" -name model.pt -printf '%h\n' 2>/dev/null | sort | sed -n "$(( TASK + 1 ))p")"
+    CKPT="$(list_checkpoints | sed -n "$(( TASK + 1 ))p")"
+    echo "[INFO] checkpoint $(( TASK + 1 )) of $(list_checkpoints | grep -c .)" \
+         "(match '${CKPT_MATCH:-}', exclude '${CKPT_EXCLUDE:-}')"
 fi
 if [[ -z "${CKPT}" ]]; then
     echo "[ERROR] no checkpoint at line $(( TASK + 1 )) of ${LIST}" >&2
