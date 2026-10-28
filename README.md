@@ -18,7 +18,7 @@ Thin-film coatings get their color from light interference in stacked layers onl
 - Example: a deep purple target matched by a 3-layer, 232 nm stack at ΔE00 0.24.
 - No accuracy loss on 8 real materials held out of training entirely (including gold, germanium and ITO).
 - Constraint compliance rose from 62.6% (the predecessor, CHROMA-Lite) to 100%.
-- A compute-optimal scaling study on Pitt's GPU cluster, with models from 81K to 17.8M parameters, following the Chinchilla IsoFLOP method with the corrections of Porian et al. (2024). Details in [`analyses/scaling/README.md`](analyses/scaling/README.md).
+- A compute-optimal scaling study on Pitt's GPU cluster, with models from 81K to 17.8M parameters, following the Chinchilla IsoFLOP method with the corrections of Porian et al. (2024). With the learning rate tuned at every point, compute-optimal model size grows as roughly compute^0.59 on cross-entropy (95% interval 0.55 to 0.65), close to Chinchilla's 0.50. The color-error (ΔE00) estimate is noisier, at about compute^0.80. Details in [`analyses/scaling/README.md`](analyses/scaling/README.md).
 
 ### Lineage
 
