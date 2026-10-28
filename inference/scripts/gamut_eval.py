@@ -166,6 +166,11 @@ PRESETS: Dict[str, Dict[str, Any]] = {
     "light":    dict(ensemble_N=16, top_k=1, refine_top_n=1,
                      refine_max_iters=5, tolerance_pct=0.0,
                      weight_lambda=1.0, mc_samples=0, temperature=1.0),
+    # Between light and fast: 50 samples, the top one polished with 20 DoG
+    # steps. The production model's gamut number (Oct 28).
+    "mid":      dict(ensemble_N=50, top_k=1, refine_top_n=1,
+                     refine_max_iters=20, tolerance_pct=0.0,
+                     weight_lambda=1.0, mc_samples=0, temperature=1.0),
     "fast":     dict(ensemble_N=100, top_k=1, refine_top_n=1,
                      refine_max_iters=15, tolerance_pct=0.0,
                      weight_lambda=1.0, mc_samples=0, temperature=1.0),
