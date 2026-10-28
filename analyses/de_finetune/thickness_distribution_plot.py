@@ -194,15 +194,22 @@ def make_faceted_plot(
 ) -> None:
     n = len(per_example)
     grid_rows = (n + grid_cols - 1) // grid_cols
+    # The scaling study's figure style (analyses/scaling/*.py).
+    SURF, INK, INK2, FAINT = "#fcfcfb", "#0b0b0b", "#52514e", "#d8d7d2"
     fig, axes = plt.subplots(
         grid_rows, grid_cols,
         figsize=(grid_cols * 3.0, grid_rows * 2.4),
-        sharex=True, sharey=False,
+        sharex=True, sharey=False, facecolor=SURF,
     )
     axes = np.atleast_2d(axes)
     thickness_axis = np.asarray(THICKNESSES)  # 2..200 nm
 
-    layer_colors = plt.cm.viridis(np.linspace(0.15, 0.85, MAX_LAYERS))
+    # Layers are ordered, so one hue light (first) to dark (last).
+    from matplotlib.colors import LinearSegmentedColormap
+    ramp = LinearSegmentedColormap.from_list(
+        "layers", ["#86b6ef", "#2a78d6", "#124782", "#0a2a52"])
+    n_layers = max((len(ex["positions"]) for ex in per_example), default=1)
+    layer_colors = ramp(np.linspace(0.0, 1.0, max(n_layers, 2)))
 
     for i, ex in enumerate(per_example):
         row, col = divmod(i, grid_cols)
@@ -210,7 +217,7 @@ def make_faceted_plot(
 
         for pos in ex["positions"]:
             k = pos["layer_idx"]
-            color = layer_colors[k]
+            color = layer_colors[min(k, len(layer_colors) - 1)]
             ax.plot(
                 thickness_axis, pos["thick_probs"],
                 color=color, alpha=0.9, linewidth=1.4,
@@ -233,32 +240,49 @@ def make_faceted_plot(
         lab = ex["target_lab_denorm"]
         ax.set_title(
             f"ex{i}: L={lab[0]:.0f} a={lab[1]:.0f} b={lab[2]:.0f}",
-            fontsize=8,
+            fontsize=8, color=INK, loc="left",
         )
         ax.set_xlim(0, 202)
-        ax.grid(alpha=0.25)
-        ax.tick_params(axis="both", labelsize=7)
+        ax.set_facecolor(SURF)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+        for side in ("left", "bottom"):
+            ax.spines[side].set_color(FAINT)
+        ax.grid(True, color="#ebeae5", linewidth=0.7)
+        ax.set_axisbelow(True)
+        ax.tick_params(axis="both", labelsize=7, colors=INK2)
         if col == 0:
-            ax.set_ylabel("P(thick | slot)", fontsize=8)
+            ax.set_ylabel("P(thick | slot)", fontsize=8, color=INK2)
         if row == grid_rows - 1:
-            ax.set_xlabel("thickness (nm)", fontsize=8)
-        if i == 0:
-            ax.legend(fontsize=6, loc="best")
+            ax.set_xlabel("thickness (nm)", fontsize=8, color=INK2)
+
 
     # Blank unused axes if n < rows*cols.
     for j in range(n, grid_rows * grid_cols):
         row, col = divmod(j, grid_cols)
         axes[row, col].axis("off")
 
-    fig.suptitle(
-        "Thickness distributions P(thick | winning slot) per layer position\n"
-        "dashed vertical = GT thickness, star at bottom marks GT position,\n"
-        "each color = one decoding layer",
-        fontsize=10,
-    )
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    # Header in inches from the top, so its spacing holds at any height.
+    H = fig.get_figheight()
+    y_in = lambda inches: 1 - inches / H
+    head = y_in(0.85)
+    fig.tight_layout(rect=(0, 0, 1, head))
+    fig.suptitle("Predicted thickness distribution at each layer",
+                 fontsize=13, color=INK, x=0.01, ha="left", va="top",
+                 y=y_in(0.08))
+    fig.text(0.01, y_in(0.42),
+             "P(thickness | the slot the model picked). Dashed line and star: "
+             "the ground-truth thickness.", fontsize=8.5, color=INK2,
+             ha="left", va="top")
+    handles = [plt.Line2D([], [], color=layer_colors[k], linewidth=1.8,
+                          label=f"layer {k + 1}") for k in range(n_layers)]
+    leg = fig.legend(handles=handles, loc="center right", ncol=n_layers,
+                     frameon=False, fontsize=8,
+                     bbox_to_anchor=(0.995, y_in(0.50)))
+    for t in leg.get_texts():
+        t.set_color(INK2)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=140, bbox_inches="tight")
+    fig.savefig(output_path, dpi=140, bbox_inches="tight", facecolor=SURF)
     plt.close(fig)
     print(f"[thickness-plot] wrote {output_path}")
 

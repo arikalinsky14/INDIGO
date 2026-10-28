@@ -11,7 +11,8 @@ gamut_eval.py. Use this when:
      the `both` optimizer run wrote the Adam figure but not the DoG
      figure), and you want to force both.
   3. You want the paper-style look (white background, muted borders,
-     serif captions) instead of the dark web-UI aesthetic.
+     sans captions in the scaling figures' palette) instead of the dark
+     web-UI aesthetic.
 
 Output paths mirror the JSON:
   input.json  →  input.png                 (single-optimizer JSON)
@@ -97,6 +98,11 @@ def _readable_ink(rgb01: Tuple[float, float, float]) -> str:
 # Figure
 # ----------------------------------------------------------------------------
 
+# The scaling study's palette (analyses/scaling/*.py), so these figures sit
+# beside the newer plots without looking like a different paper.
+SURF, INK, INK2, SWATCH_EDGE = "#fcfcfb", "#0b0b0b", "#52514e", "#8a8880"
+
+
 def _draw_paper_swatch_grid(
     run: Dict[str, Any],
     out_path: Path,
@@ -117,19 +123,18 @@ def _draw_paper_swatch_grid(
         return
 
     # ---- typography ---------------------------------------------------
-    # Research-paper aesthetic: serif family for the caption/title, a
-    # neutral sans for tabular data. Set on the rcParams so labels
-    # inherit without per-text plumbing.
+    # The scaling study's figure style: one sans family, near-black ink
+    # for titles and values, a warm grey for secondary text, a warm
+    # off-white page, thin quiet borders.
     with plt.rc_context({
-        "font.family":       "serif",
-        "font.serif":        ["DejaVu Serif", "Nimbus Roman", "Times New Roman"],
+        "font.family":       "sans-serif",
         "font.sans-serif":   ["DejaVu Sans", "Arial", "Helvetica"],
-        "axes.edgecolor":    "#111111",
-        "axes.labelcolor":   "#111111",
-        "text.color":        "#111111",
-        "figure.facecolor":  "#ffffff",
-        "axes.facecolor":    "#ffffff",
-        "savefig.facecolor": "#ffffff",
+        "axes.edgecolor":    SWATCH_EDGE,
+        "axes.labelcolor":   INK,
+        "text.color":        INK,
+        "figure.facecolor":  SURF,
+        "axes.facecolor":    SURF,
+        "savefig.facecolor": SURF,
     }):
         # ---- geometry (inches) ----------------------------------------
         SW = 0.85           # square swatch side
@@ -159,11 +164,9 @@ def _draw_paper_swatch_grid(
         # No decorative rule — the whitespace + typography carry the
         # section split, matching the plainer paper aesthetic.
         ax.text(MARGIN, total_h - MARGIN - 0.10, title,
-                fontsize=14, weight="bold", family="serif",
-                va="top", ha="left")
+                fontsize=15, color=INK, va="top", ha="left")
         ax.text(MARGIN, total_h - MARGIN - 0.55, subtitle,
-                fontsize=10, style="italic", color="#4b5563",
-                family="serif", va="top", ha="left")
+                fontsize=10, color=INK2, va="top", ha="left")
 
         # ---- rows -----------------------------------------------------
         oog_count = 0
@@ -175,17 +178,14 @@ def _draw_paper_swatch_grid(
             worst_de = stats.get("worst_de")
             n = stats.get("n", 0)
 
-            # Battery name: small-caps-ish emphasis via bold serif.
             ax.text(MARGIN + 0.10, y + SW + 0.30, bname.replace("_", " "),
-                    fontsize=10.5, weight="bold", family="serif",
-                    va="bottom", ha="left")
+                    fontsize=11, color=INK, va="bottom", ha="left")
 
             stats_str = "no data" if median_de is None else (
                 f"n={n}   med ΔE {median_de:.2f}   worst {worst_de:.2f}"
             )
             ax.text(MARGIN + 0.10, y + SW + 0.05, stats_str,
-                    fontsize=8.5, color="#4b5563",
-                    family="DejaVu Sans Mono", va="bottom", ha="left")
+                    fontsize=8.5, color=INK2, va="bottom", ha="left")
 
             for i, tgt in enumerate(batteries[bname].get("per_target", [])):
                 x = (MARGIN + TITLE_W
@@ -206,7 +206,7 @@ def _draw_paper_swatch_grid(
                 ax.add_patch(Rectangle(
                     (x, y), SW, SW,
                     facecolor=tgt_rgb,
-                    edgecolor="#111111", linewidth=0.7,
+                    edgecolor=SWATCH_EDGE, linewidth=0.8,
                 ))
 
                 # Achieved swatch. Neutral grey if solve failed.
@@ -217,7 +217,7 @@ def _draw_paper_swatch_grid(
                 ax.add_patch(Rectangle(
                     (x + SW + PAIR_GAP, y), SW, SW,
                     facecolor=ach_rgb,
-                    edgecolor="#111111", linewidth=0.7,
+                    edgecolor=SWATCH_EDGE, linewidth=0.8,
                 ))
 
                 # ΔE printed BELOW the pair (paper convention: caption
@@ -227,8 +227,7 @@ def _draw_paper_swatch_grid(
                     x + SW + PAIR_GAP / 2.0,
                     y - 0.18,
                     de_text,
-                    fontsize=8.5, family="serif",
-                    ha="center", va="top",
+                    fontsize=8.5, color=INK, ha="center", va="top",
                 )
                 # Lab coordinates below the ΔE. Trailing '*' flags
                 # out-of-gamut targets; the disclaimer at the bottom of
@@ -239,28 +238,25 @@ def _draw_paper_swatch_grid(
                     x + SW + PAIR_GAP / 2.0,
                     y - 0.42,
                     f"L={L:.0f}  a={a:+.0f}  b={bl:+.0f}{oog_mark}",
-                    fontsize=6.8, color="#4b5563",
-                    family="DejaVu Sans Mono",
-                    ha="center", va="top",
+                    fontsize=6.8, color=INK2, ha="center", va="top",
                 )
 
         # ---- footer ---------------------------------------------------
         # No decorative rule; the italic disclaimer sits below the last
         # Lab caption with generous whitespace.
         footer = (
-            "Fig. Each column shows the target Lab colour (left) and the "
+            "Each pair shows the target Lab colour (left) and the "
             "sRGB representation of the achieved thin-film reflectance "
             "(right). "
             f"Lab captions marked with '*' ({oog_count} total) denote "
-            "targets outside the sRGB display gamut — the printed swatch "
+            "targets outside the sRGB display gamut; the printed swatch "
             "colour is clipped to the nearest displayable sRGB and does "
             "not represent the true target chroma. ΔE_00 is computed in "
             "Lab and is unaffected by the sRGB clipping."
         )
         ax.text(
             MARGIN, MARGIN + 0.05, footer,
-            fontsize=8.0, style="italic", color="#374151",
-            family="serif", va="bottom", ha="left",
+            fontsize=8.0, color=INK2, va="bottom", ha="left",
             wrap=True,
         )
 

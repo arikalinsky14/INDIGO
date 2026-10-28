@@ -160,6 +160,12 @@ BATTERIES: Dict[str, List[Tuple[float, float, float]]] = {
 # ----------------------------------------------------------------------------
 
 PRESETS: Dict[str, Dict[str, Any]] = {
+    # The scaling study's light pipeline (slurms/eval_pipeline.sh): best of
+    # 16 samples, the top one polished with 5 DoG steps. Small on purpose,
+    # so model differences are not hidden by the search.
+    "light":    dict(ensemble_N=16, top_k=1, refine_top_n=1,
+                     refine_max_iters=5, tolerance_pct=0.0,
+                     weight_lambda=1.0, mc_samples=0, temperature=1.0),
     "fast":     dict(ensemble_N=100, top_k=1, refine_top_n=1,
                      refine_max_iters=15, tolerance_pct=0.0,
                      weight_lambda=1.0, mc_samples=0, temperature=1.0),

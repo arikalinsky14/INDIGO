@@ -113,8 +113,8 @@ if [[ -z "${CHECKPOINT}" ]]; then
   exit 2
 fi
 case "${PRESET}" in
-  fast|balanced|best|max) ;;
-  *) echo "[ERROR] PRESET must be one of fast/balanced/best/max (got ${PRESET})" >&2; exit 2 ;;
+  light|fast|balanced|best|max) ;;
+  *) echo "[ERROR] PRESET must be one of light/fast/balanced/best/max (got ${PRESET})" >&2; exit 2 ;;
 esac
 case "${OPTIMIZER}" in
   dog|adam|both) ;;
@@ -209,6 +209,9 @@ if "ab_comparison" in data:
 else:
     summary(data, f"optimizer={data.get('optimizer','?')}")
 PY
+  # The same grid in the scaling figures' style, beside the inline one.
+  python inference/scripts/gamut_swatch.py "${OUTPUT}" \
+      --out-prefix "${OUTPUT%.json}_swatch" || echo "[WARN] gamut_swatch failed"
 fi
 exit ${EXIT_CODE}
 
