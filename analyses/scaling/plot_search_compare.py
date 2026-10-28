@@ -2,18 +2,19 @@
 """Two inference searches on the same model, side by side.
 
 1. Gamut: for every target of the five batteries, the target colour and the
-   colour each search achieved, with its DeltaE00 underneath. Two
-   gamut_eval.py JSONs, same targets and seed.
+   colour each search achieved, with its DeltaE00 underneath. Two or more
+   gamut_eval.py JSONs, same targets and seed, smallest search first.
 2. Test rows: per tier, the share of rows under each DeltaE00 (a cumulative
    curve per search), and each row's DeltaE00 under one search against the
    other. Two test_eval.py output folders (each holding tier_a/ and tier_b/
-   rows.json), same rows and seed.
+   rows.json), same rows and seed. Uses the first two --labels.
 
     python analyses/scaling/plot_search_compare.py \\
         --gamut outputs/prod_eval/gamut/gamut_light_dog.json \\
                 outputs/prod_eval/gamut/gamut_mid_dog.json \\
+                outputs/prod_eval/gamut/gamut_high_dog.json \\
         --test outputs/prod_eval/test_eval_light outputs/prod_eval/test_eval_mid \\
-        --labels "light (16, 5 steps)" "mid (50, 20 steps)" \\
+        --labels "light (16, 5 steps)" "mid (50, 20 steps)" "high (250, 40 steps)" \\
         --out-dir outputs/prod_eval/compare
 """
 from __future__ import annotations
@@ -34,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "inference" / "scri
 from gamut_swatch import _lab_to_srgb01, _is_in_srgb_gamut  # noqa: E402
 
 SURF, INK, INK2, FAINT, EDGE = "#fcfcfb", "#0b0b0b", "#52514e", "#d8d7d2", "#8a8880"
-GREY, ACCENT = "#9a9890", "#2a78d6"     # first search quiet, second the accent
+GREY, ACCENT = "#9a9890", "#2a78d6"     # first search quiet, last the accent
 
 
 def gamut_compare(paths, labels, out: Path) -> None:
@@ -42,19 +43,21 @@ def gamut_compare(paths, labels, out: Path) -> None:
     names = list(runs[0]["batteries"])
     SW, GAP, PAIR, ROW, LEFT, M = 0.62, 0.05, 0.30, 1.55, 2.3, 0.4
     n_max = max(len(runs[0]["batteries"][b]["per_target"]) for b in names)
-    group = 3 * SW + 2 * GAP + PAIR
+    K = len(runs)
+    group = (K + 1) * SW + K * GAP + PAIR
     W = 2 * M + LEFT + n_max * group
     H = 2 * M + 1.1 + len(names) * ROW
     fig = plt.figure(figsize=(W, H), facecolor=SURF)
     ax = fig.add_axes((0, 0, 1, 1))
     ax.set_xlim(0, W); ax.set_ylim(0, H); ax.set_axis_off()
     meds = [r["overall"]["stats"]["median_de"] for r in runs]
-    cut = (1 - meds[1] / meds[0]) * 100
-    ax.text(M, H - M, f"Gamut targets: the {labels[1].split(' ')[0]} search cuts the "
-            f"median ΔE₀₀ by {cut:.0f}% ({meds[0]:.2f} → {meds[1]:.2f})" if cut > 0
-            else f"Gamut targets by search: median ΔE₀₀ {meds[0]:.2f} vs {meds[1]:.2f}",
+    cut = (1 - meds[-1] / meds[0]) * 100
+    chain = " → ".join(f"{m:.2f}" for m in meds)
+    ax.text(M, H - M, f"Gamut targets: the {labels[K - 1].split(' ')[0]} search cuts the "
+            f"median ΔE₀₀ by {cut:.0f}% ({chain})" if cut > 0
+            else f"Gamut targets by search: median ΔE₀₀ {chain}",
             fontsize=15, color=INK, va="top")
-    ax.text(M, H - M - 0.42, f"Each group: target, then {labels[0]}, then {labels[1]}. "
+    ax.text(M, H - M - 0.42, "Each group: target, then " + ", then ".join(labels[:K]) + ". "
             "ΔE₀₀ under each achieved colour. * marks a target outside sRGB "
             "(its swatch is clipped).", fontsize=9.5, color=INK2, va="top")
     for bi, b in enumerate(names):
@@ -69,7 +72,7 @@ def gamut_compare(paths, labels, out: Path) -> None:
             lab = tuple(tgt["target_lab"])
             ax.add_patch(Rectangle((x, y), SW, SW, facecolor=_lab_to_srgb01(lab),
                                    edgecolor=EDGE, linewidth=0.7))
-            for k in range(2):
+            for k in range(K):
                 t = ts[k][i]
                 xx = x + (k + 1) * (SW + GAP)
                 col = (_lab_to_srgb01(tuple(t["achieved_lab"]))
@@ -79,7 +82,7 @@ def gamut_compare(paths, labels, out: Path) -> None:
                 de = t.get("delta_e")
                 ax.text(xx + SW / 2, y - 0.08, "fail" if de is None else f"{de:.1f}",
                         fontsize=8, ha="center", va="top",
-                        color=ACCENT if k == 1 else INK2)
+                        color=ACCENT if k == K - 1 else INK2)
             L, a, bb = lab
             ax.text(x + SW / 2, y - 0.08, f"{L:.0f},{a:+.0f},{bb:+.0f}"
                     + ("*" if not _is_in_srgb_gamut(lab) else ""),
@@ -171,14 +174,17 @@ def test_compare(folders, labels, out: Path) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--gamut", nargs=2, default=None, help="two gamut_eval JSONs")
+    p.add_argument("--gamut", nargs="+", default=None,
+                   help="two or more gamut_eval JSONs, smallest search first")
     p.add_argument("--test", nargs=2, default=None, help="two test_eval output folders")
-    p.add_argument("--labels", nargs=2, default=["light (16, 5 steps)", "mid (50, 20 steps)"])
+    p.add_argument("--labels", nargs="+", default=["light (16, 5 steps)", "mid (50, 20 steps)",
+                                                   "high (250, 40 steps)"])
     p.add_argument("--out-dir", default="outputs/prod_eval/compare")
     a = p.parse_args()
     out = Path(a.out_dir)
     if a.gamut:
-        gamut_compare(a.gamut, a.labels, out / "gamut_light_vs_mid.png")
+        names = "_vs_".join(l.split(" ")[0] for l in a.labels[:len(a.gamut)])
+        gamut_compare(a.gamut, a.labels, out / f"gamut_{names}.png")
     if a.test:
         test_compare(a.test, a.labels, out / "test_light_vs_mid.png")
 
