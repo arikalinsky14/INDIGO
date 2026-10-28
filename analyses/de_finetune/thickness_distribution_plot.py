@@ -265,7 +265,8 @@ def make_faceted_plot(
     # Header in inches from the top, so its spacing holds at any height.
     H = fig.get_figheight()
     y_in = lambda inches: 1 - inches / H
-    head = y_in(0.85)
+    # Many layer positions make a long legend: give it its own line.
+    head = y_in(1.1 if n_layers > 4 else 0.85)
     fig.tight_layout(rect=(0, 0, 1, head))
     fig.suptitle("Predicted thickness distribution at each layer",
                  fontsize=13, color=INK, x=0.01, ha="left", va="top",
@@ -276,9 +277,10 @@ def make_faceted_plot(
              ha="left", va="top")
     handles = [plt.Line2D([], [], color=layer_colors[k], linewidth=1.8,
                           label=f"layer {k + 1}") for k in range(n_layers)]
-    leg = fig.legend(handles=handles, loc="center right", ncol=n_layers,
-                     frameon=False, fontsize=8,
-                     bbox_to_anchor=(0.995, y_in(0.50)))
+    leg = fig.legend(handles=handles, ncol=n_layers, frameon=False, fontsize=8,
+                     **({"loc": "upper left", "bbox_to_anchor": (0.005, y_in(0.62))}
+                        if n_layers > 4 else
+                        {"loc": "center right", "bbox_to_anchor": (0.995, y_in(0.50))}))
     for t in leg.get_texts():
         t.set_color(INK2)
     output_path.parent.mkdir(parents=True, exist_ok=True)
