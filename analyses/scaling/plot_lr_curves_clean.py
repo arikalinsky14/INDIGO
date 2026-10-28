@@ -75,12 +75,20 @@ def main() -> None:
                         "as repeated and is replaced")
     p.add_argument("--no-stage2", action="store_true",
                    help="draw the new runs only")
+    p.add_argument("--from-csv", default=None,
+                   help="redraw from a CSV this script wrote (no results files "
+                        "needed); rows with diverged=1 are drawn as crosses")
     p.add_argument("--output", default="analyses/scaling/results/tuned/lr_curves_clean.png")
     a = p.parse_args()
+    if a.from_csv:
+        cols = cols_from_csv(Path(a.from_csv))
+        draw(cols, a)
+        return
     cdir = Path(a.curves_dir)
     pdir = Path(a.pipeline_dir) if a.pipeline_dir else cdir / "pipeline"
 
     cells = collections.defaultdict(list)
+    own_div = collections.defaultdict(list)
     for path in sorted(glob.glob(str(cdir / "lr_search_*.json"))):
         if a.match and a.match not in Path(path).name:
             continue
@@ -91,6 +99,9 @@ def main() -> None:
         res = json.load(open(path))
         for t in res.get("results", []):
             if diverged(t):
+                # A curve's own diverged rates are crosses too (Oct 28: the
+                # production cell has no stage-2 file to take them from).
+                own_div[(int(d), int(se), int(ep), int(lim), b2)].append(t["lr"])
                 continue
             tag = Path(path).name[len("lr_search_"):-len(".json")]
             pipe = pipeline_scores(pdir / tag / f"lr{t['lr']:.6e}").get("pooled")
@@ -104,7 +115,8 @@ def main() -> None:
     for (d, se, ep, lim, b2), pts in sorted(cells.items(), key=lambda kv: kv[0][0] * 100 + kv[0][1]):
         main_file = Path(a.stage2_dir) / f"lr_search_ep{ep}_lim{lim}_d{d}_se{se}_bs256_b2{b2}.json"
         _, s2 = cell_trials(main_file) if main_file.is_file() else ({}, [])
-        div = sorted(t["lr"] for t in s2 if diverged(t))
+        div = sorted(set(t["lr"] for t in s2 if diverged(t))
+                     | set(own_div.get((d, se, ep, lim, b2), [])))
         new = [q["lr"] for q in pts]
         old = [] if a.no_stage2 else [
             {"lr": t["lr"], "ce": t.get("final_val_loss"), "de": t.get("final_val_de"),
@@ -114,9 +126,31 @@ def main() -> None:
         cols.append({"d": d, "se": se, "D": ep * lim, "N": int(n_params(arch_for(d, se))),
                      "pts": sorted(pts + old, key=lambda q: q["lr"]), "div": div})
     cols.sort(key=lambda c: c["N"])
+    draw(cols, a)
 
+
+def cols_from_csv(path: Path) -> list:
+    import csv
+    by = collections.OrderedDict()
+    f = lambda x: None if x in ("", None) else float(x)
+    for r in csv.DictReader(open(path)):
+        key = (int(r["d_model"]), int(r["se"]))
+        c = by.setdefault(key, {"d": key[0], "se": key[1], "N": int(r["n_params"]),
+                                "D": int(r["examples"]), "pts": [], "div": []})
+        if r["diverged"] == "1":
+            c["div"].append(float(r["lr"]))
+        else:
+            c["pts"].append({"lr": float(r["lr"]), "ce": f(r["val_ce"]),
+                             "de": f(r["greedy_de"]), "pipe": f(r["pipeline_de"]),
+                             "old": r["source"] == "earlier"})
+    return sorted(by.values(), key=lambda c: c["N"])
+
+
+def draw(cols: list, a) -> None:
     rows_def = ROWS[:2] + [("pipe", a.pipeline_label)]
-    fig, axes = plt.subplots(3, len(cols), figsize=(3.4 * len(cols), 9.4),
+    # One column still gets room to read; more share the width.
+    width = 5.2 if len(cols) == 1 else 3.4 * len(cols)
+    fig, axes = plt.subplots(3, len(cols), figsize=(width, 9.4),
                              facecolor=SURF, squeeze=False, sharex="col")
     for j, c in enumerate(cols):
         for i, (field, label) in enumerate(rows_def):
