@@ -7,7 +7,8 @@
 2. Test rows: per tier, the share of rows under each DeltaE00 (a cumulative
    curve per search), and each row's DeltaE00 under one search against the
    other. Two test_eval.py output folders (each holding tier_a/ and tier_b/
-   rows.json), same rows and seed. Uses the first two --labels.
+   rows.json), same rows and seed. The CDF figure uses the first two; the swatch
+   figure (rows 0 to 19 of each tier) uses all of them.
 
     python analyses/scaling/plot_search_compare.py \\
         --gamut outputs/prod_eval/gamut/gamut_light_dog.json \\
@@ -40,6 +41,22 @@ GREY, ACCENT = "#9a9890", "#2a78d6"     # first search quiet, last the accent
 
 def gamut_compare(paths, labels, out: Path) -> None:
     runs = [json.load(open(p)) for p in paths]
+    K = len(runs)
+    meds = [r["overall"]["stats"]["median_de"] for r in runs]
+    cut = (1 - meds[-1] / meds[0]) * 100
+    chain = " → ".join(f"{m:.2f}" for m in meds)
+    title = (f"Gamut targets: the {labels[K - 1].split(' ')[0]} search cuts the "
+             f"median ΔE₀₀ by {cut:.0f}% ({chain})" if cut > 0
+             else f"Gamut targets by search: median ΔE₀₀ {chain}")
+    note = ("Each group: target, then " + ", then ".join(labels[:K]) + ". "
+            "ΔE₀₀ under each achieved colour. * marks a target outside sRGB "
+            "(its swatch is clipped).")
+    swatch_grid(runs, labels, out, title, note)
+
+
+def swatch_grid(runs, labels, out: Path, title: str, note: str) -> None:
+    """Rows of (target, achieved under each search) swatch groups. Each run is
+    a gamut_eval-shaped dict: batteries -> {per_target, stats.median_de}."""
     names = list(runs[0]["batteries"])
     SW, GAP, PAIR, ROW, LEFT, M = 0.62, 0.05, 0.30, 1.55, 2.3, 0.4
     n_max = max(len(runs[0]["batteries"][b]["per_target"]) for b in names)
@@ -50,16 +67,8 @@ def gamut_compare(paths, labels, out: Path) -> None:
     fig = plt.figure(figsize=(W, H), facecolor=SURF)
     ax = fig.add_axes((0, 0, 1, 1))
     ax.set_xlim(0, W); ax.set_ylim(0, H); ax.set_axis_off()
-    meds = [r["overall"]["stats"]["median_de"] for r in runs]
-    cut = (1 - meds[-1] / meds[0]) * 100
-    chain = " → ".join(f"{m:.2f}" for m in meds)
-    ax.text(M, H - M, f"Gamut targets: the {labels[K - 1].split(' ')[0]} search cuts the "
-            f"median ΔE₀₀ by {cut:.0f}% ({chain})" if cut > 0
-            else f"Gamut targets by search: median ΔE₀₀ {chain}",
-            fontsize=15, color=INK, va="top")
-    ax.text(M, H - M - 0.42, "Each group: target, then " + ", then ".join(labels[:K]) + ". "
-            "ΔE₀₀ under each achieved colour. * marks a target outside sRGB "
-            "(its swatch is clipped).", fontsize=9.5, color=INK2, va="top")
+    ax.text(M, H - M, title, fontsize=15, color=INK, va="top")
+    ax.text(M, H - M - 0.42, note, fontsize=9.5, color=INK2, va="top")
     for bi, b in enumerate(names):
         y = H - M - 1.1 - (bi + 1) * ROW + 0.45
         ts = [r["batteries"][b]["per_target"] for r in runs]
@@ -93,12 +102,44 @@ def gamut_compare(paths, labels, out: Path) -> None:
     print(f"wrote {out}")
 
 
-def _rows(folder: Path, tier: str) -> dict:
+def _rows_full(folder: Path, tier: str) -> list:
     hits = glob.glob(str(folder / "**" / f"tier_{tier}" / "rows.json"), recursive=True)
     if not hits:
         sys.exit(f"no tier_{tier}/rows.json under {folder}")
-    return {r["row_idx"]: float(r["delta_e"]) for r in json.load(open(hits[0]))
+    return json.load(open(hits[0]))
+
+
+def _rows(folder: Path, tier: str) -> dict:
+    return {r["row_idx"]: float(r["delta_e"]) for r in _rows_full(folder, tier)
             if r.get("delta_e") is not None}
+
+
+def test_swatch(folders, labels, out: Path, n_rows: int = 20, per_line: int = 10) -> None:
+    """Tiers A and B as swatches: the first n_rows test rows of each tier (the
+    rows test_eval.py also draws as example plots), target then each search."""
+    K = len(folders)
+    full = {t: [{r["row_idx"]: r for r in _rows_full(Path(f), t)} for f in folders]
+            for t in ("a", "b")}
+    runs = [{"batteries": {}} for _ in folders]
+    for t, name in (("a", "tier A"), ("b", "tier B")):
+        idx = sorted(set.intersection(*(set(d) for d in full[t])))[:n_rows]
+        for s0 in range(0, len(idx), per_line):
+            chunk = idx[s0:s0 + per_line]
+            key = f"{name}_rows_{chunk[0]}-{chunk[-1]}"
+            for k in range(K):
+                pts = [full[t][k][i] for i in chunk]
+                des = [p["delta_e"] for p in pts if p.get("delta_e") is not None]
+                runs[k]["batteries"][key] = {"per_target": pts, "stats": {
+                    "median_de": float(np.median(des)) if des else float("nan")}}
+    med = {t: [np.median([r["delta_e"] for r in d.values() if r.get("delta_e") is not None])
+               for d in full[t]] for t in ("a", "b")}
+    title = ("Test rows by search: median ΔE₀₀ over 500 rows, tier A "
+             + " → ".join(f"{m:.2f}" for m in med["a"]) + ", tier B "
+             + " → ".join(f"{m:.2f}" for m in med["b"]))
+    note = ("Each group: target, then " + ", then ".join(labels[:K]) + ". "
+            "Tier A: training materials, new structures; tier B: held-out real "
+            "materials. Line medians are over the rows shown.")
+    swatch_grid(runs, labels, out, title, note)
 
 
 def test_compare(folders, labels, out: Path) -> None:
@@ -176,7 +217,9 @@ def main() -> None:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--gamut", nargs="+", default=None,
                    help="two or more gamut_eval JSONs, smallest search first")
-    p.add_argument("--test", nargs=2, default=None, help="two test_eval output folders")
+    p.add_argument("--test", nargs="+", default=None,
+                   help="test_eval output folders, smallest search first; the "
+                        "CDF figure uses the first two, the swatch figure all")
     p.add_argument("--labels", nargs="+", default=["light (16, 5 steps)", "mid (50, 20 steps)",
                                                    "high (250, 40 steps)"])
     p.add_argument("--out-dir", default="outputs/prod_eval/compare")
@@ -186,7 +229,9 @@ def main() -> None:
         names = "_vs_".join(l.split(" ")[0] for l in a.labels[:len(a.gamut)])
         gamut_compare(a.gamut, a.labels, out / f"gamut_{names}.png")
     if a.test:
-        test_compare(a.test, a.labels, out / "test_light_vs_mid.png")
+        test_compare(a.test[:2], a.labels, out / "test_light_vs_mid.png")
+        names = "_vs_".join(l.split(" ")[0] for l in a.labels[:len(a.test)])
+        test_swatch(a.test, a.labels, out / f"test_swatch_{names}.png")
 
 
 if __name__ == "__main__":
