@@ -12,7 +12,6 @@
 #SBATCH --mem=32G
 
 #SBATCH --time=24:00:00
-#SBATCH --qos=short
 #SBATCH --mail-user=ajk245@pitt.edu
 #SBATCH --mail-type=END,FAIL
 
