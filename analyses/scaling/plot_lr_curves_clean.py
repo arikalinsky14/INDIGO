@@ -25,6 +25,7 @@ import argparse
 import collections
 import glob
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -60,10 +61,15 @@ def main() -> None:
     p.add_argument("--match", default=None,
                    help="only results files whose name contains this, e.g. "
                         "lim39959808 for the production run")
-    p.add_argument("--pipeline-label", default=r"$\Delta E_{00}$ after light pipeline",
+    # Text with spaces comes from the environment too: CRC's sbatch splits
+    # quoted arguments at their spaces (Oct 27), but passes variables intact.
+    p.add_argument("--pipeline-label",
+                   default=os.environ.get("PIPELINE_LABEL",
+                                          r"$\Delta E_{00}$ after light pipeline"),
                    help="y label of the pipeline row, e.g. to say it is scored "
                         "on dev rows")
-    p.add_argument("--title", default="Loss against learning rate at the largest compute budget")
+    p.add_argument("--title", default=os.environ.get(
+        "PLOT_TITLE", "Loss against learning rate at the largest compute budget"))
     p.add_argument("--same-rate", type=float, default=1.2,
                    help="a stage-2 rate within this factor of a new rate counts "
                         "as repeated and is replaced")

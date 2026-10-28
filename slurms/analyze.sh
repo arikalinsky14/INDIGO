@@ -52,6 +52,9 @@ set -euo pipefail
 # in the repo; the beta2 fit takes about a minute.
 # ============================================================================
 
+# CRC's sbatch splits quoted arguments at their spaces before this script
+# runs, so text with spaces (a plot title, a label) cannot be an argument:
+# pass it in an environment variable the script reads (PLOT_TITLE=...).
 if (( $# < 1 )); then
     echo "usage: sbatch slurms/analyze.sh <script.py> [args...]" >&2
     exit 1
