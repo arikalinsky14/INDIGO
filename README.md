@@ -1,3 +1,50 @@
+# INDIGO
+
+**AI inverse design of thin-film optical coatings from any material pool.**
+
+Thin-film coatings get their color from light interference in stacked layers only nanometers thick. Inverse design means choosing which materials, in what order and at what thicknesses, to hit a target color. The search space is huge, and the best stack depends on which materials are actually available.
+
+### Approach
+
+- **Materials are inputs, not a fixed vocabulary.** A shared encoder reads each material through its optical constants (n,k spectra), so the model designs from any pool of up to 32 materials, including user-uploaded ones.
+- **A cross-attention transformer writes the layer stack one layer at a time**, choosing a material from the pool and a thickness at each step.
+- **Trained on 40 million physics-simulated examples**, about 80% of them built from synthetic materials so the model learns from n,k features rather than memorizing names.
+- **Search at inference.** The model proposes candidate stacks, a physics simulator scores them, and layer thicknesses are refined with DoG (Dr. Hinder's parameter-free optimizer). A web interface accepts plain-language requests.
+- **Eight constraint types** (allowed materials, thickness ranges, layer count, symmetry and others) are enforced during generation where possible and checked on every returned design.
+
+### Results
+
+- Median color error (CIEDE2000 ΔE00) of about 0.7, below the ~1.0 threshold where a person notices a difference.
+- Example: a deep purple target matched by a 3-layer, 232 nm stack at ΔE00 0.24.
+- No accuracy loss on 8 real materials held out of training entirely (including gold, germanium and ITO).
+- Constraint compliance rose from 62.6% (the predecessor, CHROMA-Lite) to 100%.
+- A compute-optimal scaling study on Pitt's GPU cluster, with models from 81K to 17.8M parameters, following the Chinchilla IsoFLOP method with the corrections of Porian et al. (2024). Details in [`analyses/scaling/README.md`](analyses/scaling/README.md).
+
+### Lineage
+
+INDIGO is the third iteration. The first was an end-to-end language model that collapsed onto a few repeated stacks; the second, CHROMA-Lite, paired a structure model with a language model but was locked to about 30 fixed materials.
+
+### Limitations
+
+- Neutral grays are the hardest targets.
+- Results are verified in simulation; designs have not yet been fabricated.
+
+### People and tech
+
+Undergraduate research by Ari Kalinsky at the University of Pittsburgh, advised by Dr. Oliver Hinder, with materials expertise from Dr. Paul Leu.
+
+Built with Python, PyTorch, JAX (optical simulation), FastAPI (web interface), and SLURM on Pitt's CRC cluster. A Docker setup for Hugging Face Spaces is in [`huggingface_space/`](huggingface_space/).
+
+### Quickstart
+
+- Train and evaluate: see [Quick start](#quick-start) below.
+- Hyperparameter and scaling work: [LR tuning](#lr-tuning-recommended-commands) and [Compute-optimal scaling study](#compute-optimal-scaling-study).
+- Inference and the web app: [`inference/`](inference/) and [`huggingface_space/DEPLOY.md`](huggingface_space/DEPLOY.md).
+
+---
+
+## Developer guide
+
 # INDIGO: Flexible-Material RGB → Structure
 
 INDIGO adapts CHROMA-Lite for a flexible-material thin-film design task. The
