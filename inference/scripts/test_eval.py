@@ -207,6 +207,7 @@ def evaluate_tier(
                 model=model, pool=pool, spec=spec,
                 model_tag=model_tag, model_sha256=model_sha256,
                 sim_feedback=args.sim_feedback,
+                proposer=args.proposer,
             )
         except Exception as exc:
             rows.append({"row_idx": row_idx,
@@ -280,6 +281,7 @@ def evaluate_tier(
             "mc_samples": args.mc_samples,
             "plot_examples": args.plot_examples,
             "seed": args.seed,
+            "proposer": args.proposer,
         },
     })
 
@@ -344,6 +346,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-dir", type=str, default=None,
                    help="Root for evaluation outputs "
                         "(default: <repo>/inference/outputs/test_eval).")
+    p.add_argument("--proposer", choices=("model", "random"), default="model",
+                   help="'random' replaces the model with the no-model baseline "
+                        "(training prior over layer count, uniform materials and "
+                        "thicknesses); simulation, selection and refinement are "
+                        "unchanged. Give it its own --output-dir.")
     p.add_argument("--sim-feedback", action="store_true",
                    help="Feed per-step partial-stack sim residuals to the "
                         "model during ensemble decoding. Match to the "

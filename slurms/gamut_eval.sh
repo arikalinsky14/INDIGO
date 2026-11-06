@@ -89,7 +89,10 @@ OPTIMIZER="${OPTIMIZER:-dog}"
 # Where the aggregate JSON lands. Defaults include the checkpoint tag and
 # optimizer so re-runs don't clobber each other.
 OUTPUT_DIR="${OUTPUT_DIR:-inference/outputs/gamut_eval}"
-OUTPUT_NAME="${OUTPUT_NAME:-gamut_${PRESET}_${OPTIMIZER}.json}"
+# PROPOSER=random swaps the model for the no-model baseline (same search).
+PROPOSER="${PROPOSER:-model}"
+SUFFIX=$([[ "${PROPOSER}" == random ]] && echo _random || true)
+OUTPUT_NAME="${OUTPUT_NAME:-gamut_${PRESET}_${OPTIMIZER}${SUFFIX}.json}"
 OUTPUT="${OUTPUT_DIR}/${OUTPUT_NAME}"
 
 # Base RNG seed. Per-battery seeds derive from it.
@@ -130,6 +133,7 @@ ARGS=(
   --optimizer "${OPTIMIZER}"
   --output "${OUTPUT}"
   --seed "${SEED}"
+  --proposer "${PROPOSER}"
 )
 if [[ -n "${POOL_DIR}" ]]; then
   ARGS+=(--pool-dir "${POOL_DIR}")

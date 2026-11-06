@@ -545,6 +545,11 @@ def main() -> int:
                    default=True,
                    help="Also write a companion PNG next to --output "
                         "with a target-vs-achieved swatch grid.")
+    p.add_argument("--proposer", choices=("model", "random"), default="model",
+                   help="'random' replaces the model with the no-model baseline "
+                        "(training prior over layer count, uniform materials and "
+                        "thicknesses); simulation, selection and refinement are "
+                        "unchanged.")
     p.add_argument("--seed", type=int, default=42,
                    help="Base seed. Per-battery per-index seeds derive from it.")
     p.add_argument("--cpu", action="store_true",
@@ -556,8 +561,10 @@ def main() -> int:
         cap_pool_at_m_max, default_jll_materials_dir, load_pool_from_jll,
     )
     from inference.src.generate import load_inference_model
-    from inference.src.solve import solve as solve_fn
+    import functools
+    from inference.src.solve import solve
     from src.materials_vocab import M_MAX
+    solve_fn = functools.partial(solve, proposer=args.proposer)
 
     import torch
     device = torch.device("cpu") if args.cpu else (
@@ -579,13 +586,14 @@ def main() -> int:
 
     preset_knobs = PRESETS[args.preset]
     print(f"[gamut_eval] preset={args.preset}  optimizer={args.optimizer}  "
-          f"seed={args.seed}", flush=True)
+          f"proposer={args.proposer}  seed={args.seed}", flush=True)
 
     result_root: Dict[str, Any] = {
         "checkpoint": tag,
         "model_sha256": sha,
         "preset": args.preset,
         "optimizer": args.optimizer,
+        "proposer": args.proposer,
         "seed": args.seed,
         "pool_size": len(pool),
     }

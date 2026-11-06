@@ -96,6 +96,28 @@ class GenerationConfig:
     sim_feedback: bool = False
     # Incidence angle for partial-stack sims (must match training).
     incidence_angle: float = 0.0
+    # Who proposes the candidates. "model" samples from the network.
+    # "random" is the no-model baseline (Nov 6): each replica draws its
+    # layer count from the training data's prior (truncated Poisson, see
+    # create_dataset/src/random_layer.py:LayerCountConfig), then each layer
+    # uniformly over the allowed (material, thickness) tokens, under the same
+    # constraint masks. Simulation, selection and refinement are unchanged,
+    # so the comparison isolates what the model contributes to the search.
+    proposer: str = "model"
+
+
+# The training data's layer-count prior, mirrored from LayerCountConfig so the
+# inference package does not import the data generator.
+_RANDOM_LAYERS_LAM, _RANDOM_LAYERS_MIN = 4.5, 2
+
+
+def _random_layer_count(seed: int) -> int:
+    rng = np.random.default_rng(seed)
+    for _ in range(1000):
+        k = int(rng.poisson(_RANDOM_LAYERS_LAM))
+        if _RANDOM_LAYERS_MIN <= k <= MAX_LAYERS:
+            return k
+    raise RuntimeError("truncated Poisson failed to sample a layer count")
 
 
 # ----------------------------------------------------------------------------
@@ -190,6 +212,12 @@ def generate_ensemble(
     slots_by_replica: List[List[int]] = [[] for _ in range(N)]
     thick_by_replica: List[List[int]] = [[] for _ in range(N)]
     done = np.zeros(N, dtype=bool)
+    if cfg.proposer not in ("model", "random"):
+        raise ValueError(f"proposer must be 'model' or 'random', got {cfg.proposer!r}")
+    random_proposer = cfg.proposer == "random"
+    # Offset seed so the layer count is not correlated with the token draws.
+    target_len = ([_random_layer_count(_replica_seed(cfg.base_seed, r) + 7919)
+                   for r in range(N)] if random_proposer else None)
 
     # Sim-feedback plumbing (Sept 14). Optional: matches the finetune
     # training path so the model gets its residual signal at inference.
@@ -264,9 +292,11 @@ def generate_ensemble(
                 residual_labs_all[r, step] = torch.from_numpy(residual_norm).to(device)
 
         # Run model in chunks if requested, otherwise the whole N at once.
-        all_step_logits = torch.empty((N, VOCAB_SIZE),
-                                      dtype=torch.float32, device=device)
-        for chunk_lo, chunk_hi in chunks:
+        # The random proposer needs no forward pass: flat logits make every
+        # allowed token equally likely.
+        all_step_logits = (torch.zeros if random_proposer else torch.empty)(
+            (N, VOCAB_SIZE), dtype=torch.float32, device=device)
+        for chunk_lo, chunk_hi in ([] if random_proposer else chunks):
             cs = chunk_hi - chunk_lo
             model_kwargs = dict(
                 lab=lab_one.expand(cs, -1),
@@ -313,6 +343,15 @@ def generate_ensemble(
                 lo = prev_slot * NUM_THICKNESSES
                 hi = lo + NUM_THICKNESSES
                 allowed[lo:hi] = False
+
+            if random_proposer:
+                # Stop at the drawn layer count, never before it.
+                if step >= target_len[r]:
+                    allowed = np.zeros_like(allowed)
+                    allowed[EOS_TOKEN] = True
+                elif allowed[:EOS_TOKEN].any():
+                    allowed = allowed.copy()
+                    allowed[EOS_TOKEN] = False
 
             row = step_logits[r].copy()
 

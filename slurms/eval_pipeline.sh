@@ -30,6 +30,8 @@ set -euo pipefail
 #   ENSEMBLE_N=16     sample 16 stacks per target at TEMPERATURE=1.0
 #   REFINE_ITERS=5    a very short thickness refinement on the best one
 #   top-k 1, no Monte-Carlo robustness, tolerance 0
+#   PROPOSER=model    'random' swaps the model for the no-model baseline
+#                     (same search); give it its own PIPE_DIR
 #
 # Small N on purpose: at N=200 the ensemble was nearly model-agnostic
 # (CLAUDE.md, Sept 15), which would flatten exactly the differences between
@@ -133,5 +135,5 @@ python -u inference/scripts/test_eval.py \
     --limit "${LIMIT:-500}" --offset "${ROW_OFFSET:-0}" --plot-examples 0 \
     --ensemble-n "${ENSEMBLE_N:-16}" --temperature "${TEMPERATURE:-1.0}" \
     --tolerance 0 --top-k 1 --refine-iters "${REFINE_ITERS:-5}" \
-    --mc-samples 0 --seed 42 \
+    --mc-samples 0 --seed 42 --proposer "${PROPOSER:-model}" \
     --output-dir "${OUT}"

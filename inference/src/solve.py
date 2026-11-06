@@ -68,6 +68,7 @@ def solve(
     device: Optional[torch.device] = None,
     on_progress=None,
     sim_feedback: bool = False,
+    proposer: str = "model",
 ) -> Result:
     """Run the full inference pipeline. Returns a Result either way:
     success → `chosen` populated; failure → `chosen=None`, `errors[...]`."""
@@ -99,6 +100,7 @@ def solve(
         base_seed=knobs.seed,
         sim_feedback=sim_feedback,
         incidence_angle=incidence_angle,
+        proposer=proposer,
     )
     try:
         candidates, ens_stats = generate_ensemble(
