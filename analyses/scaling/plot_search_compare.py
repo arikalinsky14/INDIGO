@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -220,8 +221,13 @@ def main() -> None:
     p.add_argument("--test", nargs="+", default=None,
                    help="test_eval output folders, smallest search first; the "
                         "CDF figure uses the first two, the swatch figure all")
-    p.add_argument("--labels", nargs="+", default=["light (16, 5 steps)", "mid (50, 20 steps)",
-                                                   "high (250, 40 steps)"])
+    # Labels with spaces also come from the environment, '|'-separated: CRC's
+    # sbatch splits quoted arguments at their spaces (Oct 27).
+    env_labels = os.environ.get("SEARCH_LABELS")
+    p.add_argument("--labels", nargs="+",
+                   default=env_labels.split("|") if env_labels else
+                   ["light (16, 5 steps)", "mid (50, 20 steps)", "high (250, 40 steps)"],
+                   help="one per run, smallest search first (or SEARCH_LABELS='a|b|c')")
     p.add_argument("--out-dir", default="outputs/prod_eval/compare")
     a = p.parse_args()
     out = Path(a.out_dir)
@@ -229,8 +235,9 @@ def main() -> None:
         names = "_vs_".join(l.split(" ")[0] for l in a.labels[:len(a.gamut)])
         gamut_compare(a.gamut, a.labels, out / f"gamut_{names}.png")
     if a.test:
-        test_compare(a.test[:2], a.labels, out / "test_light_vs_mid.png")
         names = "_vs_".join(l.split(" ")[0] for l in a.labels[:len(a.test)])
+        test_compare(a.test[:2], a.labels, out / ("test_" + "_vs_".join(
+            l.split(" ")[0] for l in a.labels[:2]) + ".png"))
         test_swatch(a.test, a.labels, out / f"test_swatch_{names}.png")
 
 
