@@ -199,12 +199,13 @@ def test_compare(folders, labels, out: Path) -> None:
             ax.set_ylabel(f"ΔE₀₀, {labels[1]}", color=INK2, fontsize=9)
     med = [np.median(np.concatenate([list(data[t][k].values()) for t, _ in tiers]))
            for k in range(2)]
-    fig.suptitle(f"Test rows: the {labels[1].split(' ')[0]} search cuts the median "
-                 f"ΔE₀₀ from {med[0]:.2f} to {med[1]:.2f}",
+    n_rows = max(len(data[t][0]) for t, _ in tiers)
+    fig.suptitle(f"Test rows: median ΔE₀₀ {med[0]:.2f} with {labels[0].split(' ')[0]}, "
+                 f"{med[1]:.2f} with {labels[1].split(' ')[0]}",
                  fontsize=14, color=INK, x=0.01, ha="left", y=1.0)
-    fig.text(0.01, 0.962, "Same model, same 500 rows per tier, same seed. Top: share "
-             "of rows at or under each ΔE₀₀. Bottom: each row under both searches; "
-             "below the dashed line is better with the larger search.",
+    fig.text(0.01, 0.962, f"Same {n_rows} rows per tier, same seed. Top: share "
+             "of rows at or under each ΔE₀₀. Bottom: each row under both; "
+             f"below the dashed line is better with {labels[1].split(' ')[0]}.",
              fontsize=9, color=INK2, ha="left")
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     out.parent.mkdir(parents=True, exist_ok=True)
