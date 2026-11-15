@@ -18,18 +18,19 @@
 # and analyses/*/results/ (already tracked) is added in place. Only result
 # types are copied (json, csv, png, pdf, txt, md, docx), each at most
 # MAX_FILE_MB (default 10); weights/ folders, *.pt and *.parquet never are.
-# Safe to re-run: unchanged files are not recopied, and nothing is deleted
+# Needs only bash, find and cp. Safe to re-run: unchanged files are not recopied, and nothing is deleted
 # from results/ when a source file goes away.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 MAX_FILE_MB="${MAX_FILE_MB:-10}"
 MAX_TOTAL_MB="${MAX_TOTAL_MB:-300}"
-PATTERNS=(--include='*/' --include='*.json' --include='*.csv' --include='*.png'
-          --include='*.pdf' --include='*.txt' --include='*.md' --include='*.docx'
-          --exclude='*')
-SKIP=(--exclude='weights/' --exclude='*.pt' --exclude='*.parquet' --exclude='cache/'
-      --exclude='.*.tmp/')
+MAX_KB=$(( MAX_FILE_MB * 1024 ))
+# Plain find + cp (CRC's login nodes have no rsync). -L follows symlinks, so
+# production/current is copied as the version folder's files.
+TYPES=( \( -name '*.json' -o -name '*.csv' -o -name '*.png' -o -name '*.pdf'
+        -o -name '*.txt' -o -name '*.md' -o -name '*.docx' \) )
+PRUNE=( \( -name weights -o -name cache -o -name '.*.tmp' \) -prune )
 
 pairs=(
   "outputs/prod_eval/:results/prod_eval/"
@@ -39,9 +40,7 @@ pairs=(
   "data/checkpoints/production/:results/production/"
 )
 
-RSYNC=(rsync -a --prune-empty-dirs --max-size="${MAX_FILE_MB}m" "${SKIP[@]}" "${PATTERNS[@]}")
-[[ "${DRY_RUN:-0}" == "1" ]] && RSYNC+=(--dry-run --out-format='  %n (%l bytes)')
-
+n_copy=0
 for pair in "${pairs[@]}"; do
     src="${pair%%:*}"; dst="${pair##*:}"
     if [[ ! -d "${src}" ]]; then
@@ -49,23 +48,32 @@ for pair in "${pairs[@]}"; do
         continue
     fi
     echo "[sync] ${src} -> ${dst}"
-    mkdir -p "${dst}"
-    # -L follows production/current and copies the version folder's files.
-    "${RSYNC[@]}" -L "${src}" "${dst}"
+    while IFS= read -r -d '' f; do
+        rel="${f#"${src}"}"
+        out="${dst}${rel}"
+        # Copy only what is new or changed since the last sync.
+        if [[ -e "${out}" && ! "${f}" -nt "${out}" ]] && cmp -s "${f}" "${out}"; then
+            continue
+        fi
+        n_copy=$(( n_copy + 1 ))
+        if [[ "${DRY_RUN:-0}" == "1" ]]; then
+            echo "  ${rel} ($(stat -L -c %s "${f}") bytes)"
+        else
+            mkdir -p "$(dirname "${out}")"
+            cp -pL "${f}" "${out}"
+        fi
+    done < <(find -L "${src}" -mindepth 1 -type d "${PRUNE[@]}" -o -type f "${TYPES[@]}" \
+                 -size -"${MAX_KB}"k -print0)
+    # Result files over the cap are skipped; say which, so none goes missing silently.
+    find -L "${src}" -mindepth 1 -type d "${PRUNE[@]}" -o -type f "${TYPES[@]}" \
+        -size +"$(( MAX_KB - 1 ))"k -printf "[not copied, over ${MAX_FILE_MB} MB] %p\n"
 done
 
 if [[ "${DRY_RUN:-0}" == "1" ]]; then
-    echo "[dry run] nothing copied or committed."
+    echo "[dry run] ${n_copy} file(s) would be copied; nothing copied or committed."
     exit 0
 fi
-
-# Files over the cap were skipped by rsync; say which, so nothing goes missing silently.
-for pair in "${pairs[@]}"; do
-    src="${pair%%:*}"
-    [[ -d "${src}" ]] && find -L "${src}" -type f -size +"${MAX_FILE_MB}"M \
-        \( -name '*.json' -o -name '*.csv' -o -name '*.png' -o -name '*.pdf' \) \
-        -not -path '*/weights/*' -printf "[not copied, over ${MAX_FILE_MB} MB] %p\n" || true
-done
+echo "[sync] ${n_copy} file(s) copied"
 
 TOTAL_MB=$(du -sm results | cut -f1)
 echo "[size] results/ is ${TOTAL_MB} MB"
