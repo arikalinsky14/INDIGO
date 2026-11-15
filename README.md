@@ -41,6 +41,19 @@ Built with Python, PyTorch, JAX (optical simulation), FastAPI (web interface), a
 - Hyperparameter and scaling work: [LR tuning](#lr-tuning-recommended-commands) and [Compute-optimal scaling study](#compute-optimal-scaling-study).
 - Inference and the web app: [`inference/`](inference/) and [`huggingface_space/DEPLOY.md`](huggingface_space/DEPLOY.md).
 
+### Production model
+
+**Use `data/checkpoints/production/current`** (on CRC, beside the other checkpoints; weights are not in git). It is the default `CHECKPOINT` of `slurms/gamut_eval.sh`, `slurms/test_eval.sh` and `slurms/inference.sh`.
+
+- **What it is:** d352/se6, 11.3M parameters, one pass over 40M examples at learning rate 3.1e-4 (Oct 2026). The size comes from the scaling study's cross-entropy fit; the rate is the highest that did not diverge, which was also the best rate on the search pipeline's ΔE00 (scored on dev rows 500 to 999 of each test tier).
+- **Where it came from:** `current/PRODUCTION.json` names the training run it was copied from, the rule that chose it, its metrics and the sha256 of `model.pt`. Its first 16 characters are the `model_sha256` every eval output records.
+- **Retraining:** a learning-rate curve at an explicit example count promotes its own winner when its grid is complete (a rate diverged and the step below it finished):
+  ```bash
+  STAGE=lrcurve CURVES="d352/se6@D=39960000=1.94e-5" CURVE_DOWN=2 CURVE_UP=5 bash slurms/lr_grid.sh --list
+  # then submit the array it prints, with the same variables
+  ```
+- **Promoting by hand:** `python scripts/promote_production.py --weights <weights dir>`. Each promotion adds a folder and moves `current`; nothing is overwritten.
+
 ---
 
 ## Developer guide

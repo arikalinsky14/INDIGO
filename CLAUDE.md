@@ -26,6 +26,21 @@ adjacent goes on `finetune-experiment`.
 
 ---
 
+## Production model (Nov 15, 2026)
+
+**`data/checkpoints/production/current`** on CRC: d352/se6, 11.3M parameters,
+one pass over 40M examples, learning rate 3.104e-4 (the highest that did not
+diverge). It is a copy of
+`outputs/lr_curves/cross_attn/weights/ep1_lim39959808_d352_se6_bs256_b20.999_r5/lr3.104000e-04`,
+which stays where it is so every recorded path holds; `PRODUCTION.json` beside
+the weights says so, with the sha256. `scripts/promote_production.py` makes
+the copy, and `slurms/lr_grid.sh` calls it after every `STAGE=lrcurve` task on
+an explicit-D cell (`CURVES="d352/se6@D=..."`), so a retrain promotes its own
+winner once its grid is complete. The eval scripts default to `current`. Paper
+write-up is in progress; the no-model baseline is `PROPOSER=random`.
+
+---
+
 ## ⚠️ CURRENT WORK — Oct 1, 2026 — compute-optimal scaling study
 
 The live line of work on `main`. A 48-run IsoFLOP sweep is **finished and

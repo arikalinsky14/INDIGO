@@ -645,6 +645,25 @@ if [[ "${CELL_PART}" != "-" ]]; then
         --out-dir "${OUTPUT_DIR}"
 fi
 
+# The production model: an lrcurve cell at an explicit example count
+# (CURVES="d352/se6@D=39960000=..."), which only a production run uses. Once
+# its grid can be judged (a rate diverged and the step just below it has
+# finished), the highest stable rate is copied to
+# data/checkpoints/production/<version>/ and `current` points at it. Every
+# task asks; the one that completes the grid promotes. PROMOTE=0 skips it,
+# PROMOTE=1 forces the check for any lrcurve cell.
+PROMOTE_DEFAULT=0
+[[ "${STAGE}" == "lrcurve" && "${CURVES:-}" == *"@D="* ]] && PROMOTE_DEFAULT=1
+if [[ "${PROMOTE:-${PROMOTE_DEFAULT}}" == "1" && -n "${SAVE_WEIGHTS_DIR:-}" ]]; then
+    CELL_TAG="ep${EPOCHS}_lim${LIMIT_EXAMPLES}_d${D_MODEL}_se${SLOT_ENCODER_LAYERS}"
+    CELL_TAG+="_bs${BATCH_SIZE}_b2$(python3 -c 'import sys; print(f"{float(sys.argv[1]):g}")' "${BETA2}")"
+    [[ "${LR_SCHEDULE}" != "cosine" ]] && CELL_TAG+="_${LR_SCHEDULE}"
+    [[ "${SEED}" != "42" ]] && CELL_TAG+="_s${SEED}"
+    python3 scripts/promote_production.py --weights-root "${SAVE_WEIGHTS_DIR}" \
+        --cell "${CELL_TAG}" --dest "${PRODUCTION_DIR:-data/checkpoints/production}" \
+        || echo "[WARN] promote_production.py failed; the weights are still in ${SAVE_WEIGHTS_DIR}"
+fi
+
 echo "[INFO] STAGE ${STAGE} task ${TASK} done."
 if [[ "${STAGE}" == "3" ]]; then
     echo "  Once stage 3 has landed, assemble and fit the final IsoFLOP:"

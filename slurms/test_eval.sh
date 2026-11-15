@@ -74,7 +74,8 @@ echo
 # ============================================================================
 
 # REQUIRED — checkpoint to evaluate.
-CHECKPOINT="${CHECKPOINT:-}"
+# Default: the production model (scripts/promote_production.py keeps it there).
+CHECKPOINT="${CHECKPOINT:-data/checkpoints/production/current}"
 
 # Test data + output roots.
 TEST_DIR="${TEST_DIR:-data/test}"
@@ -112,6 +113,12 @@ USER_ARGS=("$@")
 if [[ -z "${CHECKPOINT}" ]]; then
   echo "[ERROR] CHECKPOINT env var is required." >&2
   echo "        Example: CHECKPOINT=data/checkpoints/<tag>/latest" >&2
+  exit 2
+fi
+if [[ ! -e "${CHECKPOINT}" ]]; then
+  echo "[ERROR] no checkpoint at ${CHECKPOINT} (from $(pwd))." >&2
+  echo "        The production model lives at data/checkpoints/production/current;" >&2
+  echo "        if that is missing, see README.md, 'Production model'." >&2
   exit 2
 fi
 

@@ -64,7 +64,8 @@ echo
 # ============================================================================
 
 # REQUIRED — the model to use.
-CHECKPOINT="${CHECKPOINT:-}"
+# Default: the production model (scripts/promote_production.py keeps it there).
+CHECKPOINT="${CHECKPOINT:-data/checkpoints/production/current}"
 
 # REQUIRED — exactly one of:
 #   TARGET_LAB: three space-separated Lab values, e.g. "60 5 -8"
@@ -115,6 +116,12 @@ USER_ARGS=("$@")
 if [[ -z "${CHECKPOINT}" ]]; then
   echo "[ERROR] CHECKPOINT env var is required." >&2
   echo "        Example: CHECKPOINT=data/checkpoints/flex_..._cross_attn.../latest" >&2
+  exit 2
+fi
+if [[ ! -e "${CHECKPOINT}" ]]; then
+  echo "[ERROR] no checkpoint at ${CHECKPOINT} (from $(pwd))." >&2
+  echo "        The production model lives at data/checkpoints/production/current;" >&2
+  echo "        if that is missing, see README.md, 'Production model'." >&2
   exit 2
 fi
 if [[ -z "${TARGET_LAB}" && -z "${PROMPT}" ]]; then
