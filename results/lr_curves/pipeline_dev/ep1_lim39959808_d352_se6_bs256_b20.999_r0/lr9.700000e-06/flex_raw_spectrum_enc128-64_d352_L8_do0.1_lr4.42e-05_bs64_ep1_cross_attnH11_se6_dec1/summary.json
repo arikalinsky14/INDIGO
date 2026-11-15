@@ -1,0 +1,57 @@
+{
+  "checkpoint": "outputs/lr_curves/cross_attn/weights/ep1_lim39959808_d352_se6_bs256_b20.999_r0/lr9.700000e-06",
+  "checkpoint_tag": "flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1",
+  "checkpoint_sha256": "5f8d60d5d54e7276",
+  "tiers": {
+    "tier_a": {
+      "n_attempted": 500,
+      "n_succeeded": 500,
+      "n_failed": 0,
+      "delta_e": {
+        "mean": 4.542344866141283,
+        "median": 3.2123538926501234,
+        "std": 7.792887784402667,
+        "p25": 1.0426979722905458,
+        "p75": 5.625913589402874,
+        "p95": 10.763839409196281,
+        "min": 0.00013959698633503383,
+        "max": 109.21996815355392
+      },
+      "buckets": {
+        "<1.0": {
+          "count": 120,
+          "fraction": 0.24
+        },
+        "<2.0": {
+          "count": 181,
+          "fraction": 0.362
+        },
+        "<5.0": {
+          "count": 347,
+          "fraction": 0.694
+        },
+        "<10.0": {
+          "count": 466,
+          "fraction": 0.932
+        }
+      },
+      "tier": "a",
+      "model_tag": "flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1",
+      "model_sha256": "5f8d60d5d54e7276",
+      "runtime_seconds": 1549.7460157871246,
+      "rows_per_second": 0.32263351214105057,
+      "args": {
+        "ensemble_n": 16,
+        "temperature": 1.0,
+        "tolerance": 0.0,
+        "weight_lambda": 1.0,
+        "top_k": 1,
+        "refine_iters": 5,
+        "offset": 500,
+        "mc_samples": 0,
+        "plot_examples": 0,
+        "seed": 42
+      }
+    }
+  }
+}

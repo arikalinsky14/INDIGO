@@ -1,0 +1,18 @@
+{
+  "feature_mode": "raw_spectrum",
+  "encoder_hidden": 128,
+  "encoder_out": 64,
+  "encoder_dropout": 0.1,
+  "d_model": 352,
+  "n_layers": 8,
+  "dropout": 0.1,
+  "head_mode": "cross_attn",
+  "n_heads": 11,
+  "slot_encoder_layers": 6,
+  "decoder_layers": 1,
+  "learning_rate": 4.42e-05,
+  "batch_size": 64,
+  "epochs": 1,
+  "limit_examples": null,
+  "vocab_size": 3201
+}

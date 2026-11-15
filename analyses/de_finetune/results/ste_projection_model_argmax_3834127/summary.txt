@@ -1,0 +1,29 @@
+==============================================================================
+STE PROJECTION QUALITY — summary  (base_mode=model_argmax)
+==============================================================================
+  Verdict: MIXED
+    median Spearman 0.54, top-1 hit rate 41% → partial signal. Current STE may still help; also worth trying winning-material-only for comparison.
+
+  N (example, layer) pairs      : 2286
+  Mean pool size per example    : 18.8
+  Anchor matches GT slot        : 22.3%  (gt mode = 100%, model_argmax mode = model's slot-match rate)
+  Mean base ΔE (before swap)    : 9.60  (gt mode ~= 0; model_argmax mode = model's own greedy ΔE)
+
+  Spearman ρ (proj vs true)
+    median                       : +0.543
+    mean                         : +0.443
+    IQR                          : [+0.190, +0.777]
+
+  Top-1 hit rate (proj's #1 == true #1)
+    fraction                     : 41.2%
+  Top-3 recall (true best in proj top-3)
+    fraction                     : 60.4%
+
+  Sign-agreement per material    : mean 80.2%
+  |ΔE_proj - ΔE_true|            : mean 10.55, median 4.59
+==============================================================================
+Decision guide:
+  HOLDS  → median ρ ≥ 0.70 AND top-1 ≥ 50%  → keep current STE
+  NOISE  → median ρ < 0.30 AND top-1 < 20%  → switch to winning-only
+  MIXED  → anything in between              → likely try both
+==============================================================================

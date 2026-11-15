@@ -1,0 +1,168 @@
+{
+  "epochs": 1,
+  "seed": 42,
+  "limit_shard_aligned": true,
+  "optimal_lr": 2.031729999999999e-05,
+  "selection_metric": "delta_e",
+  "optimal_val_de": 41.16036078706807,
+  "optimal_val_de_p95": 66.22611479254208,
+  "optimal_val_de_by_chroma": {
+    "low": {
+      "n": 720,
+      "mean": 42.662116657193764,
+      "median": 41.474860631096085,
+      "p75": 52.807518170691736,
+      "p95": 65.94581529444528,
+      "max": 91.8732570368005,
+      "n_examples": 720
+    },
+    "mid": {
+      "n": 968,
+      "mean": 41.9822089405056,
+      "median": 40.61834753217035,
+      "p75": 51.45957913095765,
+      "p95": 65.60294420587744,
+      "max": 86.66950517976731,
+      "n_examples": 970
+    },
+    "high": {
+      "n": 321,
+      "mean": 43.807603339222574,
+      "median": 42.19734975296109,
+      "p75": 54.03873789652109,
+      "p95": 69.05241599549821,
+      "max": 120.62731295980893,
+      "n_examples": 358
+    }
+  },
+  "limit_de_examples": 2048,
+  "val_loss_would_pick_lr": 2.031729999999999e-05,
+  "lr_range": [
+    2.03173e-05,
+    0.01828557
+  ],
+  "n_lrs": 1,
+  "head_mode": "cross_attn",
+  "n_heads": 15,
+  "d_model": 120,
+  "n_layers": 8,
+  "slot_encoder_layers": 4,
+  "decoder_layers": 1,
+  "n_params": 1030053,
+  "batch_size": 256,
+  "beta1": 0.9,
+  "beta2": 0.99,
+  "lr_schedule": "cosine",
+  "eval_fractions": null,
+  "weight_decay": 0.01,
+  "grad_clip": 1.0,
+  "warmup_fraction": 0.02,
+  "train_examples": 614400,
+  "val_examples": 10000,
+  "limit_examples": 614400,
+  "limit_val_examples": 10000,
+  "results": [
+    {
+      "lr": 2.031729999999999e-05,
+      "epochs": 1,
+      "final_train_loss": 6.554394102891286,
+      "final_val_loss": 6.493005174399259,
+      "final_val_acc": 0.17376807524919274,
+      "best_val_loss": 6.493005174399259,
+      "best_val_epoch": 1,
+      "train_losses": [
+        6.554394102891286
+      ],
+      "val_losses": [
+        6.493005174399259
+      ],
+      "val_accs": [
+        0.17376807524919274
+      ],
+      "final_val_de": 41.16036078706807,
+      "final_val_de_p95": 66.22611479254208,
+      "final_val_de_by_chroma": {
+        "low": {
+          "n": 720,
+          "mean": 42.662116657193764,
+          "median": 41.474860631096085,
+          "p75": 52.807518170691736,
+          "p95": 65.94581529444528,
+          "max": 91.8732570368005,
+          "n_examples": 720
+        },
+        "mid": {
+          "n": 968,
+          "mean": 41.9822089405056,
+          "median": 40.61834753217035,
+          "p75": 51.45957913095765,
+          "p95": 65.60294420587744,
+          "max": 86.66950517976731,
+          "n_examples": 970
+        },
+        "high": {
+          "n": 321,
+          "mean": 43.807603339222574,
+          "median": 42.19734975296109,
+          "p75": 54.03873789652109,
+          "p95": 69.05241599549821,
+          "max": 120.62731295980893,
+          "n_examples": 358
+        }
+      },
+      "de_result": {
+        "available": true,
+        "n_evaluated": 2048,
+        "n_valid": 2009,
+        "valid_rate": 0.98095703125,
+        "eos_rate": 1.0,
+        "n_sim_failed": 0,
+        "n_scored": 2009,
+        "greedy": true,
+        "temperature": null,
+        "chroma_edges": [
+          20.0,
+          50.0
+        ],
+        "delta_e_mean": 42.517542518406856,
+        "delta_e_median": 41.16036078706807,
+        "delta_e_p75": 52.12868927521014,
+        "delta_e_p95": 66.22611479254208,
+        "delta_e_max": 120.62731295980893,
+        "by_chroma": {
+          "low": {
+            "n": 720,
+            "mean": 42.662116657193764,
+            "median": 41.474860631096085,
+            "p75": 52.807518170691736,
+            "p95": 65.94581529444528,
+            "max": 91.8732570368005,
+            "n_examples": 720
+          },
+          "mid": {
+            "n": 968,
+            "mean": 41.9822089405056,
+            "median": 40.61834753217035,
+            "p75": 51.45957913095765,
+            "p95": 65.60294420587744,
+            "max": 86.66950517976731,
+            "n_examples": 970
+          },
+          "high": {
+            "n": 321,
+            "mean": 43.807603339222574,
+            "median": 42.19734975296109,
+            "p75": 54.03873789652109,
+            "p95": 69.05241599549821,
+            "max": 120.62731295980893,
+            "n_examples": 358
+          }
+        }
+      },
+      "beta1": 0.9,
+      "beta2": 0.99,
+      "lr_schedule": "cosine",
+      "mid_run": null
+    }
+  ]
+}

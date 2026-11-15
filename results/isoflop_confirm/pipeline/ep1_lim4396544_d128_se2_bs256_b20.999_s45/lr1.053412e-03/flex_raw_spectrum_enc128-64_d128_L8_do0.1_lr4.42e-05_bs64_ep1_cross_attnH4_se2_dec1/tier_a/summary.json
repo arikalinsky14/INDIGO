@@ -1,0 +1,49 @@
+{
+  "n_attempted": 500,
+  "n_succeeded": 500,
+  "n_failed": 0,
+  "delta_e": {
+    "mean": 4.361732508452469,
+    "median": 3.3290554944730344,
+    "std": 5.590647526687113,
+    "p25": 1.398698572206877,
+    "p75": 5.231292610553916,
+    "p95": 11.737914673695641,
+    "min": 0.00017852093323808443,
+    "max": 54.78974200463829
+  },
+  "buckets": {
+    "<1.0": {
+      "count": 103,
+      "fraction": 0.206
+    },
+    "<2.0": {
+      "count": 169,
+      "fraction": 0.338
+    },
+    "<5.0": {
+      "count": 362,
+      "fraction": 0.724
+    },
+    "<10.0": {
+      "count": 459,
+      "fraction": 0.918
+    }
+  },
+  "tier": "a",
+  "model_tag": "flex_raw_spectrum_enc128-64_d128_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH4_se2_dec1",
+  "model_sha256": "9e449b1f634966af",
+  "runtime_seconds": 1651.4049563407898,
+  "rows_per_second": 0.30277249567417325,
+  "args": {
+    "ensemble_n": 16,
+    "temperature": 1.0,
+    "tolerance": 0.0,
+    "weight_lambda": 1.0,
+    "top_k": 1,
+    "refine_iters": 5,
+    "mc_samples": 0,
+    "plot_examples": 0,
+    "seed": 42
+  }
+}
