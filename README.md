@@ -52,6 +52,7 @@ Built with Python, PyTorch, JAX (optical simulation), FastAPI (web interface), a
   STAGE=lrcurve CURVES="d352/se6@D=39960000=1.94e-5" CURVE_DOWN=2 CURVE_UP=5 bash slurms/lr_grid.sh --list
   # then submit the array it prints, with the same variables
   ```
+- **Results:** final eval outputs, learning-rate curves, the scaling study's runs and the production metadata (everything except weights) are in [`results/`](results/), copied from CRC by `bash scripts/sync_results.sh`, which commits and pushes them.
 - **Promoting by hand:** `python scripts/promote_production.py --weights <weights dir>`. Each promotion adds a folder and moves `current`; nothing is overwritten.
 
 ---

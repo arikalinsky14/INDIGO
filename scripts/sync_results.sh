@@ -85,7 +85,7 @@ if git diff --cached --quiet -- results analyses; then
 fi
 git diff --cached --stat -- results analyses | tail -3
 git commit -q -m "Results from CRC ($(date +%Y-%m-%d)): eval outputs, LR curves, scaling runs, production metadata" \
-    -- results analyses
+    -- results "${ANALYSES[@]}"
 echo "[git] committed $(git rev-parse --short HEAD)"
 
 if [[ "${NO_PUSH:-0}" == "1" ]]; then
@@ -93,6 +93,10 @@ if [[ "${NO_PUSH:-0}" == "1" ]]; then
     exit 0
 fi
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-git pull -q --no-rebase origin "${BRANCH}"
-git push -q origin "${BRANCH}"
+# Take in whatever reached the branch meanwhile (a merge, never a rebase:
+# others may have the branch checked out), then push.
+if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
+    git pull -q --no-rebase --no-edit origin "${BRANCH}"
+fi
+git push -q -u origin "${BRANCH}"
 echo "[git] pushed to origin/${BRANCH}"
