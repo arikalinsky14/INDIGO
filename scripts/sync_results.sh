@@ -40,6 +40,7 @@ pairs=(
   "data/checkpoints/production/:results/production/"
 )
 
+REPO="$(pwd)"
 n_copy=0
 for pair in "${pairs[@]}"; do
     src="${pair%%:*}"; dst="${pair##*:}"
@@ -47,33 +48,36 @@ for pair in "${pairs[@]}"; do
         echo "[skip] ${src} (not here)"
         continue
     fi
-    echo "[sync] ${src} -> ${dst}"
-    while IFS= read -r -d '' f; do
-        rel="${f#"${src}"}"
-        out="${dst}${rel}"
-        # Copy only what is new or changed since the last sync.
-        if [[ -e "${out}" && ! "${f}" -nt "${out}" ]] && cmp -s "${f}" "${out}"; then
-            continue
-        fi
-        n_copy=$(( n_copy + 1 ))
-        if [[ "${DRY_RUN:-0}" == "1" ]]; then
-            echo "  ${rel} ($(stat -L -c %s "${f}") bytes)"
-        else
-            mkdir -p "$(dirname "${out}")"
-            cp -pL "${f}" "${out}"
-        fi
-    done < <(find -L "${src}" -mindepth 1 -type d "${PRUNE[@]}" -o -type f "${TYPES[@]}" \
-                 -size -"${MAX_KB}"k -print0)
+    t0=$SECONDS
+    # One find, then cp in batches (xargs): a process per file is slow on /ix1.
+    # cp -u copies only files that are new or newer than the copy already in
+    # results/, and -p keeps the source's mtime so the next run can tell.
+    list="$(mktemp)"
+    (cd "${src}" && find -L . -mindepth 1 -type d "${PRUNE[@]}" -o -type f "${TYPES[@]}" \
+        -size -"${MAX_KB}"k -print0) > "${list}"
+    n_found=$(tr -cd '\0' < "${list}" | wc -c)
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        echo "[sync] ${src} -> ${dst}: ${n_found} result file(s) found"
+        tr '\0' '\n' < "${list}" | head -5 | sed 's/^/    /'
+        (( n_found > 5 )) && echo "    ..."
+    else
+        mkdir -p "${dst}"
+        n=$( (cd "${src}" && xargs -0 -r cp -pLuv --parents -t "${REPO}/${dst}" < "${list}") \
+             | grep -cE "\.(json|csv|png|pdf|txt|md|docx)' -> " || true)
+        n_copy=$(( n_copy + n ))
+        echo "[sync] ${src} -> ${dst}: ${n} of ${n_found} copied ($(( SECONDS - t0 )) s)"
+    fi
+    rm -f "${list}"
     # Result files over the cap are skipped; say which, so none goes missing silently.
     find -L "${src}" -mindepth 1 -type d "${PRUNE[@]}" -o -type f "${TYPES[@]}" \
-        -size +"$(( MAX_KB - 1 ))"k -printf "[not copied, over ${MAX_FILE_MB} MB] %p\n"
+        -size +"$(( MAX_KB - 1 ))"k -printf "    [not copied, over ${MAX_FILE_MB} MB] %p\n"
 done
 
 if [[ "${DRY_RUN:-0}" == "1" ]]; then
-    echo "[dry run] ${n_copy} file(s) would be copied; nothing copied or committed."
+    echo "[dry run] nothing copied or committed."
     exit 0
 fi
-echo "[sync] ${n_copy} file(s) copied"
+echo "[sync] ${n_copy} file(s) copied in total"
 
 TOTAL_MB=$(du -sm results | cut -f1)
 echo "[size] results/ is ${TOTAL_MB} MB"
