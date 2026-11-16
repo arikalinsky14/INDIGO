@@ -1,0 +1,187 @@
+{
+  "structures": [
+    {
+      "structure": "Cr replacement design (theirs)",
+      "materials": [
+        "HfO2",
+        "W",
+        "Ge",
+        "SiO2",
+        "Zn"
+      ],
+      "thickness_nm": [
+        105.0,
+        15.0,
+        10.0,
+        83.0,
+        100.0
+      ],
+      "max_abs_dnk_interp": 0.11453780133936775,
+      "max_abs_dR_tmm_only": 9.992007221626409e-16,
+      "max_abs_dR_geometry": 6.744064056096732e-07,
+      "dE_geometry": 2.9450281290380322e-05,
+      "dE_colour_pipeline": 0.4666184156517136,
+      "max_abs_dR_end_to_end": 0.009350402073704411,
+      "lab_theirs": [
+        84.84046935501607,
+        0.316869815065457,
+        -3.303508999058846
+      ],
+      "lab_ours": [
+        84.9626894737621,
+        -0.28632386990357084,
+        -2.9988396940344497
+      ],
+      "dE_end_to_end": 0.9173825379242735
+    },
+    {
+      "structure": "Cr reference, 5 x 20 nm",
+      "materials": [
+        "Cr",
+        "Cr",
+        "Cr",
+        "Cr",
+        "Cr"
+      ],
+      "thickness_nm": [
+        20.0,
+        20.0,
+        20.0,
+        20.0,
+        20.0
+      ],
+      "max_abs_dnk_interp": 0.01233152529209665,
+      "max_abs_dR_tmm_only": 8.881784197001252e-16,
+      "max_abs_dR_geometry": 0.00024707165700454947,
+      "dE_geometry": 0.005787567994749858,
+      "dE_colour_pipeline": 0.47020595123143394,
+      "max_abs_dR_end_to_end": 0.0006953071049438098,
+      "lab_theirs": [
+        84.96137355855383,
+        -0.2466278299501634,
+        -3.4272045138230567
+      ],
+      "lab_ours": [
+        84.96543021359952,
+        -0.2444012682694119,
+        -3.367210982237956
+      ],
+      "dE_end_to_end": 0.05215967204023163
+    },
+    {
+      "structure": "random template 0",
+      "materials": [
+        "Ta2O5",
+        "Zn",
+        "Ni",
+        "ZnS",
+        "Ge"
+      ],
+      "thickness_nm": [
+        9.0,
+        13.0,
+        14.0,
+        154.0,
+        100.0
+      ],
+      "max_abs_dnk_interp": 0.00599611859141987,
+      "max_abs_dR_tmm_only": 1.1102230246251565e-15,
+      "max_abs_dR_geometry": 0.005494588558560665,
+      "dE_geometry": 0.02789185267274387,
+      "dE_colour_pipeline": 0.477228409842142,
+      "max_abs_dR_end_to_end": 0.005234069992013812,
+      "lab_theirs": [
+        87.89519820776356,
+        1.8551273347662822,
+        10.466858527705568
+      ],
+      "lab_ours": [
+        87.88255480636225,
+        1.8778614324816423,
+        10.491778474509461
+      ],
+      "dE_end_to_end": 0.03339352436646845
+    },
+    {
+      "structure": "random template 1",
+      "materials": [
+        "TiO2",
+        "Cu",
+        "Cr",
+        "Fe2O3",
+        "Zn"
+      ],
+      "thickness_nm": [
+        234.0,
+        13.0,
+        5.0,
+        215.0,
+        100.0
+      ],
+      "max_abs_dnk_interp": 0.01233152529209665,
+      "max_abs_dR_tmm_only": 1.1102230246251565e-15,
+      "max_abs_dR_geometry": 5.298175919210557e-06,
+      "dE_geometry": 9.69006564370848e-05,
+      "dE_colour_pipeline": 0.16906982459706768,
+      "max_abs_dR_end_to_end": 0.002957124192994681,
+      "lab_theirs": [
+        77.88442940320262,
+        -45.87132092268226,
+        45.01308664897714
+      ],
+      "lab_ours": [
+        77.88986132966649,
+        -45.8456065422122,
+        45.09573181665634
+      ],
+      "dE_end_to_end": 0.03527612265794213
+    },
+    {
+      "structure": "random template 2",
+      "materials": [
+        "ZnO",
+        "Cu",
+        "Cu",
+        "TiO2",
+        "Au"
+      ],
+      "thickness_nm": [
+        216.0,
+        10.0,
+        8.0,
+        109.0,
+        100.0
+      ],
+      "max_abs_dnk_interp": 9.185207646777177e-05,
+      "max_abs_dR_tmm_only": 1.5543122344752192e-15,
+      "max_abs_dR_geometry": 0.004881769503294553,
+      "dE_geometry": 0.19516133883669187,
+      "dE_colour_pipeline": 0.1183003850786881,
+      "max_abs_dR_end_to_end": 0.005546018140240805,
+      "lab_theirs": [
+        88.73503637778073,
+        -5.3784796833037944,
+        27.577593746773776
+      ],
+      "lab_ours": [
+        88.61565720771564,
+        -5.5546718077998385,
+        27.325494769815762
+      ],
+      "dE_end_to_end": 0.217429774073227
+    }
+  ],
+  "max": {
+    "max_abs_dnk_interp": 0.11453780133936775,
+    "max_abs_dR_tmm_only": 1.5543122344752192e-15,
+    "max_abs_dR_geometry": 0.005494588558560665,
+    "dE_geometry": 0.19516133883669187,
+    "dE_colour_pipeline": 0.477228409842142,
+    "max_abs_dR_end_to_end": 0.009350402073704411,
+    "dE_end_to_end": 0.9173825379242735
+  },
+  "notes": {
+    "theirs": "air / layers / glass n=1.5 5 um incoherent / air; 5th layer incoherent (their inc_list); 400-700 nm, 10 nm; colour-science sd_to_XYZ D65 2 deg; n,k quadratic",
+    "ours": "air / layers / fused silica (Sellmeier) semi-infinite, coherent; 128 points 300-900 nm uniform in frequency; Lab via jaxlayerlumos 360-830 nm; n,k linear (src/material_features.py)"
+  }
+}

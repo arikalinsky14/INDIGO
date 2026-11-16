@@ -38,6 +38,7 @@ pairs=(
   "outputs/lr_search/:results/lr_search/"
   "outputs/isoflop_confirm/cross_attn/:results/isoflop_confirm/"
   "outputs/paper/:results/paper_runs/"
+  "outputs/neutron/:results/neutron_runs/"
   "data/checkpoints/production/:results/production/"
 )
 
