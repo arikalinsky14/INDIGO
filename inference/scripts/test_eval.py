@@ -65,7 +65,7 @@ from inference.src.generate import load_inference_model
 from inference.src.schema import (
     InferenceKnobs, InferenceSpec, MaterialEntry,
 )
-from inference.src.constraints import LayerCount
+from inference.src.constraints import LayerCount, LayerIdentity, ThicknessRange
 from inference.src.solve import solve
 from inference.src.visualize import render_result
 
@@ -84,8 +84,19 @@ def _materialnk_to_entry(m) -> MaterialEntry:
     )
 
 
+def _constraint_from_dict(d: Dict[str, Any]):
+    """A per-row constraint from --row-constraints. Only the kinds a benchmark
+    task needs: a fixed material at a layer, and a thickness range."""
+    if d["kind"] == "layer_identity":
+        return LayerIdentity(position=int(d["position"]), material_name=str(d["material"]))
+    if d["kind"] == "thickness_range":
+        return ThicknessRange(min_nm=int(d["min_nm"]), max_nm=int(d["max_nm"]),
+                              position=d.get("position"))
+    raise ValueError(f"unsupported row constraint kind {d['kind']!r}")
+
+
 def _row_to_inputs(ex, base_seed: int, row_idx: int, knobs_template: InferenceKnobs,
-                   layer_count: int = 0) -> tuple:
+                   layer_count: int = 0, extra_constraints=()) -> tuple:
     """Returns (pool, spec) ready to hand to solve(). layer_count > 0 fixes
     the number of layers exactly (a LayerCount constraint, enforced while
     decoding)."""
@@ -106,7 +117,7 @@ def _row_to_inputs(ex, base_seed: int, row_idx: int, knobs_template: InferenceKn
         seed=base_seed + row_idx,
     )
     constraints = ([LayerCount(min_layers=layer_count, max_layers=layer_count)]
-                   if layer_count > 0 else [])
+                   if layer_count > 0 else []) + list(extra_constraints)
     spec = InferenceSpec(
         target_lab_raw=target_lab_raw,
         target_lab_normalised=target_lab_norm,
@@ -116,7 +127,9 @@ def _row_to_inputs(ex, base_seed: int, row_idx: int, knobs_template: InferenceKn
         knobs=knobs,
         parsed_disclaimer=("test_eval: full pool from test row, "
                            + (f"exactly {layer_count} layers" if layer_count > 0
-                              else "no constraints")),
+                              else "free layer count")
+                           + (f", {len(extra_constraints)} row constraints"
+                              if extra_constraints else "")),
     )
     return pool, spec
 
@@ -200,6 +213,8 @@ def evaluate_tier(
     )
 
     rows: List[Dict[str, Any]] = []
+    row_constraints = (json.load(open(args.row_constraints))["rows"]
+                       if args.row_constraints else None)
     t_start = time.time()
     next_log = max(args.log_every, 1)
     # Rows [offset, offset + limit). Row seeds use the absolute index, so a
@@ -207,8 +222,20 @@ def evaluate_tier(
     for row_idx, ex in enumerate(itertools.islice(dataset, args.offset,
                                                   args.offset + args.limit),
                                  start=args.offset):
+        extra = []
+        if row_constraints is not None:
+            entry = row_constraints.get(str(row_idx))
+            if entry is None:
+                raise SystemExit(f"--row-constraints has no entry for row {row_idx}")
+            # The file names each row by its target: a different row order
+            # would otherwise pair a row with another row's constraints.
+            lab = denormalize_lab(ex.lab)
+            if np.max(np.abs(np.asarray(entry["lab"], float) - np.asarray(lab, float))) > 1e-3:
+                raise SystemExit(f"row {row_idx}: target Lab {list(lab)} does not match "
+                                 f"--row-constraints ({entry['lab']}); row order differs")
+            extra = [_constraint_from_dict(c) for c in entry["constraints"]]
         pool, spec = _row_to_inputs(ex, args.seed, row_idx, knobs_template,
-                                    layer_count=args.layer_count)
+                                    layer_count=args.layer_count, extra_constraints=extra)
         t_row = time.time()
 
         try:
@@ -303,6 +330,7 @@ def evaluate_tier(
             "seed": args.seed,
             "proposer": args.proposer,
             "layer_count": args.layer_count,
+            "row_constraints": args.row_constraints,
             "split": args.split,
         },
     })
@@ -376,6 +404,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--layer-count", type=int, default=0,
                    help="fix the number of layers exactly (LayerCount "
                         "constraint, enforced while decoding); 0 = free")
+    p.add_argument("--row-constraints", default=None,
+                   help="JSON {'rows': {row_idx: {'lab': [L,a,b], 'constraints': "
+                        "[...]}}}: per-row constraints (fixed material per layer, "
+                        "thickness ranges), e.g. a benchmark's own task. Each entry's "
+                        "Lab must match its row's target")
     p.add_argument("--split", choices=("train", "all"), default="train",
                    help="dataset split to read. 'train' (the historical "
                         "default) leaves out the last 0.05%% of a shuffled "
