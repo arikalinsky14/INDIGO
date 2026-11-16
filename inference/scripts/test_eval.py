@@ -65,6 +65,7 @@ from inference.src.generate import load_inference_model
 from inference.src.schema import (
     InferenceKnobs, InferenceSpec, MaterialEntry,
 )
+from inference.src.constraints import LayerCount
 from inference.src.solve import solve
 from inference.src.visualize import render_result
 
@@ -83,9 +84,11 @@ def _materialnk_to_entry(m) -> MaterialEntry:
     )
 
 
-def _row_to_inputs(ex, base_seed: int, row_idx: int, knobs_template: InferenceKnobs
-                   ) -> tuple:
-    """Returns (pool, spec) ready to hand to solve()."""
+def _row_to_inputs(ex, base_seed: int, row_idx: int, knobs_template: InferenceKnobs,
+                   layer_count: int = 0) -> tuple:
+    """Returns (pool, spec) ready to hand to solve(). layer_count > 0 fixes
+    the number of layers exactly (a LayerCount constraint, enforced while
+    decoding)."""
     pool = [_materialnk_to_entry(m) for m in ex.pool]
     target_lab_raw = tuple(denormalize_lab(ex.lab))
     target_lab_norm = tuple(float(x) for x in ex.lab.tolist())
@@ -102,14 +105,18 @@ def _row_to_inputs(ex, base_seed: int, row_idx: int, knobs_template: InferenceKn
         mc_samples=knobs_template.mc_samples,
         seed=base_seed + row_idx,
     )
+    constraints = ([LayerCount(min_layers=layer_count, max_layers=layer_count)]
+                   if layer_count > 0 else [])
     spec = InferenceSpec(
         target_lab_raw=target_lab_raw,
         target_lab_normalised=target_lab_norm,
-        constraints=[],
-        enforce_during=[],
+        constraints=constraints,
+        enforce_during=[c.kind for c in constraints],
         enforce_post=[],
         knobs=knobs,
-        parsed_disclaimer="test_eval: no constraints, full pool from test row",
+        parsed_disclaimer=("test_eval: full pool from test row, "
+                           + (f"exactly {layer_count} layers" if layer_count > 0
+                              else "no constraints")),
     )
     return pool, spec
 
@@ -177,7 +184,7 @@ def evaluate_tier(
     examples_dir.mkdir(parents=True, exist_ok=True)
 
     dataset = FlexThinFilmDataset(
-        test_dir, seed=args.seed, split="train",
+        test_dir, seed=args.seed, split=args.split,
         verbose=False, streaming=True,
     )
 
@@ -200,7 +207,9 @@ def evaluate_tier(
     for row_idx, ex in enumerate(itertools.islice(dataset, args.offset,
                                                   args.offset + args.limit),
                                  start=args.offset):
-        pool, spec = _row_to_inputs(ex, args.seed, row_idx, knobs_template)
+        pool, spec = _row_to_inputs(ex, args.seed, row_idx, knobs_template,
+                                    layer_count=args.layer_count)
+        t_row = time.time()
 
         try:
             result = solve(
@@ -214,6 +223,9 @@ def evaluate_tier(
             # every per-chroma breakdown.
             rows.append({"row_idx": row_idx,
                          "target_lab": list(spec.target_lab_raw),
+                         "pool_names": [m.canonical_name for m in pool],
+                         "pool_sources": [m.source for m in pool],
+                         "wall_time_s": time.time() - t_row,
                          "error": f"{type(exc).__name__}: {exc}"})
             print(f"[tier_{tier_label}] row {row_idx}: solve() raised "
                   f"{type(exc).__name__}: {exc}", flush=True)
@@ -224,6 +236,11 @@ def evaluate_tier(
             "target_lab": list(spec.target_lab_raw),
             "n_pool": len(pool),
             "ground_truth_n_layers": len(ex.target_slots),
+            # The row's pool, so any later breakdown by material (held-out
+            # reals, a benchmark's pool) needs no join back to the shards.
+            "pool_names": [m.canonical_name for m in pool],
+            "pool_sources": [m.source for m in pool],
+            "wall_time_s": time.time() - t_row,
         }
         if result.chosen is None:
             rec["error"] = "; ".join(result.errors) or "no chosen candidate"
@@ -285,6 +302,8 @@ def evaluate_tier(
             "plot_examples": args.plot_examples,
             "seed": args.seed,
             "proposer": args.proposer,
+            "layer_count": args.layer_count,
+            "split": args.split,
         },
     })
 
@@ -354,6 +373,14 @@ def parse_args() -> argparse.Namespace:
                         "(training prior over layer count, uniform materials and "
                         "thicknesses); simulation, selection and refinement are "
                         "unchanged. Give it its own --output-dir.")
+    p.add_argument("--layer-count", type=int, default=0,
+                   help="fix the number of layers exactly (LayerCount "
+                        "constraint, enforced while decoding); 0 = free")
+    p.add_argument("--split", choices=("train", "all"), default="train",
+                   help="dataset split to read. 'train' (the historical "
+                        "default) leaves out the last 0.05%% of a shuffled "
+                        "order; 'all' reads every row, for small benchmark "
+                        "sets where that would drop a target")
     p.add_argument("--sim-feedback", action="store_true",
                    help="Feed per-step partial-stack sim residuals to the "
                         "model during ensemble decoding. Match to the "

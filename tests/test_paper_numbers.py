@@ -84,3 +84,87 @@ def test_refuses_chunks_with_different_settings(tmp_path):
 def test_imports_without_torch():
     src = SCRIPT.read_text()
     assert "import torch" not in src and "src.model" not in src
+
+
+def _rows_with_pools(n, held_frac_rows, rng):
+    """Tier B rows whose pools and stacks are recorded, as test_eval.py now
+    writes them. Rows i % 3 == 0: pool and stack hold Au; i % 3 == 1: pool
+    holds Au, stack does not; i % 3 == 2: no held-out real in the pool."""
+    rows = []
+    for i in range(n):
+        pool = ["perturb_small(Au)", "SiO2", "lorentz_dielectric_n1"]
+        if i % 3 != 2:
+            pool.append("Au")
+        stack = ["Au", "SiO2"] if i % 3 == 0 else ["SiO2", "perturb_small(Au)"]
+        rows.append({"row_idx": i, "target_lab": [50.0, 5.0 * (i % 8), 0.0],
+                     "pool_names": pool, "pool_sources": ["x"] * len(pool),
+                     "delta_e": float(rng.uniform(0, 4)),
+                     "layers": [{"material": m, "thickness_nm": 50.0} for m in stack]})
+    return rows
+
+
+def test_tier_b_held_out_split_and_gaps(tmp_path):
+    rng = np.random.default_rng(3)
+    for name, prop in (("m", "model"), ("r", "random")):
+        d = tmp_path / name / "ckpt" / "tier_b"
+        d.mkdir(parents=True)
+        json.dump(_rows_with_pools(200, None, rng), open(d / "rows.json", "w"))
+        json.dump({"model_sha256": "abc", "args": dict(SET, proposer=prop)},
+                  open(d / "summary.json", "w"))
+    r, out = run(tmp_path, "--run", f"INDIGO={tmp_path/'m'}", "--run", f"random={tmp_path/'r'}",
+                 "--compare", "INDIGO:random")
+    assert r.returncode == 0, r.stderr
+    h = json.load(open(out))
+    run_ = h["runs"]["INDIGO"]
+    assert run_["tiers"]["A"] == {"not_run": True} and run_["tiers"]["A+B"] == {"not_run": True}
+    g = run_["tier_b_held_out"]["groups"]
+    assert g["a_pool_has_held_out"]["n"] == 134        # i % 3 in (0, 1)
+    assert g["b_stack_uses_held_out"]["n"] == 67       # i % 3 == 0
+    assert g["c_pool_has_none"]["n"] == 66
+    assert run_["tier_b_held_out"]["untraceable_pool"] == 0
+    assert run_["folder"].endswith("/m") and run_["rows_files"]
+    gap = h["comparisons"]["INDIGO - random"]["B"]["by_chroma"]
+    assert set(gap) == {"C<8", "8<=C<30", "C>=30"}
+    assert all(c["pass_lt_2"]["lo"] <= c["pass_lt_2"]["est"] <= c["pass_lt_2"]["hi"]
+               for c in gap.values())
+
+
+def _write_shards(root, tier, pools_by_lab, manifest_flag=True):
+    import pandas as pd
+    d = root / f"tier_{tier}" / "angle_0_substrate_x"
+    d.mkdir(parents=True)
+    rows = [{"lab": json.dumps(lab), "pool_names": names, "pool_sources": ["s"] * len(names)}
+            for lab, names in pools_by_lab]
+    pd.DataFrame(rows).to_parquet(d / "shard_000000.parquet", index=False)
+    json.dump({"use_held_out_reals": manifest_flag}, open(d / "shard_000000.manifest.json", "w"))
+
+
+def test_old_rows_traced_through_shards_and_list_checked(tmp_path):
+    pytest.importorskip("pyarrow")
+    rng = np.random.default_rng(4)
+    labs = [[50.0, 3.0 * i, 1.0] for i in range(200)]
+    pools = [["Au", "lorentz_metal_1"] if i % 2 else ["perturb_large(Ge)", "interp(Au,Ge,w=0.5)"] for i in range(200)]
+    _write_shards(tmp_path / "test", "b", list(zip(labs, pools)))
+    _write_shards(tmp_path / "test", "a", [([1.0, 2.0, 3.0], ["Ag", "SiO2"])], False)
+    d = tmp_path / "old" / "ckpt" / "tier_b"
+    d.mkdir(parents=True)
+    # Old rows: no pool recorded; one row's target matches nothing.
+    rows = [{"row_idx": i, "target_lab": labs[i] if i != 7 else [99.0, 99.0, 99.0],
+             "delta_e": float(rng.uniform(0, 4)),
+             "layers": [{"material": "Au" if i % 2 else "interp(Au,Ge,w=0.5)", "thickness_nm": 9.0}]}
+            for i in range(200)]
+    json.dump(rows, open(d / "rows.json", "w"))
+    json.dump({"model_sha256": "abc", "args": SET}, open(d / "summary.json", "w"))
+    r, out = run(tmp_path, "--run", f"old={tmp_path/'old'}", "--test-dir", str(tmp_path / "test"))
+    assert r.returncode == 0, r.stderr
+    h = json.load(open(out))
+    hb = h["runs"]["old"]["tier_b_held_out"]
+    assert hb["untraceable_pool"] == 1 and hb["pool_from"]["shards"] == 199
+    assert hb["groups"]["a_pool_has_held_out"]["n"] == 99      # odd rows but 7
+    assert hb["groups"]["b_stack_uses_held_out"]["n"] == 99
+    assert h["held_out_reals"]["check"]["verified"] is True
+    # A held-out real in a tier A pool: the list no longer matches the data.
+    _write_shards(tmp_path / "bad", "b", list(zip(labs, pools)))
+    _write_shards(tmp_path / "bad", "a", [([1.0, 2.0, 3.0], ["Au", "SiO2"])], False)
+    r, _ = run(tmp_path, "--run", f"old={tmp_path/'old'}", "--test-dir", str(tmp_path / "bad"))
+    assert r.returncode != 0 and "held-out list does not match" in (r.stderr + r.stdout)

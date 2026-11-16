@@ -103,6 +103,10 @@ ROW_OFFSET="${ROW_OFFSET:-0}"
 # Who proposes candidates: model, or random (the no-model baseline: same
 # simulation, selection and refinement). Recorded in each summary.json.
 PROPOSER="${PROPOSER:-model}"
+# LAYER_COUNT=5 fixes the number of layers exactly; 0 leaves it free.
+LAYER_COUNT="${LAYER_COUNT:-0}"
+# SPLIT=all reads every row (small benchmark sets); train is the historical default.
+SPLIT="${SPLIT:-train}"
 
 # Sim-feedback residual conditioning at inference. Match to the checkpoint:
 # only checkpoints finetuned with --sim-feedback have non-zero
@@ -151,6 +155,8 @@ ARGS=(
   --log-every "${LOG_EVERY}"
   --offset "${ROW_OFFSET}"
   --proposer "${PROPOSER}"
+  --layer-count "${LAYER_COUNT}"
+  --split "${SPLIT}"
 )
 
 if [[ "${SIM_FEEDBACK}" == "1" ]]; then
@@ -186,6 +192,8 @@ echo "  mc_samples:        ${MC_SAMPLES}"
 echo "  seed:              ${SEED}"
 echo "  sim_feedback:      ${SIM_FEEDBACK}"
 echo "  proposer:          ${PROPOSER}"
+echo "  layer_count:       ${LAYER_COUNT} (0 = free)"
+echo "  split:             ${SPLIT}"
 echo
 echo "Output:"
 echo "  Root:              ${OUTPUT_DIR}"

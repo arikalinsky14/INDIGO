@@ -345,8 +345,10 @@ def generate_ensemble(
                 allowed[lo:hi] = False
 
             if random_proposer:
-                # Stop at the drawn layer count, never before it.
-                if step >= target_len[r]:
+                # Stop at the drawn layer count, never before it, unless a
+                # constraint says otherwise: a LayerCount mask that forbids
+                # EOS keeps the replica going, and one that forces EOS ends it.
+                if step >= target_len[r] and allowed[EOS_TOKEN]:
                     allowed = np.zeros_like(allowed)
                     allowed[EOS_TOKEN] = True
                 elif allowed[:EOS_TOKEN].any():
