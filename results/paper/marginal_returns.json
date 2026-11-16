@@ -1,0 +1,124 @@
+{
+  "comparability": {
+    "decoding": "greedy everywhere (evaluate_delta_e sample=False; evaluate.py sample_predictions=False)",
+    "statistic": "median DeltaE00 everywhere",
+    "slice": "study and production greedy: the 2,048-row validation slice of their own run (same construction, rows depend on the run's D); bridge and search: test rows",
+    "selection": "study points: best over model size and (tuned rungs) 7 learning rates on this metric; production shown at the shipped rate and at its best greedy rate",
+    "recomputed": "nothing: the production run's lr_tuning.py final_val_de is already on the study's footing, so eval_tier_a_greedy.json is a bridge, not the comparison"
+  },
+  "study": [
+    {
+      "budget_flops": 99978497832949.1,
+      "greedy_dE_best": 11.892333856783525,
+      "usable": true
+    },
+    {
+      "budget_flops": 301974320227857.8,
+      "greedy_dE_best": 10.259688952259399,
+      "usable": true
+    },
+    {
+      "budget_flops": 909979274689201.4,
+      "greedy_dE_best": 10.445121937648306,
+      "usable": true
+    },
+    {
+      "budget_flops": 2749914355411000.5,
+      "greedy_dE_best": 9.94580917980148,
+      "usable": true
+    },
+    {
+      "budget_flops": 8289928997609181.0,
+      "greedy_dE_best": 8.983597535420937,
+      "usable": true
+    },
+    {
+      "budget_flops": 2.4999824713828996e+16,
+      "greedy_dE_best": 9.175062649481578,
+      "usable": false
+    }
+  ],
+  "lowest_usable": {
+    "budget_flops": 99978497832949.1,
+    "greedy_dE": 11.892333856783525
+  },
+  "highest_usable": {
+    "budget_flops": 8289928997609181.0,
+    "greedy_dE": 8.983597535420937
+  },
+  "production": {
+    "budget_flops": 1.004650107433943e+17,
+    "n_params": 11314405,
+    "examples": 39959808,
+    "greedy_dE_shipped_lr": {
+      "lr": 0.0003104,
+      "value": 12.1229
+    },
+    "greedy_dE_best_lr": {
+      "lr": 9.7e-06,
+      "value": 9.12239
+    }
+  },
+  "bridge": {
+    "eval_tier_a_greedy": {
+      "median": 12.567797339071845,
+      "n": 2000,
+      "greedy": true
+    },
+    "eval_tier_b_greedy": {
+      "median": 7.982558517022904,
+      "n": 2000,
+      "greedy": true
+    },
+    "eval_val_greedy": {
+      "median": 12.254445183472928,
+      "n": 2000,
+      "greedy": true
+    }
+  },
+  "search": {
+    "light: 16 candidates, top-1, 5 steps": {
+      "folder": "results/prod_eval/test_eval_light",
+      "a": {
+        "median": 2.809475598780335,
+        "n": 500,
+        "n_failed": 0
+      },
+      "b": {
+        "median": 2.176781025708423,
+        "n": 500,
+        "n_failed": 0
+      }
+    },
+    "mid: 50 candidates, top-1, 20 steps": {
+      "folder": "results/prod_eval/test_eval_mid",
+      "a": {
+        "median": 1.1954461155158254,
+        "n": 500,
+        "n_failed": 0
+      },
+      "b": {
+        "median": 0.9616330187089022,
+        "n": 500,
+        "n_failed": 0
+      }
+    },
+    "high: 250 candidates, top-1, 40 steps": {
+      "folder": "results/prod_eval/test_eval_high_model",
+      "a": {
+        "median": 0.6388342767939832,
+        "n": 500,
+        "n_failed": 0
+      },
+      "b": {
+        "median": 0.5018336486935958,
+        "n": 500,
+        "n_failed": 1
+      }
+    }
+  },
+  "sources": {
+    "fit": "analyses/scaling/results/tuned/porian_fit_tuned.json",
+    "production_curve": "analyses/scaling/results/tuned/lr_curves_prod.csv"
+  }
+}
