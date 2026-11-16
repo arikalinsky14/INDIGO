@@ -8,4 +8,4 @@
 | random template 1 | 0.0123 | 1.11e-15 | 5.3e-06 / 0.00 | 0.17 | 0.00296 / 0.04 |
 | random template 2 | 9.19e-05 | 1.55e-15 | 0.00488 / 0.20 | 0.12 | 0.00555 / 0.22 |
 
-Max over structures: TMM alone 1.55e-15 in R; geometry 0.20, colour pipeline 0.48, end to end 0.92 DeltaE00.
+Max over structures: TMM alone 1.55e-15 in R; geometry 0.20, colour pipeline 0.48, end to end 0.92 DeltaE00. Their glass at 5 um vs 50 um: 0.000.

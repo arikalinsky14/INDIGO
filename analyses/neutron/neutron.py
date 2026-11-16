@@ -55,9 +55,29 @@ MATERIALS = D + M
 THEIR_WL_NM = np.arange(400, 701, 10)          # their np.arange(0.4, 0.701, 0.01) um
 GLASS_N, GLASS_NM = 1.5, 5000.0                 # the value their PSO and notebook use
 CR_DESIGN = (['HfO2', 'W', 'Ge', 'SiO2', 'Zn'], [105.0, 15.0, 10.0, 83.0, 100.0])
-CR_DESIGN_REPORTED_DE = 2.35                    # paper_figures.ipynb cell 54 output
-PICTURES = ["tulip_fields", "great_wall", "the_white_orchard", "flower_guo_group",
-            "flower", "san_juan", "vangogh_flower"]
+# What the paper reports (Wang & Guo 2022; results/neutron/neutron_extraction.md).
+# Table 1: their five chrome designs, Cr excluded from the materials, all
+# below DeltaE00 2 after PSO; design I is CR_DESIGN at 0.8. (The notebook's
+# 2.35 compares the target with an 8-bit sRGB triple, not a design.)
+REPORTED_CR_DE = {"I": 0.8, "II": 1.2, "III": 1.4, "IV": 1.6, "V": 1.6}
+CR_TARGET_LAB = [84.96137356, -0.24662783, -3.42720451]    # notebook cell 48
+# Table 2: DeltaE00 averaged over each image (pixel-weighted), and the PSO
+# stage's time in seconds. One material combination per picture, chosen by
+# their classifier. "Street" is not identified among the repo's photos.
+PICTURES = {"the_white_orchard": "White Orchard", "tulip_fields": "Tulip Field",
+            "great_wall": "Great Wall", "flower_guo_group": "Flower (style-transferred)"}
+REPORTED_PICTURES = {
+    "White Orchard": {"materials": "Al2O3/Ge/Al/Al2O3/Zn", "mdn_only": 18.55,
+                      "pso_random_init": 5.16, "neutron": 3.76, "time_s": 9917},
+    "Tulip Field": {"materials": "Ta2O5/Au/Ti/Al2O3/Au", "mdn_only": 19.45,
+                    "pso_random_init": 4.34, "neutron": 3.48, "time_s": 9246},
+    "Great Wall": {"materials": "HfO2/Au/Ti/SiO2/Au", "mdn_only": 21.46,
+                   "pso_random_init": 6.45, "neutron": 5.69, "time_s": 6835},
+    "Flower (style-transferred)": {"materials": "Ta2O5/Au/Ti/Al2O3/Au", "mdn_only": 19.37,
+                                   "pso_random_init": 5.00, "neutron": 3.93, "time_s": 11249},
+    "Street (style-transferred)": {"materials": "ZnO/Ti/Au/MgF2/Au", "mdn_only": 21.60,
+                                   "pso_random_init": 4.45, "neutron": 3.28, "time_s": 7349},
+}
 
 
 def _csv(repo: Path, name: str):
@@ -229,6 +249,12 @@ def tmm_check(repo: Path, out_dir: Path) -> dict:
         #    our resampling, our geometry, our colour).
         lab_ours = our_lab(mats, names, t)
         R_ours_full = our_reflectance(mats, names, t)
+        # Their glass: 5 um (pictures, chrome) vs 50 um (data generator).
+        import tmm as _tmm_mod  # noqa: F401
+        global GLASS_NM
+        g0, GLASS_NM = GLASS_NM, 50000.0
+        lab_glass50 = their_lab_from_R(their_reflectance(nk_t, t))
+        GLASS_NM = g0
         R_ours_at_theirs = np.interp(THEIR_WL_NM, CANONICAL_LAMBDA_NM[::-1], R_ours_full[::-1])
         rows.append({
             "structure": label, "materials": list(names), "thickness_nm": t,
@@ -239,8 +265,9 @@ def tmm_check(repo: Path, out_dir: Path) -> dict:
             "max_abs_dR_end_to_end": float(np.max(np.abs(R_their - R_ours_at_theirs))),
             "lab_theirs": lab_their.tolist(), "lab_ours": lab_ours.tolist(),
             "dE_end_to_end": de2000(lab_their, lab_ours),
+            "dE_glass_5um_vs_50um": de2000(lab_their, lab_glass50),
         })
-    keys = ["max_abs_dnk_interp", "max_abs_dR_tmm_only", "max_abs_dR_geometry",
+    keys = ["dE_glass_5um_vs_50um", "max_abs_dnk_interp", "max_abs_dR_tmm_only", "max_abs_dR_geometry",
             "dE_geometry", "dE_colour_pipeline", "max_abs_dR_end_to_end", "dE_end_to_end"]
     res = {"structures": rows, "max": {k: max(r[k] for r in rows) for k in keys},
            "notes": {
@@ -263,7 +290,8 @@ def tmm_check(repo: Path, out_dir: Path) -> dict:
     m = res["max"]
     lines += ["", f"Max over structures: TMM alone {m['max_abs_dR_tmm_only']:.2e} in R; "
               f"geometry {m['dE_geometry']:.2f}, colour pipeline {m['dE_colour_pipeline']:.2f}, "
-              f"end to end {m['dE_end_to_end']:.2f} DeltaE00.", ""]
+              f"end to end {m['dE_end_to_end']:.2f} DeltaE00. Their glass at 5 um vs 50 um: "
+              f"{m['dE_glass_5um_vs_50um']:.3f}.", ""]
     (out_dir / "tmm_check.md").write_text("\n".join(lines))
     return res
 
@@ -272,32 +300,38 @@ def tmm_check(repo: Path, out_dir: Path) -> dict:
 # targets / testset / rescore
 # --------------------------------------------------------------------------
 
-def picture_rgbs(path: Path, quantize: str = "floor") -> np.ndarray:
+def picture_rgbs(path: Path, quantize: str = "floor", counts: bool = False):
     """Their reconstruction script's targets: thumbnail to 512, RGB quantized
-    in steps of 10 (the script truncates; the notebook rounds), unique."""
+    in steps of 10 (the script truncates; the paper's text says nearest),
+    unique. With counts, also each colour's pixel count, for their
+    image-averaged DeltaE00."""
     from PIL import Image
     im = Image.open(path).convert("RGB")
     im.thumbnail((512, 512), Image.LANCZOS)     # Image.ANTIALIAS, renamed in Pillow 10
     rgb = np.array(im).reshape(-1, 3)
     q = (rgb / 10).astype(int) * 10 if quantize == "floor" else np.around(rgb / 10).astype(int) * 10
-    return np.unique(q, axis=0)
+    return np.unique(q, axis=0, return_counts=counts)
 
 
 def build_targets(repo: Path, out: Path, test_pkl: Optional[Path], quantize: str) -> dict:
     targets = []
     lab_cr = their_lab_from_R(their_reflectance([their_nk(repo, 'Cr')] * 5, [20.0] * 5))
-    targets.append({"set": "cr", "name": "Cr 5x20nm", "lab": lab_cr.tolist()})
+    if de2000(lab_cr, CR_TARGET_LAB) > 0.01:
+        sys.exit(f"Cr target {lab_cr} does not reproduce their hard-coded Lab {CR_TARGET_LAB}")
+    # Cr is excluded from the materials in their chrome experiment.
+    targets.append({"set": "cr", "name": "Cr 5x20nm", "lab": lab_cr.tolist(),
+                    "exclude": ["Cr"]})
     counts = {}
-    for pic in PICTURES:
+    for pic, label in PICTURES.items():
         p = repo / "photo_data" / f"{pic}.jpg"
         if not p.is_file():
             continue
-        rgbs = picture_rgbs(p, quantize)
-        counts[pic] = {"floor": len(picture_rgbs(p, "floor")),
-                       "round": len(picture_rgbs(p, "round"))}
-        for rgb in rgbs:
+        rgbs, n_px = picture_rgbs(p, quantize, counts=True)
+        counts[pic] = {"label": label, "floor": len(picture_rgbs(p, "floor")),
+                       "round": len(picture_rgbs(p, "round")), "pixels": int(n_px.sum())}
+        for rgb, n in zip(rgbs, n_px):
             targets.append({"set": f"picture:{pic}", "rgb": rgb.tolist(),
-                            "lab": rgb_to_lab(rgb).tolist()})
+                            "lab": rgb_to_lab(rgb).tolist(), "pixels": int(n)})
     if test_pkl:
         import pickle
         d = pickle.load(open(test_pkl, "rb"))
@@ -325,12 +359,14 @@ def write_testset(repo: Path, targets_json: Path, out_dir: Path,
         idx = np.sort(np.random.default_rng(seed).choice(len(t), limit, replace=False))
         t = [t[i] for i in idx]
     mats = our_materials(repo)
-    pool = [mats[n] for n in MATERIALS]
-    rows = [{"lab": json.dumps([float(v) for v in x["lab"]]), "pool_size": len(pool),
-             "pool_n": [m.n.tolist() for m in pool], "pool_k": [m.k.tolist() for m in pool],
-             "pool_names": [m.name for m in pool], "pool_sources": [m.source for m in pool],
-             "layer_slots": [0], "layer_thicknesses": [100], "num_layers": 1,
-             "structure_source": "neutron_" + x["set"]} for x in t]
+    rows = []
+    for x in t:
+        pool = [mats[n] for n in MATERIALS if n not in x.get("exclude", [])]
+        rows.append({"lab": json.dumps([float(v) for v in x["lab"]]), "pool_size": len(pool),
+                     "pool_n": [m.n.tolist() for m in pool], "pool_k": [m.k.tolist() for m in pool],
+                     "pool_names": [m.name for m in pool], "pool_sources": [m.source for m in pool],
+                     "layer_slots": [0], "layer_thicknesses": [100], "num_layers": 1,
+                     "structure_source": "neutron_" + x["set"]})
     # The layout src/dataset.py scans: <tier>/angle_<deg>_substrate_<name>/shard_*.parquet
     shard_dir = out_dir / "angle_0_substrate_neutron"
     shard_dir.mkdir(parents=True, exist_ok=True)
@@ -340,10 +376,15 @@ def write_testset(repo: Path, targets_json: Path, out_dir: Path,
     return len(rows)
 
 
-def rescore(repo: Path, run_dir: Path, out: Path) -> dict:
+def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) -> dict:
     """Each chosen stack in their physics (all layers coherent, their glass
-    and back air), against the target, beside our own simulator's DeltaE."""
+    and back air), against the target, beside our own simulator's DeltaE;
+    also with thicknesses truncated to whole nm, as they constrain theirs.
+    With the test folder's targets_index.json, rows are grouped by target
+    set and pictures get their metric: DeltaE00 averaged over the image's
+    pixels."""
     nk = {n: their_nk(repo, n) for n in MATERIALS}
+    idx = {e["row"]: e for e in json.load(open(index))} if index else {}
     rows_out = []
     for rp in sorted(glob.glob(str(run_dir / "**" / "rows.json"), recursive=True)):
         for r in json.load(open(rp)):
@@ -356,11 +397,31 @@ def rescore(repo: Path, run_dir: Path, out: Path) -> dict:
                 if all(n in nk for n in names):
                     lab = their_lab_from_R(their_reflectance([nk[n] for n in names], t,
                                                              template=False))
+                    lab_i = their_lab_from_R(their_reflectance([nk[n] for n in names],
+                                                               [int(x) for x in t],
+                                                               template=False))
                     ent.update(materials=names, thickness_nm=t, lab_theirs=lab.tolist(),
-                               dE_theirs=de2000(lab, r["target_lab"]))
+                               dE_theirs=de2000(lab, r["target_lab"]),
+                               dE_theirs_int_nm=de2000(lab_i, r["target_lab"]))
                 else:
                     ent["untraceable"] = f"materials not in the NEUTRON set: {names}"
+            meta = idx.get(r["row_idx"], {})
+            ent["set"], ent["pixels"] = meta.get("set"), meta.get("pixels")
             rows_out.append(ent)
+    by_set = {}
+    for sname in sorted({x["set"] for x in rows_out if x["set"]}):
+        g = [x for x in rows_out if x["set"] == sname]
+        e = {}
+        for key in ("dE_theirs", "dE_theirs_int_nm", "dE_ours"):
+            v = np.array([x[key] if x.get(key) is not None else math.inf for x in g])
+            e[key] = {"acc_le2": float(np.mean(v <= 2)), "median": float(np.median(v)),
+                      "mean": float(np.mean(v))}
+            if sname.startswith("picture:") and all(x.get("pixels") for x in g):
+                w = np.array([x["pixels"] for x in g], float)
+                e[key]["pixel_weighted_mean"] = float(np.sum(w * v) / np.sum(w))
+        e["n"] = len(g)
+        e["wall_time_s_sum"] = float(sum(x["wall_time_s"] or 0 for x in g))
+        by_set[sname] = e
     de_t = np.array([x.get("dE_theirs", math.inf) for x in rows_out])
     de_o = np.array([x["dE_ours"] if x.get("dE_ours") is not None else math.inf
                      for x in rows_out])
@@ -373,7 +434,9 @@ def rescore(repo: Path, run_dir: Path, out: Path) -> dict:
            "wall_time_s_per_target": {"mean": float(np.mean(wt)) if wt else None,
                                       "median": float(np.median(wt)) if wt else None,
                                       "n": len(wt)},
-           "failed_rows_count_as_failures": True, "rows": rows_out}
+           "failed_rows_count_as_failures": True, "by_set": by_set,
+           "reported": {"cr_table1": REPORTED_CR_DE, "pictures_table2": REPORTED_PICTURES},
+           "rows": rows_out}
     out.parent.mkdir(parents=True, exist_ok=True)
     json.dump(res, open(out, "w"), indent=2)
     return res
@@ -392,6 +455,8 @@ def main() -> None:
     p.add_argument("--limit", type=int, default=0, help="random subset of targets")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--run-dir", default=None)
+    p.add_argument("--index", default=None,
+                   help="targets_index.json from the test folder, for per-set results")
     a = p.parse_args()
     repo = Path(a.neutron_repo)
     if not (repo / "optical_data").is_dir():
@@ -408,7 +473,8 @@ def main() -> None:
                           a.sets, a.limit, a.seed)
         print(f"wrote {n} rows")
     else:
-        r = rescore(repo, Path(a.run_dir), Path(a.out or "results/neutron/rescore.json"))
+        r = rescore(repo, Path(a.run_dir), Path(a.out or "results/neutron/rescore.json"),
+                    Path(a.index) if a.index else None)
         print({k: v for k, v in r.items() if k != "rows"})
 
 
