@@ -96,6 +96,13 @@ REFINE_ITERS="${REFINE_ITERS:-80}"
 MC_SAMPLES="${MC_SAMPLES:-0}"
 SEED="${SEED:-42}"
 LOG_EVERY="${LOG_EVERY:-25}"
+# Rows [ROW_OFFSET, ROW_OFFSET + LIMIT) of each tier. Row seeds use the
+# absolute row index, so a run split into chunks scores every row exactly as
+# one long run would; give each chunk its own OUTPUT_DIR.
+ROW_OFFSET="${ROW_OFFSET:-0}"
+# Who proposes candidates: model, or random (the no-model baseline: same
+# simulation, selection and refinement). Recorded in each summary.json.
+PROPOSER="${PROPOSER:-model}"
 
 # Sim-feedback residual conditioning at inference. Match to the checkpoint:
 # only checkpoints finetuned with --sim-feedback have non-zero
@@ -142,6 +149,8 @@ ARGS=(
   --mc-samples "${MC_SAMPLES}"
   --seed "${SEED}"
   --log-every "${LOG_EVERY}"
+  --offset "${ROW_OFFSET}"
+  --proposer "${PROPOSER}"
 )
 
 if [[ "${SIM_FEEDBACK}" == "1" ]]; then
@@ -164,7 +173,7 @@ echo
 echo "Data:"
 echo "  Test dir:          ${TEST_DIR}"
 echo "  Tiers:             ${TIERS}"
-echo "  Limit per tier:    ${LIMIT}"
+echo "  Rows per tier:     ${ROW_OFFSET} to $(( ROW_OFFSET + LIMIT - 1 ))"
 echo
 echo "Knobs (sweep defaults — see test_eval.py docstring):"
 echo "  ensemble_N:        ${ENSEMBLE_N}"
@@ -176,6 +185,7 @@ echo "  refine_iters:      ${REFINE_ITERS}"
 echo "  mc_samples:        ${MC_SAMPLES}"
 echo "  seed:              ${SEED}"
 echo "  sim_feedback:      ${SIM_FEEDBACK}"
+echo "  proposer:          ${PROPOSER}"
 echo
 echo "Output:"
 echo "  Root:              ${OUTPUT_DIR}"

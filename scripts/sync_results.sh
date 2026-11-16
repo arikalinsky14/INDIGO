@@ -37,6 +37,7 @@ pairs=(
   "outputs/lr_curves/cross_attn/:results/lr_curves/"
   "outputs/lr_search/:results/lr_search/"
   "outputs/isoflop_confirm/cross_attn/:results/isoflop_confirm/"
+  "outputs/paper/:results/paper_runs/"
   "data/checkpoints/production/:results/production/"
 )
 

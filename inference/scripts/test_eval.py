@@ -210,7 +210,10 @@ def evaluate_tier(
                 proposer=args.proposer,
             )
         except Exception as exc:
+            # Keep the target: a failed row still counts, as a failure, in
+            # every per-chroma breakdown.
             rows.append({"row_idx": row_idx,
+                         "target_lab": list(spec.target_lab_raw),
                          "error": f"{type(exc).__name__}: {exc}"})
             print(f"[tier_{tier_label}] row {row_idx}: solve() raised "
                   f"{type(exc).__name__}: {exc}", flush=True)
