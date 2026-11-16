@@ -1,0 +1,519 @@
+{
+ "source": "scripts/collect_isoflop.py",
+ "grid_from": "analyses/scaling/results/porian_fit.json",
+ "beta2": 0.999,
+ "rungs_tuned": 5,
+ "budgets": [
+  99978497832949.1,
+  301974320227857.8,
+  909979274689201.4,
+  2749914355411000.5,
+  8289928997609181.0,
+  2.4999824713828996e+16
+ ],
+ "n_runs": 25,
+ "excluded": [
+  "stage 2  C=3.02e+14  d128/se4  s42: missing (outputs/lr_search/cross_attn/lr_search_ep1_lim1057280_d128_se4_bs256_b20.999.json)",
+  "stage 2  C=9.10e+14  d96/se2  s42: missing (outputs/lr_search/cross_attn/lr_search_ep1_lim7219200_d96_se2_bs256_b20.999.json)",
+  "stage 2  C=9.10e+14  d128/se2  s42: missing (outputs/lr_search/cross_attn/lr_search_ep1_lim4396544_d128_se2_bs256_b20.999.json)",
+  "stage 2  C=2.75e+15  d96/se3  s42: missing (outputs/lr_search/cross_attn/lr_search_ep1_lim18522880_d96_se3_bs256_b20.999.json)",
+  "stage 2  C=2.75e+15  d160/se3  s42: missing (outputs/lr_search/cross_attn/lr_search_ep1_lim7439872_d160_se3_bs256_b20.999.json)",
+  "stage 2  C=8.29e+15  d160/se3  s42: missing (outputs/lr_search/cross_attn/lr_search_ep1_lim22428160_d160_se3_bs256_b20.999.json)",
+  "stage 2  C=8.29e+15  d288/se5  s42: missing (outputs/lr_search/cross_attn/lr_search_ep1_lim5500672_d288_se5_bs256_b20.999.json)",
+  "stage 3  C=1.00e+14  d96/se2  s43: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim793088_d96_se2_bs256_b20.999_s43.json)",
+  "stage 3  C=1.00e+14  d96/se2  s44: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim793088_d96_se2_bs256_b20.999_s44.json)",
+  "stage 3  C=3.02e+14  d128/se2  s43: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim1458944_d128_se2_bs256_b20.999_s43.json)",
+  "stage 3  C=3.02e+14  d128/se2  s44: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim1458944_d128_se2_bs256_b20.999_s44.json)",
+  "stage 3  C=9.10e+14  d160/se3  s43: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim2461952_d160_se3_bs256_b20.999_s43.json)",
+  "stage 3  C=9.10e+14  d160/se3  s44: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim2461952_d160_se3_bs256_b20.999_s44.json)",
+  "stage 3  C=2.75e+15  d192/se4  s43: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim4539904_d192_se4_bs256_b20.999_s43.json)",
+  "stage 3  C=2.75e+15  d192/se4  s44: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim4539904_d192_se4_bs256_b20.999_s44.json)",
+  "stage 3  C=8.29e+15  d224/se5  s43: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim8919296_d224_se5_bs256_b20.999_s43.json)",
+  "stage 3  C=8.29e+15  d224/se5  s44: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim8919296_d224_se5_bs256_b20.999_s44.json)",
+  "stage 3  C=2.50e+16  d160/se4  s42: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep2_lim29030912_d160_se4_bs256_b20.999.json)",
+  "stage 3  C=2.50e+16  d192/se5  s42: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim36073984_d192_se5_bs256_b20.999.json)",
+  "stage 3  C=2.50e+16  d256/se4  s42: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim23885824_d256_se4_bs256_b20.999.json)",
+  "stage 3  C=2.50e+16  d256/se7  s42: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim16566528_d256_se7_bs256_b20.999.json)",
+  "stage 3  C=2.50e+16  d256/se7  s43: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim16566528_d256_se7_bs256_b20.999_s43.json)",
+  "stage 3  C=2.50e+16  d256/se7  s44: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim16566528_d256_se7_bs256_b20.999_s44.json)",
+  "stage 3  C=2.50e+16  d352/se6  s42: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim9943552_d352_se6_bs256_b20.999.json)",
+  "stage 3  C=2.50e+16  d416/se7  s42: missing (outputs/isoflop_tuned/cross_attn/lr_search_ep1_lim6428160_d416_se7_bs256_b20.999.json)"
+ ],
+ "runs": [
+  {
+   "name": "tuned_C1.00e+14_d32_se1_s42",
+   "n_params": 80965,
+   "steps": 16453,
+   "passes": 4211968,
+   "flops": 99994681196544.0,
+   "val_de": {
+    "pooled": 11.892333856783525,
+    "low": 7.785184797359963,
+    "mid": 13.99800738183092,
+    "high": 23.42137517947066
+   },
+   "val_loss": 6.178914797610653,
+   "epochs": 0.10535187593796898,
+   "lr": 0.006977311357758147,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C1.00e+14_d64_se1_s42",
+   "n_params": 182117,
+   "steps": 7017,
+   "passes": 1796352,
+   "flops": 99993977192448.0,
+   "val_de": {
+    "pooled": 13.235653922770787,
+    "low": 8.61536959979928,
+    "mid": 15.253914418903456,
+    "high": 24.88545448195717
+   },
+   "val_loss": 6.206393183691857,
+   "epochs": 0.04493126563281641,
+   "lr": 0.0006964649951968743,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C1.00e+14_d64_se2_s42",
+   "n_params": 232101,
+   "steps": 5928,
+   "passes": 1517568,
+   "flops": 99990491627520.0,
+   "val_de": {
+    "pooled": 12.505381899006533,
+    "low": 6.982167272311994,
+    "mid": 15.901866186664092,
+    "high": 22.686400103757464
+   },
+   "val_loss": 6.1511120750598485,
+   "epochs": 0.03795817908954477,
+   "lr": 0.0038385379316129096,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C1.00e+14_d96_se2_s42",
+   "n_params": 456549,
+   "steps": 3098,
+   "passes": 793088,
+   "flops": 99969440317440.0,
+   "val_de": {
+    "pooled": 13.732722844491464,
+    "low": 7.7422548473727355,
+    "mid": 16.223515703628387,
+    "high": 26.866394276138877
+   },
+   "val_loss": 6.214601159304962,
+   "epochs": 0.01983711855927964,
+   "lr": 0.002614896660755915,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C1.00e+14_d128_se2_s42",
+   "n_params": 767013,
+   "steps": 1887,
+   "passes": 483072,
+   "flops": 99986165268480.0,
+   "val_de": {
+    "pooled": 16.765767810854673,
+    "low": 8.551420642495685,
+    "mid": 19.66910223625188,
+    "high": 31.76961727890053
+   },
+   "val_loss": 6.240198260451173,
+   "epochs": 0.012082841420710356,
+   "lr": 0.0019480858843241953,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C1.00e+14_d128_se4_s42",
+   "n_params": 1163557,
+   "steps": 1367,
+   "passes": 349952,
+   "flops": 99954354094080.0,
+   "val_de": {
+    "pooled": 21.525508169572426,
+    "low": 17.195682360601644,
+    "mid": 24.294112258709497,
+    "high": 28.324615067421675
+   },
+   "val_loss": 6.428216101462865,
+   "epochs": 0.008753176588294147,
+   "lr": 0.0015378547115830047,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C3.02e+14_d64_se1_s42",
+   "n_params": 182117,
+   "steps": 21192,
+   "passes": 5425152,
+   "flops": 301991216283648.0,
+   "val_de": {
+    "pooled": 10.259688952259399,
+    "low": 6.447114007363408,
+    "mid": 12.60645257425903,
+    "high": 19.68530758931717
+   },
+   "val_loss": 6.089614462822354,
+   "epochs": 0.1356966483241621,
+   "lr": 0.0012879805120538119,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C3.02e+14_d64_se2_s42",
+   "n_params": 232101,
+   "steps": 17904,
+   "passes": 4583424,
+   "flops": 301995573903360.0,
+   "val_de": {
+    "pooled": 10.466534468749725,
+    "low": 6.296494737395509,
+    "mid": 12.575437630037394,
+    "high": 18.669524082245182
+   },
+   "val_loss": 6.084094254476509,
+   "epochs": 0.11464292146073037,
+   "lr": 0.0020756582416055014,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C3.02e+14_d96_se2_s42",
+   "n_params": 456549,
+   "steps": 9358,
+   "passes": 2395648,
+   "flops": 301973538570240.0,
+   "val_de": {
+    "pooled": 11.370843130877756,
+    "low": 6.49253306147229,
+    "mid": 13.57035344031603,
+    "high": 22.62951641427025
+   },
+   "val_loss": 6.092341621864651,
+   "epochs": 0.05992116058029014,
+   "lr": 0.0014139840220359341,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C3.02e+14_d128_se2_s42",
+   "n_params": 767013,
+   "steps": 5699,
+   "passes": 1458944,
+   "flops": 301971995688960.0,
+   "val_de": {
+    "pooled": 12.26983384631781,
+    "low": 6.511167700706093,
+    "mid": 14.996046695189019,
+    "high": 23.061290189530894
+   },
+   "val_loss": 6.106603234951941,
+   "epochs": 0.03649184592296148,
+   "lr": 0.0019480858843241953,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C3.02e+14_d192_se3_s42",
+   "n_params": 2090853,
+   "steps": 2275,
+   "passes": 582400,
+   "flops": 301934722252800.0,
+   "val_de": {
+    "pooled": 16.502222402351567,
+    "low": 9.623174959385597,
+    "mid": 19.393978728289536,
+    "high": 27.47768138620517
+   },
+   "val_loss": 6.2416246488374485,
+   "epochs": 0.014567283641820911,
+   "lr": 0.0011027797663018858,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C9.10e+14_d96_se3_s42",
+   "n_params": 568389,
+   "steps": 23943,
+   "passes": 6129408,
+   "flops": 909997606158336.0,
+   "val_de": {
+    "pooled": 10.52593247133467,
+    "low": 5.803599612169029,
+    "mid": 12.860871970713992,
+    "high": 22.40582614452974
+   },
+   "val_loss": 6.066218385238853,
+   "epochs": 0.15331185592796398,
+   "lr": 0.0006752127673337493,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C9.10e+14_d160_se3_s42",
+   "n_params": 1472773,
+   "steps": 9617,
+   "passes": 2461952,
+   "flops": 909996546048000.0,
+   "val_de": {
+    "pooled": 9.932152951852558,
+    "low": 5.954374607000341,
+    "mid": 12.034355147774711,
+    "high": 17.567736581067315
+   },
+   "val_loss": 6.07792706288231,
+   "epochs": 0.06157958979489745,
+   "lr": 0.0007274979524815517,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C9.10e+14_d160_se5_s42",
+   "n_params": 2091333,
+   "steps": 7232,
+   "passes": 1851392,
+   "flops": 909997973176320.0,
+   "val_de": {
+    "pooled": 12.170262926620353,
+    "low": 7.157481870586475,
+    "mid": 14.397683417870162,
+    "high": 22.090964824131817
+   },
+   "val_loss": 6.142626813702179,
+   "epochs": 0.046307953976988496,
+   "lr": 0.0005962414473225917,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C9.10e+14_d224_se4_s42",
+   "n_params": 3424549,
+   "steps": 4382,
+   "passes": 1121792,
+   "flops": 909866501505024.0,
+   "val_de": {
+    "pooled": 15.64696974144274,
+    "low": 8.74136198893752,
+    "mid": 19.17795627026654,
+    "high": 26.94213802339046
+   },
+   "val_loss": 6.224777562755824,
+   "epochs": 0.028058829414707352,
+   "lr": 0.0004507066516527126,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C2.75e+15_d128_se3_s42",
+   "n_params": 965285,
+   "steps": 43613,
+   "passes": 11164928,
+   "flops": 2749937843896320.0,
+   "val_de": {
+    "pooled": 10.254990401818672,
+    "low": 5.283534347628748,
+    "mid": 12.224139653228693,
+    "high": 22.144633848057975
+   },
+   "val_loss": 6.029961144256404,
+   "epochs": 0.27926283141570785,
+   "lr": 0.0002703463421816125,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C2.75e+15_d192_se4_s42",
+   "n_params": 2535717,
+   "steps": 17734,
+   "passes": 4539904,
+   "flops": 2749937091280896.0,
+   "val_de": {
+    "pooled": 9.986096433660116,
+    "low": 5.5822309373945656,
+    "mid": 11.84214911356492,
+    "high": 19.3448945802265
+   },
+   "val_loss": 6.057087370732787,
+   "epochs": 0.11355437718859429,
+   "lr": 0.0002890231498366696,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C2.75e+15_d192_se6_s42",
+   "n_params": 3425445,
+   "steps": 13766,
+   "passes": 3524096,
+   "flops": 2749900487589888.0,
+   "val_de": {
+    "pooled": 10.832523096949577,
+    "low": 6.151519095399993,
+    "mid": 13.093504953317535,
+    "high": 19.55061275435429
+   },
+   "val_loss": 6.098281678474972,
+   "epochs": 0.08814647323661831,
+   "lr": 0.00024367977224332732,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C2.75e+15_d224_se8_s42",
+   "n_params": 5844645,
+   "steps": 8362,
+   "passes": 2140672,
+   "flops": 2749725585211392.0,
+   "val_de": {
+    "pooled": 19.775309134508245,
+    "low": 12.946963356981831,
+    "mid": 22.397968831352884,
+    "high": 27.53134013985032
+   },
+   "val_loss": 6.325508785393405,
+   "epochs": 0.053543571785892946,
+   "lr": 0.00017995208237650372,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C8.29e+15_d128_se3_s42",
+   "n_params": 965285,
+   "steps": 131476,
+   "passes": 33657856,
+   "flops": 8289978400112640.0,
+   "val_de": {
+    "pooled": 10.962679951495314,
+    "low": 6.167826056746363,
+    "mid": 12.900327594450129,
+    "high": 24.52250592516224
+   },
+   "val_loss": 6.050151746920383,
+   "epochs": 0.8418673336668334,
+   "lr": 7.904975000000003e-05,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C8.29e+15_d192_se4_s42",
+   "n_params": 2535717,
+   "steps": 53461,
+   "passes": 13686016,
+   "flops": 8289973318877184.0,
+   "val_de": {
+    "pooled": 8.983597535420937,
+    "low": 4.833208722795049,
+    "mid": 10.804442857831795,
+    "high": 16.881927445348545
+   },
+   "val_loss": 6.022432847394881,
+   "epochs": 0.3423215607803902,
+   "lr": 8.45108786054724e-05,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C8.29e+15_d224_se5_s42",
+   "n_params": 4029573,
+   "steps": 34841,
+   "passes": 8919296,
+   "flops": 8289960178434048.0,
+   "val_de": {
+    "pooled": 10.69646397355779,
+    "low": 5.75194713445916,
+    "mid": 12.908588516870012,
+    "high": 25.485097214274973
+   },
+   "val_loss": 6.043524668170849,
+   "epochs": 0.22309394697348675,
+   "lr": 0.00022222512553264542,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C8.29e+15_d352_se5_s42",
+   "n_params": 9822981,
+   "steps": 14558,
+   "passes": 3726848,
+   "flops": 8289819178795008.0,
+   "val_de": {
+    "pooled": 10.945000900978714,
+    "low": 6.232113356460259,
+    "mid": 13.194489086369167,
+    "high": 21.59841320795939
+   },
+   "val_loss": 6.098343545067064,
+   "epochs": 0.09321780890445222,
+   "lr": 0.00024787001682123865,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2"
+  },
+  {
+   "name": "tuned_C3.02e+14_d32_se1_s42",
+   "n_params": 80965,
+   "steps": 49686,
+   "passes": 12719616,
+   "flops": 301971417366528.0,
+   "val_de": {
+    "pooled": 12.216330443424937,
+    "low": 6.680889058969515,
+    "mid": 14.947236743983924,
+    "high": 26.493201209757384
+   },
+   "val_loss": 6.125652273476467,
+   "epochs": 0.3181494747373687,
+   "lr": 0.0020401782175118923,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2edge"
+  },
+  {
+   "name": "tuned_C3.02e+14_d48_se1_s42",
+   "n_params": 123861,
+   "steps": 31291,
+   "passes": 8010496,
+   "flops": 301970065612800.0,
+   "val_de": {
+    "pooled": 10.887218641822408,
+    "low": 6.197330888355349,
+    "mid": 12.615798481251353,
+    "high": 21.333376817778614
+   },
+   "val_loss": 6.086134095916951,
+   "epochs": 0.20036258129064533,
+   "lr": 0.002964237407267455,
+   "beta2": 0.999,
+   "seed": 42,
+   "stage": "2edge"
+  }
+ ]
+}

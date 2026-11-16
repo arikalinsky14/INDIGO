@@ -1,0 +1,28 @@
+==============================================================================
+STE PROJECTION QUALITY — summary
+==============================================================================
+  Verdict: MIXED
+    median Spearman 0.65, top-1 hit rate 90% → partial signal. Current STE may still help; also worth trying winning-material-only for comparison.
+
+  N (example, layer) pairs      : 2286
+  Mean pool size per example    : 18.8
+  Mean base ΔE (before swap)    : 0.00
+
+  Spearman ρ (proj vs true)
+    median                       : +0.653
+    mean                         : +0.561
+    IQR                          : [+0.333, +0.850]
+
+  Top-1 hit rate (proj's #1 == true #1)
+    fraction                     : 89.5%
+  Top-3 recall (true best in proj top-3)
+    fraction                     : 92.5%
+
+  Sign-agreement per material    : mean 96.4%
+  |ΔE_proj - ΔE_true|            : mean 12.03, median 4.23
+==============================================================================
+Decision guide:
+  HOLDS  → median ρ ≥ 0.70 AND top-1 ≥ 50%  → keep current STE
+  NOISE  → median ρ < 0.30 AND top-1 < 20%  → switch to winning-only
+  MIXED  → anything in between              → likely try both
+==============================================================================

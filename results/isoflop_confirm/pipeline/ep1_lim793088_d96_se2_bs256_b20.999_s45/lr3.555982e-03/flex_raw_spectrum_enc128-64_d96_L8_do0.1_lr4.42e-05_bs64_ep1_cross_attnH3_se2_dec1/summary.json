@@ -1,0 +1,105 @@
+{
+  "checkpoint": "outputs/isoflop_confirm/cross_attn/weights/ep1_lim793088_d96_se2_bs256_b20.999_s45/lr3.555982e-03",
+  "checkpoint_tag": "flex_raw_spectrum_enc128-64_d96_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH3_se2_dec1",
+  "checkpoint_sha256": "6cb5e25d060765c9",
+  "tiers": {
+    "tier_a": {
+      "n_attempted": 500,
+      "n_succeeded": 500,
+      "n_failed": 0,
+      "delta_e": {
+        "mean": 5.459020793464323,
+        "median": 4.522214573124043,
+        "std": 5.977769969910996,
+        "p25": 1.4985993406409364,
+        "p75": 7.669956818421668,
+        "p95": 13.333713920285224,
+        "min": 0.00012615592462844298,
+        "max": 62.93848277646765
+      },
+      "buckets": {
+        "<1.0": {
+          "count": 102,
+          "fraction": 0.204
+        },
+        "<2.0": {
+          "count": 136,
+          "fraction": 0.272
+        },
+        "<5.0": {
+          "count": 273,
+          "fraction": 0.546
+        },
+        "<10.0": {
+          "count": 425,
+          "fraction": 0.85
+        }
+      },
+      "tier": "a",
+      "model_tag": "flex_raw_spectrum_enc128-64_d96_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH3_se2_dec1",
+      "model_sha256": "6cb5e25d060765c9",
+      "runtime_seconds": 1630.0941116809845,
+      "rows_per_second": 0.3067307564741709,
+      "args": {
+        "ensemble_n": 16,
+        "temperature": 1.0,
+        "tolerance": 0.0,
+        "weight_lambda": 1.0,
+        "top_k": 1,
+        "refine_iters": 5,
+        "mc_samples": 0,
+        "plot_examples": 0,
+        "seed": 42
+      }
+    },
+    "tier_b": {
+      "n_attempted": 500,
+      "n_succeeded": 500,
+      "n_failed": 0,
+      "delta_e": {
+        "mean": 4.8550208979633025,
+        "median": 3.7325281569667483,
+        "std": 5.055219802303609,
+        "p25": 0.7040122757880816,
+        "p75": 7.154532114892395,
+        "p95": 13.84102128031575,
+        "min": 0.00012408452634982232,
+        "max": 37.35914905047142
+      },
+      "buckets": {
+        "<1.0": {
+          "count": 133,
+          "fraction": 0.266
+        },
+        "<2.0": {
+          "count": 169,
+          "fraction": 0.338
+        },
+        "<5.0": {
+          "count": 298,
+          "fraction": 0.596
+        },
+        "<10.0": {
+          "count": 442,
+          "fraction": 0.884
+        }
+      },
+      "tier": "b",
+      "model_tag": "flex_raw_spectrum_enc128-64_d96_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH3_se2_dec1",
+      "model_sha256": "6cb5e25d060765c9",
+      "runtime_seconds": 1621.5882551670074,
+      "rows_per_second": 0.3083396777244819,
+      "args": {
+        "ensemble_n": 16,
+        "temperature": 1.0,
+        "tolerance": 0.0,
+        "weight_lambda": 1.0,
+        "top_k": 1,
+        "refine_iters": 5,
+        "mc_samples": 0,
+        "plot_examples": 0,
+        "seed": 42
+      }
+    }
+  }
+}

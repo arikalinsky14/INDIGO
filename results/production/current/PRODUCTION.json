@@ -1,0 +1,14 @@
+{
+  "source": "/ix1/ohinder/ajk245/Github/INDIGO/outputs/lr_curves/cross_attn/weights/ep1_lim39959808_d352_se6_bs256_b20.999_r5/lr3.104000e-04",
+  "chosen_by": "highest learning rate that did not diverge: 3.1040e-04 (lowest diverged 6.2080e-04)",
+  "lr": 0.0003104000000000001,
+  "seed": 42,
+  "epochs": 1,
+  "train_examples": 39959808,
+  "final_val_loss": 6.204635392267282,
+  "final_val_de": 12.122938591387381,
+  "model_sha256": "4fd024434fcc0c027a4b3fd38f2cc2efb18baf890c28f641e4b4e3d172d3ffda",
+  "model_sha256_16": "4fd024434fcc0c02",
+  "promoted_at": "2026-11-15T12:46:36",
+  "git_commit": "d5fd1e2"
+}
