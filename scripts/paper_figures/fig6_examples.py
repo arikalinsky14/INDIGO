@@ -49,7 +49,7 @@ LABELS = {
     "interp": "Blend of two reals",
     "substrate": "Substrate",
     "gamut": "† target outside sRGB; swatch clipped",
-    "split": "Each square: target (left) | result (right)",
+    "split": "Each square: target (left of dotted line) | result (right)",
     "ylabel": r"$\Delta E_{00}$",
 }
 
@@ -132,6 +132,13 @@ def main():
                     ax.add_patch(Rectangle((xs + sw / 2, ys), sw / 2, sw,
                                            fc=S.lab_to_srgb(lab), ec="none"))
                 ax.add_patch(Rectangle((xs, ys), sw, sw, fc="none", ec=S.INK, lw=0.4))
+                # divider between target and result halves: black dots on a
+                # white line, so it shows on light and dark colors alike
+                xm = xs + sw / 2
+                ax.plot([xm, xm], [ys, ys + sw], color="white", lw=0.9, zorder=3,
+                        solid_capstyle="butt")
+                ax.plot([xm, xm], [ys, ys + sw], color=S.INK, lw=0.9, ls=(0, (1, 1.2)),
+                        zorder=4, dash_capstyle="butt")
                 txt = LABELS["de"].format(v=de) if np.isfinite(de) else LABELS["fail"]
                 ax.text(xs + sw / 2, ys - 0.08, txt + ("†" if out and j == 0 else ""),
                         ha="center", va="top", fontsize=S.SMALL_PT,
