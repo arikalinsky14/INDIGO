@@ -400,14 +400,19 @@ def build_targets(repo: Path, out: Path, test_pkl: Optional[Path], quantize: str
 
 def write_testset(repo: Path, targets_json: Path, out_dir: Path,
                   sets: Optional[List[str]], limit: int, seed: int,
-                  their_task: bool = False, per_picture: int = 0) -> int:
+                  their_task: bool = False, per_picture: int = 0,
+                  back_metal: bool = False) -> int:
     """One parquet shard, INDIGO's schema, one row per target. Default pool:
     the 20 NEUTRON materials (minus a target's exclusions), INDIGO choosing.
     their_task: each row's pool is its own 5 materials, and row_constraints.json
     (for test_eval.py --row-constraints) fixes each layer's material and
     thickness bounds as in NEUTRON's task. The structure columns hold a
     1-layer placeholder: these targets have no ground-truth stack (test_eval
-    reports it, nothing uses it)."""
+    reports it, nothing uses it).
+    back_metal: every free row (materials chosen by INDIGO) must end in their
+    geometry's back reflector, layer 5 from their metal list at 100 nm, so the
+    stack is opaque and their glass-and-air backside does not enter (run with
+    LAYER_COUNT=5). Layers 1 to 4 stay free over the whole pool."""
     import pandas as pd
     t = json.load(open(targets_json))["targets"]
     if sets:
@@ -439,6 +444,7 @@ def write_testset(repo: Path, targets_json: Path, out_dir: Path,
     for i, x in enumerate(t):
         row_task = their_task and bool(x.get("materials"))
         x["their_task"] = row_task
+        x["back_metal"] = back_metal and not row_task
         if row_task:
             names = list(dict.fromkeys(x["materials"]))     # unique, in layer order
             pool = [mats[n] for n in names]
@@ -449,10 +455,16 @@ def write_testset(repo: Path, targets_json: Path, out_dir: Path,
                    for k, (lo, hi) in enumerate(THEIR_BOUNDS)]}
         else:
             pool = [mats[n] for n in MATERIALS if n not in x.get("exclude", [])]
-            if their_task:
-                # Explicitly free: test_eval refuses a row missing from the file.
+            cons = []
+            if x["back_metal"]:
+                cons = [{"kind": "layer_from_set", "position": 4,
+                         "materials": [m.name for m in pool if m.name in M]},
+                        {"kind": "thickness_range", "position": 4,
+                         "min_nm": THEIR_BOUNDS[4][0], "max_nm": THEIR_BOUNDS[4][1]}]
+            if their_task or back_metal:
+                # Explicit even when free: test_eval refuses a row missing from the file.
                 row_constraints[str(i)] = {"lab": x["lab"], "materials": None,
-                                           "constraints": []}
+                                           "constraints": cons}
         rows.append({"lab": json.dumps([float(v) for v in x["lab"]]), "pool_size": len(pool),
                      "pool_n": [m.n.tolist() for m in pool], "pool_k": [m.k.tolist() for m in pool],
                      "pool_names": [m.name for m in pool], "pool_sources": [m.source for m in pool],
@@ -464,7 +476,7 @@ def write_testset(repo: Path, targets_json: Path, out_dir: Path,
     pd.DataFrame(rows).to_parquet(shard_dir / "shard_000000.parquet", index=False)
     json.dump([{"row": i, **x} for i, x in enumerate(t)],
               open(out_dir / "targets_index.json", "w"))
-    if their_task:
+    if their_task or back_metal:
         json.dump({"rows": row_constraints, "blends_skipped": n_blend},
                   open(out_dir / "row_constraints.json", "w"))
         if n_blend:
@@ -532,6 +544,22 @@ def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) 
                                matches_row_materials=ok,
                                within_bounds=all(lo <= x <= hi for x, (lo, hi)
                                                  in zip(t, THEIR_BOUNDS)))
+                elif meta.get("back_metal") and all(n in nk for n in names):
+                    # Free materials, their geometry: 5 layers, the last an
+                    # opaque 100 nm metal, scored with their exact inc_list.
+                    bnd = [(0, 10 ** 6)] * 4 + [THEIR_BOUNDS[4]]
+                    lab = their_lab_from_R(their_reflectance([nk[n] for n in names], t))
+                    lab_i = their_lab_from_R(their_reflectance([nk[n] for n in names],
+                                                               [int(x) for x in t]))
+                    ts = snap_int_nm(ours, names, t, r["target_lab"], bnd)
+                    lab_s = their_lab_from_R(their_reflectance([nk[n] for n in names], ts))
+                    ent.update(materials=names, thickness_nm=t, lab_theirs=lab.tolist(),
+                               dE_theirs=de2000(lab, r["target_lab"]),
+                               dE_theirs_int_nm=de2000(lab_i, r["target_lab"]),
+                               thickness_snap_nm=ts,
+                               dE_theirs_int_snap=de2000(lab_s, r["target_lab"]),
+                               back_metal_ok=(len(names) == 5 and names[4] in M
+                                              and abs(t[4] - 100) < 1e-6))
                 elif all(n in nk for n in names):
                     lab = their_lab_from_R(their_reflectance([nk[n] for n in names], t,
                                                              template=False))
@@ -584,6 +612,9 @@ def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) 
                                     "neither": int(np.sum(~mine & ~theirs))}
             e["n_off_task"] = int(sum(1 for x in g if x.get("matches_row_materials") is False
                                       or x.get("within_bounds") is False))
+        bm = [x for x in g if "back_metal_ok" in x]
+        if bm:
+            e["n_back_metal_violations"] = int(sum(1 for x in bm if not x["back_metal_ok"]))
         if sname.startswith("picture:"):
             lab_ = PICTURES.get(sname.split(":", 1)[1])
             e["reported_table2"] = REPORTED_PICTURES.get(lab_)
@@ -629,6 +660,9 @@ def main() -> None:
                         "with probability proportional to pixel count")
     p.add_argument("--their-task", action="store_true",
                    help="testset: each row's own 5 materials and their thickness bounds")
+    p.add_argument("--back-metal", action="store_true",
+                   help="testset: free rows end in their back reflector (layer 5 from their "
+                        "metals, 100 nm); use with LAYER_COUNT=5")
     p.add_argument("--run-dir", default=None)
     p.add_argument("--index", default=None,
                    help="targets_index.json from the test folder, for per-set results")
@@ -646,7 +680,7 @@ def main() -> None:
     elif a.command == "testset":
         n = write_testset(repo, Path(a.targets), Path(a.out or "data/neutron_test/tier_a"),
                           a.sets, a.limit, a.seed, their_task=a.their_task,
-                          per_picture=a.per_picture)
+                          per_picture=a.per_picture, back_metal=a.back_metal)
         print(f"wrote {n} rows")
     else:
         r = rescore(repo, Path(a.run_dir), Path(a.out or "results/neutron/rescore.json"),

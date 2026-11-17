@@ -65,7 +65,7 @@ from inference.src.generate import load_inference_model
 from inference.src.schema import (
     InferenceKnobs, InferenceSpec, MaterialEntry,
 )
-from inference.src.constraints import LayerCount, LayerIdentity, ThicknessRange
+from inference.src.constraints import LayerCount, LayerIdentity, LayerFromSet, ThicknessRange
 from inference.src.solve import solve
 from inference.src.visualize import render_result
 
@@ -89,6 +89,9 @@ def _constraint_from_dict(d: Dict[str, Any]):
     task needs: a fixed material at a layer, and a thickness range."""
     if d["kind"] == "layer_identity":
         return LayerIdentity(position=int(d["position"]), material_name=str(d["material"]))
+    if d["kind"] == "layer_from_set":
+        return LayerFromSet(position=int(d["position"]),
+                            material_names=tuple(str(m) for m in d["materials"]))
     if d["kind"] == "thickness_range":
         return ThicknessRange(min_nm=int(d["min_nm"]), max_nm=int(d["max_nm"]),
                               position=d.get("position"))

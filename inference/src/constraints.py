@@ -202,6 +202,34 @@ class LayerIdentity(Constraint):
 
 
 @dataclass(frozen=True)
+class LayerFromSet(Constraint):
+    """Layer at `position` must use one of `material_names` (any of them).
+    Used by benchmarks whose geometry fixes a role, not a material: e.g. an
+    opaque back metal chosen from a list."""
+    kind: str = "layer_from_set"
+    params: Dict[str, object] = field(default_factory=dict)
+    position: int = 0
+    material_names: Tuple[str, ...] = ()
+
+    def check(self, fs: FinishedStructure, pool: List[MaterialEntry]) -> bool:
+        if self.position >= len(fs.slot_indices):
+            return False
+        return pool[fs.slot_indices[self.position]].canonical_name in self.material_names
+
+    def decode_mask(self, p: PartialStructure, pool: List[MaterialEntry]
+                    ) -> Optional[np.ndarray]:
+        if p.step != self.position:
+            return None
+        mask = np.zeros(VOCAB_SIZE, dtype=bool)
+        allowed = set(self.material_names)
+        for s in range(p.pool_size):
+            if pool[s].canonical_name in allowed:
+                _mask_slot(mask, s, allow=True)
+        mask[EOS_TOKEN] = False  # a layer is promised here
+        return mask
+
+
+@dataclass(frozen=True)
 class AdjacentForbidden(Constraint):
     """The pair (name_a, name_b) may not be adjacent in the stack (either order)."""
     kind: str = "adjacent_forbidden"

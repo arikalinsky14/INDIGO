@@ -13,6 +13,8 @@
 #   outputs/lr_curves/cross_attn/    -> results/lr_curves/        learning-rate curves (prod included)
 #   outputs/lr_search/               -> results/lr_search/        the scaling study's tuning runs
 #   outputs/isoflop_confirm/cross_attn/ -> results/isoflop_confirm/
+#   outputs/paper/                   -> results/paper_runs/       paper test_eval runs
+#   outputs/neutron/, neutron_final/ -> results/neutron_runs/, neutron_final_runs/
 #   data/checkpoints/production/     -> results/production/       PRODUCTION.json, config, meta; no model.pt
 #
 # and analyses/*/results/ (already tracked) is added in place. Only result
@@ -39,6 +41,7 @@ pairs=(
   "outputs/isoflop_confirm/cross_attn/:results/isoflop_confirm/"
   "outputs/paper/:results/paper_runs/"
   "outputs/neutron/:results/neutron_runs/"
+  "outputs/neutron_final/:results/neutron_final_runs/"
   "data/checkpoints/production/:results/production/"
 )
 
