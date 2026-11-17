@@ -14,7 +14,7 @@ Stages follow inference/src/solve.py:
 All curves, stacks and colors are illustrative glyphs. Nothing is read from
 results. Edit wording in LABELS.
 
-    python scripts/figures/fig1_pipeline.py
+    python scripts/paper_figures/fig1_pipeline.py
 """
 from __future__ import annotations
 
@@ -293,9 +293,9 @@ def main():
     S.save(fig, "fig1_pipeline")
     toc = toc_figure()
     S.save_tiff(toc, "toc_graphic")
-    toc.savefig(S.OUT_DIR / "toc_graphic.pdf")
+    toc.savefig(S.OUT_DIR / "toc_graphic.pdf", metadata={"CreationDate": None})
     S.write_provenance(
-        "Fig 1", "`scripts/figures/fig1_pipeline.py` -> `fig1_pipeline.{pdf,png}` (17 cm) and "
+        "Fig 1", "`scripts/paper_figures/fig1_pipeline.py` -> `fig1_pipeline.{pdf,png}` (17 cm) and "
         "`toc_graphic.{tiff,pdf}` (8 x 4 cm, 600 dpi). Schematic, no data. Stage order and "
         "semantics from inference/src/solve.py (generate -> simulate/select -> refine), "
         "constraint gate from generate.py (decode masks ANDed into next-layer logits), "

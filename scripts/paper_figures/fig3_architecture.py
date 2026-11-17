@@ -18,7 +18,7 @@ Structure follows src/model.py FlexMaterialCrossAttn:
      (eos_head) = M_MAX * NUM_THICKNESSES + 1 choices.
 Attention internals are deliberately not drawn. Edit wording in LABELS.
 
-    python scripts/figures/fig3_architecture.py
+    python scripts/paper_figures/fig3_architecture.py
 """
 from __future__ import annotations
 
@@ -264,7 +264,7 @@ def main():
 
     S.save(fig, "fig3_architecture")
     S.write_provenance(
-        "Fig 3", "`scripts/figures/fig3_architecture.py` -> `fig3_architecture.{pdf,png}`. "
+        "Fig 3", "`scripts/paper_figures/fig3_architecture.py` -> `fig3_architecture.{pdf,png}`. "
         "Schematic. Sizes read at run time: src/materials_vocab.py {M_MAX=32, NUM_THICKNESSES=100, "
         "THICKNESSES 2-200 nm, VOCAB_SIZE=3201, MAX_LAYERS=10}, src/material_features.py NUM_LAMBDA=128, "
         "results/production/current/config.json {d_model=352, slot_encoder_layers=6, decoder_layers=1}. "

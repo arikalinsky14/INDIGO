@@ -17,7 +17,7 @@ porian_fit_tuned.json. The curves, stars, error bars and band are recomputed
 with src.scaling.porian exactly as plot_porian.py does, and the script refuses
 to write if the recomputed exponent disagrees with the JSON.
 
-    python scripts/figures/fig8_scaling.py
+    python scripts/paper_figures/fig8_scaling.py
 """
 from __future__ import annotations
 
@@ -139,7 +139,7 @@ def main() -> None:
 
     S.save(fig, "fig8_scaling")
     S.write_provenance(
-        "Fig 8", "`scripts/figures/fig8_scaling.py` -> `fig8_scaling.{pdf,png}`. "
+        "Fig 8", "`scripts/paper_figures/fig8_scaling.py` -> `fig8_scaling.{pdf,png}`. "
         "Points/curves: `analyses/scaling/results/tuned/isoflop_tuned.json` runs[]."
         "{n_params, flops, passes, val_de.pooled} (55 runs, 6 budgets; top budget "
         "minimum on edge, excluded). Exponent label: `porian_fit_tuned.json` "

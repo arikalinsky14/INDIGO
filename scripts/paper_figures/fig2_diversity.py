@@ -19,7 +19,7 @@ Targets whose simulated color is not a physical CIELAB color (L* outside
 [0, 100] or C* > 150; e.g. a* = -837) are left out and counted in the
 provenance line. They are a data-generation issue to chase separately.
 
-    python scripts/figures/fig2_diversity.py [--jll-materials-dir DIR]
+    python scripts/paper_figures/fig2_diversity.py [--jll-materials-dir DIR]
 """
 from __future__ import annotations
 
@@ -205,7 +205,7 @@ def main():
     al2o3 = next((m for m in held_out if m.name == "Al2O3"), None)
     cA, cB = counts["A"], counts["B"]
     S.write_provenance(
-        "Fig 2", "`scripts/figures/fig2_diversity.py` -> `fig2_diversity.{pdf,png}`. "
+        "Fig 2", "`scripts/paper_figures/fig2_diversity.py` -> `fig2_diversity.{pdf,png}`. "
         f"(a) n, k at CANONICAL_LAMBDA_NM[{IDX}] = {CANONICAL_LAMBDA_NM[IDX]:.1f} nm. Reals: "
         "JaxLayerLumos 0.3.3 CSVs via load_jll_directory, split by create_dataset/src/pool_sampler.py "
         f"split_jll_real ({len(held_in)} held-in, {len(held_out)} held-out = HELD_OUT_REAL_MATERIALS). "
