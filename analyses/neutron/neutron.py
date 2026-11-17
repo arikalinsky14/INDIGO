@@ -54,12 +54,23 @@ M = ['Ag', 'Al', 'Ni', 'Ge', 'Ti', 'Zn', 'Cr', 'Cu', 'Au', 'W']
 MATERIALS = D + M
 THEIR_WL_NM = np.arange(400, 701, 10)          # their np.arange(0.4, 0.701, 0.01) um
 GLASS_N, GLASS_NM = 1.5, 5000.0                 # the value their PSO and notebook use
+# Their task: dielectric / absorber / absorber / dielectric / back metal, with
+# these thickness bounds (paper p. 4-5; GlobalBestPSO bounds in their code).
+# INDIGO's thickness grid stops at 200 nm, so its dielectrics search 5 to 200,
+# a subset of theirs: that can only make INDIGO's numbers worse.
+THEIR_BOUNDS = [(5, 250), (5, 15), (5, 15), (5, 250), (100, 100)]
 CR_DESIGN = (['HfO2', 'W', 'Ge', 'SiO2', 'Zn'], [105.0, 15.0, 10.0, 83.0, 100.0])
 # What the paper reports (Wang & Guo 2022; results/neutron/neutron_extraction.md).
 # Table 1: their five chrome designs, Cr excluded from the materials, all
 # below DeltaE00 2 after PSO; design I is CR_DESIGN at 0.8. (The notebook's
 # 2.35 compares the target with an 8-bit sRGB triple, not a design.)
 REPORTED_CR_DE = {"I": 0.8, "II": 1.2, "III": 1.4, "IV": 1.6, "V": 1.6}
+# Table 1's material combinations, top to bottom (back metal 100 nm).
+TABLE1_COMBOS = {"I": ["HfO2", "W", "Ge", "SiO2", "Zn"],
+                 "II": ["HfO2", "Zn", "Ge", "Al2O3", "Ni"],
+                 "III": ["SiO2", "Ag", "Ge", "SiO2", "Au"],
+                 "IV": ["HfO2", "Zn", "Ge", "Al2O3", "Au"],
+                 "V": ["HfO2", "Zn", "Ge", "MgF2", "Au"]}
 CR_TARGET_LAB = [84.96137356, -0.24662783, -3.42720451]    # notebook cell 48
 # Table 2: DeltaE00 averaged over each image (pixel-weighted), and the PSO
 # stage's time in seconds. One material combination per picture, chosen by
@@ -313,6 +324,27 @@ def picture_rgbs(path: Path, quantize: str = "floor", counts: bool = False):
     return np.unique(q, axis=0, return_counts=counts)
 
 
+def _row_materials(d: dict, i: int, lib: Dict[str, np.ndarray]) -> Optional[List[str]]:
+    """The 5 materials of test row i, top to bottom, or None for a blend."""
+    if "mats" in d:
+        m = list(d["mats"][i])
+        alphas = np.asarray(d["alphas"][i]) if "alphas" in d else np.ones(5)
+        if len(m) == 10 and m[:5] == m[5:] and np.allclose(alphas, 1):
+            return [str(x) for x in m[:5]]
+        if len(m) == 5:
+            return [str(x) for x in m]
+        return None
+    out = []
+    for nk in list(d["nk_dict"][i].values()):
+        nk = np.asarray(nk)
+        hits = [n for n, ref in lib.items()
+                if ref.shape == nk.shape and np.max(np.abs(ref - nk)) < 1e-4 * (1 + np.max(np.abs(ref)))]
+        if len(hits) != 1:
+            return None
+        out.append(hits[0])
+    return out
+
+
 def build_targets(repo: Path, out: Path, test_pkl: Optional[Path], quantize: str) -> dict:
     targets = []
     lab_cr = their_lab_from_R(their_reflectance([their_nk(repo, 'Cr')] * 5, [20.0] * 5))
@@ -321,6 +353,12 @@ def build_targets(repo: Path, out: Path, test_pkl: Optional[Path], quantize: str
     # Cr is excluded from the materials in their chrome experiment.
     targets.append({"set": "cr", "name": "Cr 5x20nm", "lab": lab_cr.tolist(),
                     "exclude": ["Cr"]})
+    # Their task on chrome: each of Table 1's five combinations, materials
+    # fixed, thicknesses free within their bounds.
+    for k, combo in TABLE1_COMBOS.items():
+        targets.append({"set": f"cr_table1:{k}", "name": f"Cr, Table 1 design {k}",
+                        "lab": lab_cr.tolist(), "materials": combo,
+                        "reported_dE": REPORTED_CR_DE[k]})
     counts = {}
     for pic, label in PICTURES.items():
         p = repo / "photo_data" / f"{pic}.jpg"
@@ -329,16 +367,30 @@ def build_targets(repo: Path, out: Path, test_pkl: Optional[Path], quantize: str
         rgbs, n_px = picture_rgbs(p, quantize, counts=True)
         counts[pic] = {"label": label, "floor": len(picture_rgbs(p, "floor")),
                        "round": len(picture_rgbs(p, "round")), "pixels": int(n_px.sum())}
+        # Their task on pictures: the one combination NEUTRON chose for the
+        # whole picture (Table 2), fixed for every colour.
+        combo = REPORTED_PICTURES[label]["materials"].split("/")
         for rgb, n in zip(rgbs, n_px):
             targets.append({"set": f"picture:{pic}", "rgb": rgb.tolist(),
-                            "lab": rgb_to_lab(rgb).tolist(), "pixels": int(n)})
+                            "lab": rgb_to_lab(rgb).tolist(), "pixels": int(n),
+                            "materials": combo})
     if test_pkl:
         import pickle
         d = pickle.load(open(test_pkl, "rb"))
+        # Each row carries their data-generation PSO's result on the row's own
+        # fixed materials (random-init PSO, 32 particles, <= 100 iterations;
+        # about 25% reached DeltaE00 <= 2): the per-row baseline for their task.
+        # The 5 materials are read from the row ('mats', primitive rows) or
+        # identified from its n,k; a row matching no single material per layer
+        # (a blend) gets materials None and is not run.
+        lib = {n: their_nk(repo, n) for n in MATERIALS}
         for i, (lab, rgb) in enumerate(zip(d["target_Lab"], d["target_RGB"])):
             targets.append({"set": "testset", "index": i, "rgb": np.asarray(rgb).tolist(),
                             "lab": np.asarray(lab, float).tolist(),
-                            "their_deltaE": float(d["deltaE"][i]) if "deltaE" in d else None})
+                            "materials": _row_materials(d, i, lib),
+                            "label_pso_acc": int(d["acc"][i]) if "acc" in d else None,
+                            "label_pso_deltaE": (float(d["deltaE"][i]) if "deltaE" in d
+                                                 else None)})
     res = {"quantize": quantize, "picture_counts": counts, "materials": MATERIALS,
            "n_targets": len(targets), "targets": targets}
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -347,21 +399,60 @@ def build_targets(repo: Path, out: Path, test_pkl: Optional[Path], quantize: str
 
 
 def write_testset(repo: Path, targets_json: Path, out_dir: Path,
-                  sets: Optional[List[str]], limit: int, seed: int) -> int:
-    """One parquet shard, INDIGO's schema, one row per target, pool = the 20
-    NEUTRON materials. The structure columns hold a 1-layer placeholder: these
-    targets have no ground-truth stack (test_eval reports it, nothing uses it)."""
+                  sets: Optional[List[str]], limit: int, seed: int,
+                  their_task: bool = False, per_picture: int = 0) -> int:
+    """One parquet shard, INDIGO's schema, one row per target. Default pool:
+    the 20 NEUTRON materials (minus a target's exclusions), INDIGO choosing.
+    their_task: each row's pool is its own 5 materials, and row_constraints.json
+    (for test_eval.py --row-constraints) fixes each layer's material and
+    thickness bounds as in NEUTRON's task. The structure columns hold a
+    1-layer placeholder: these targets have no ground-truth stack (test_eval
+    reports it, nothing uses it)."""
     import pandas as pd
     t = json.load(open(targets_json))["targets"]
     if sets:
         t = [x for x in t if any(x["set"] == s or x["set"].startswith(s + ":") for s in sets)]
+    if per_picture:
+        # Each picture: per_picture colours drawn WITH replacement, with
+        # probability proportional to pixel count. The plain mean of their
+        # DeltaE00 then estimates the image-averaged DeltaE00 (Table 2's
+        # metric) without bias; rescore bootstraps its interval.
+        rng = np.random.default_rng(seed)
+        keep = [x for x in t if not x["set"].startswith("picture:")]
+        for pset in sorted({x["set"] for x in t if x["set"].startswith("picture:")}):
+            g = [x for x in t if x["set"] == pset]
+            w = np.array([x["pixels"] for x in g], float)
+            for j in rng.choice(len(g), per_picture, replace=True, p=w / w.sum()):
+                keep.append({**g[j], "pps": True})
+        t = keep
+    n_blend = 0
+    if their_task:
+        # Rows with materials take their task; the others (a blended test row,
+        # or the chrome free-choice row) stay free over the pool.
+        n_blend = sum(1 for x in t if x["set"] == "testset" and not x.get("materials"))
+        t = [x for x in t if not (x["set"] == "testset" and not x.get("materials"))]
     if limit and len(t) > limit:
         idx = np.sort(np.random.default_rng(seed).choice(len(t), limit, replace=False))
         t = [t[i] for i in idx]
     mats = our_materials(repo)
-    rows = []
-    for x in t:
-        pool = [mats[n] for n in MATERIALS if n not in x.get("exclude", [])]
+    rows, row_constraints = [], {}
+    for i, x in enumerate(t):
+        row_task = their_task and bool(x.get("materials"))
+        x["their_task"] = row_task
+        if row_task:
+            names = list(dict.fromkeys(x["materials"]))     # unique, in layer order
+            pool = [mats[n] for n in names]
+            row_constraints[str(i)] = {"lab": x["lab"], "materials": x["materials"], "constraints":
+                [{"kind": "layer_identity", "position": k, "material": m}
+                 for k, m in enumerate(x["materials"])]
+                + [{"kind": "thickness_range", "position": k, "min_nm": lo, "max_nm": hi}
+                   for k, (lo, hi) in enumerate(THEIR_BOUNDS)]}
+        else:
+            pool = [mats[n] for n in MATERIALS if n not in x.get("exclude", [])]
+            if their_task:
+                # Explicitly free: test_eval refuses a row missing from the file.
+                row_constraints[str(i)] = {"lab": x["lab"], "materials": None,
+                                           "constraints": []}
         rows.append({"lab": json.dumps([float(v) for v in x["lab"]]), "pool_size": len(pool),
                      "pool_n": [m.n.tolist() for m in pool], "pool_k": [m.k.tolist() for m in pool],
                      "pool_names": [m.name for m in pool], "pool_sources": [m.source for m in pool],
@@ -373,6 +464,12 @@ def write_testset(repo: Path, targets_json: Path, out_dir: Path,
     pd.DataFrame(rows).to_parquet(shard_dir / "shard_000000.parquet", index=False)
     json.dump([{"row": i, **x} for i, x in enumerate(t)],
               open(out_dir / "targets_index.json", "w"))
+    if their_task:
+        json.dump({"rows": row_constraints, "blends_skipped": n_blend},
+                  open(out_dir / "row_constraints.json", "w"))
+        if n_blend:
+            print(f"[testset] {n_blend} blended row(s) skipped: their materials are not "
+                  "single library materials")
     return len(rows)
 
 
@@ -391,10 +488,24 @@ def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) 
             ent = {"row_idx": r["row_idx"], "target_lab": r.get("target_lab"),
                    "dE_ours": r.get("delta_e"), "wall_time_s": r.get("wall_time_s"),
                    "file": rp}
+            meta = idx.get(r["row_idx"], {})
             if r.get("layers"):
                 names = [l["material"] for l in r["layers"]]
                 t = [l["thickness_nm"] for l in r["layers"]]
-                if all(n in nk for n in names):
+                if meta.get("their_task"):
+                    # Their task: their exact template (5th layer and glass
+                    # incoherent), thicknesses as is and truncated to whole nm.
+                    ok = names == meta.get("materials")
+                    lab = their_lab_from_R(their_reflectance([nk[n] for n in names], t))
+                    lab_i = their_lab_from_R(their_reflectance([nk[n] for n in names],
+                                                               [int(x) for x in t]))
+                    ent.update(materials=names, thickness_nm=t, lab_theirs=lab.tolist(),
+                               dE_theirs=de2000(lab, r["target_lab"]),
+                               dE_theirs_int_nm=de2000(lab_i, r["target_lab"]),
+                               matches_row_materials=ok,
+                               within_bounds=all(lo <= x <= hi for x, (lo, hi)
+                                                 in zip(t, THEIR_BOUNDS)))
+                elif all(n in nk for n in names):
                     lab = their_lab_from_R(their_reflectance([nk[n] for n in names], t,
                                                              template=False))
                     lab_i = their_lab_from_R(their_reflectance([nk[n] for n in names],
@@ -405,8 +516,9 @@ def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) 
                                dE_theirs_int_nm=de2000(lab_i, r["target_lab"]))
                 else:
                     ent["untraceable"] = f"materials not in the NEUTRON set: {names}"
-            meta = idx.get(r["row_idx"], {})
             ent["set"], ent["pixels"] = meta.get("set"), meta.get("pixels")
+            ent["pps"], ent["reported_dE"] = meta.get("pps", False), meta.get("reported_dE")
+            ent["label_pso_acc"] = meta.get("label_pso_acc")
             rows_out.append(ent)
     by_set = {}
     for sname in sorted({x["set"] for x in rows_out if x["set"]}):
@@ -416,9 +528,35 @@ def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) 
             v = np.array([x[key] if x.get(key) is not None else math.inf for x in g])
             e[key] = {"acc_le2": float(np.mean(v <= 2)), "median": float(np.median(v)),
                       "mean": float(np.mean(v))}
-            if sname.startswith("picture:") and all(x.get("pixels") for x in g):
+            if sname.startswith("picture:") and all(x.get("pps") for x in g):
+                # Pixel-proportional sample: the plain mean estimates the
+                # image-averaged DeltaE00; 95% bootstrap interval.
+                bs = np.random.default_rng(0).choice(v, size=(2000, len(v))).mean(axis=1)
+                e[key]["image_mean_estimate"] = {"est": float(np.mean(v)),
+                                                 "lo": float(np.percentile(bs, 2.5)),
+                                                 "hi": float(np.percentile(bs, 97.5))}
+            elif sname.startswith("picture:") and all(x.get("pixels") for x in g):
                 w = np.array([x["pixels"] for x in g], float)
                 e[key]["pixel_weighted_mean"] = float(np.sum(w * v) / np.sum(w))
+        lab_acc = [x["label_pso_acc"] for x in g if x.get("label_pso_acc") is not None]
+        if lab_acc:
+            e["label_pso_acc_le2"] = float(np.mean(lab_acc))
+        if len(lab_acc) == len(g) and g:
+            # Row for row against their PSO label, on whole-nm thicknesses.
+            mine = np.array([(x.get("dE_theirs_int_nm") if x.get("dE_theirs_int_nm") is not None
+                              else math.inf) <= 2 for x in g])
+            theirs = np.array(lab_acc, bool)
+            e["paired_vs_label"] = {"both": int(np.sum(mine & theirs)),
+                                    "indigo_only": int(np.sum(mine & ~theirs)),
+                                    "label_only": int(np.sum(~mine & theirs)),
+                                    "neither": int(np.sum(~mine & ~theirs))}
+            e["n_off_task"] = int(sum(1 for x in g if x.get("matches_row_materials") is False
+                                      or x.get("within_bounds") is False))
+        if sname.startswith("picture:"):
+            lab_ = PICTURES.get(sname.split(":", 1)[1])
+            e["reported_table2"] = REPORTED_PICTURES.get(lab_)
+        if g[0].get("reported_dE") is not None:
+            e["reported_table1_dE"] = g[0]["reported_dE"]
         e["n"] = len(g)
         e["wall_time_s_sum"] = float(sum(x["wall_time_s"] or 0 for x in g))
         by_set[sname] = e
@@ -454,6 +592,11 @@ def main() -> None:
     p.add_argument("--sets", nargs="*", default=None, help="e.g. cr picture testset")
     p.add_argument("--limit", type=int, default=0, help="random subset of targets")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--per-picture", type=int, default=0,
+                   help="testset: per picture, this many colours drawn with replacement "
+                        "with probability proportional to pixel count")
+    p.add_argument("--their-task", action="store_true",
+                   help="testset: each row's own 5 materials and their thickness bounds")
     p.add_argument("--run-dir", default=None)
     p.add_argument("--index", default=None,
                    help="targets_index.json from the test folder, for per-set results")
@@ -470,7 +613,8 @@ def main() -> None:
         print(f"{r['n_targets']} targets; pictures {r['picture_counts']}")
     elif a.command == "testset":
         n = write_testset(repo, Path(a.targets), Path(a.out or "data/neutron_test/tier_a"),
-                          a.sets, a.limit, a.seed)
+                          a.sets, a.limit, a.seed, their_task=a.their_task,
+                          per_picture=a.per_picture)
         print(f"wrote {n} rows")
     else:
         r = rescore(repo, Path(a.run_dir), Path(a.out or "results/neutron/rescore.json"),

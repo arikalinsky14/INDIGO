@@ -107,6 +107,9 @@ PROPOSER="${PROPOSER:-model}"
 LAYER_COUNT="${LAYER_COUNT:-0}"
 # SPLIT=all reads every row (small benchmark sets); train is the historical default.
 SPLIT="${SPLIT:-train}"
+# ROW_CONSTRAINTS=<json>: per-row constraints (a benchmark's own task), e.g.
+# NEUTRON's fixed material per layer and thickness bounds.
+ROW_CONSTRAINTS="${ROW_CONSTRAINTS:-}"
 
 # Sim-feedback residual conditioning at inference. Match to the checkpoint:
 # only checkpoints finetuned with --sim-feedback have non-zero
@@ -159,6 +162,9 @@ ARGS=(
   --split "${SPLIT}"
 )
 
+if [[ -n "${ROW_CONSTRAINTS}" ]]; then
+    ARGS+=(--row-constraints "${ROW_CONSTRAINTS}")
+fi
 if [[ "${SIM_FEEDBACK}" == "1" ]]; then
     ARGS+=(--sim-feedback)
 fi
@@ -194,6 +200,7 @@ echo "  sim_feedback:      ${SIM_FEEDBACK}"
 echo "  proposer:          ${PROPOSER}"
 echo "  layer_count:       ${LAYER_COUNT} (0 = free)"
 echo "  split:             ${SPLIT}"
+echo "  row constraints:   ${ROW_CONSTRAINTS:-none}"
 echo
 echo "Output:"
 echo "  Root:              ${OUTPUT_DIR}"
