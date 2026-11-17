@@ -1,0 +1,1825 @@
+{
+  "run": "results/neutron_runs/pilot_model",
+  "n": 30,
+  "acc_le2_their_physics": 0.8,
+  "acc_le2_our_physics": 0.8,
+  "median_dE_their_physics": 0.7499830565352279,
+  "median_dE_our_physics": 0.5851766753359218,
+  "wall_time_s_per_target": {
+    "mean": 296.3664885918299,
+    "median": 308.53299164772034,
+    "n": 30
+  },
+  "failed_rows_count_as_failures": true,
+  "by_set": {
+    "cr": {
+      "dE_theirs": {
+        "acc_le2": 1.0,
+        "median": 0.38464070061607897,
+        "mean": 0.38464070061607897
+      },
+      "dE_theirs_int_nm": {
+        "acc_le2": 1.0,
+        "median": 1.0269013014067487,
+        "mean": 1.0269013014067487
+      },
+      "dE_theirs_int_snap": {
+        "acc_le2": 1.0,
+        "median": 0.2318855760159703,
+        "mean": 0.2318855760159703
+      },
+      "dE_ours": {
+        "acc_le2": 1.0,
+        "median": 0.134339603684593,
+        "mean": 0.134339603684593
+      },
+      "n": 1,
+      "wall_time_s_sum": 223.280424118042
+    },
+    "cr_table1:I": {
+      "dE_theirs": {
+        "acc_le2": 1.0,
+        "median": 0.7301819342390917,
+        "mean": 0.7301819342390917
+      },
+      "dE_theirs_int_nm": {
+        "acc_le2": 1.0,
+        "median": 0.8628703492593682,
+        "mean": 0.8628703492593682
+      },
+      "dE_theirs_int_snap": {
+        "acc_le2": 1.0,
+        "median": 0.7376397961662738,
+        "mean": 0.7376397961662738
+      },
+      "dE_ours": {
+        "acc_le2": 1.0,
+        "median": 0.05623769235913199,
+        "mean": 0.05623769235913199
+      },
+      "reported_table1_dE": 0.8,
+      "n": 1,
+      "wall_time_s_sum": 316.63038420677185
+    },
+    "cr_table1:II": {
+      "dE_theirs": {
+        "acc_le2": 1.0,
+        "median": 0.14305735668362227,
+        "mean": 0.14305735668362227
+      },
+      "dE_theirs_int_nm": {
+        "acc_le2": 1.0,
+        "median": 0.89359842542838,
+        "mean": 0.89359842542838
+      },
+      "dE_theirs_int_snap": {
+        "acc_le2": 1.0,
+        "median": 0.20145903829148099,
+        "mean": 0.20145903829148099
+      },
+      "dE_ours": {
+        "acc_le2": 1.0,
+        "median": 0.14396788599795818,
+        "mean": 0.14396788599795818
+      },
+      "reported_table1_dE": 1.2,
+      "n": 1,
+      "wall_time_s_sum": 297.7575843334198
+    },
+    "cr_table1:III": {
+      "dE_theirs": {
+        "acc_le2": 1.0,
+        "median": 1.3593348341590827,
+        "mean": 1.3593348341590827
+      },
+      "dE_theirs_int_nm": {
+        "acc_le2": 1.0,
+        "median": 1.3749611058221056,
+        "mean": 1.3749611058221056
+      },
+      "dE_theirs_int_snap": {
+        "acc_le2": 1.0,
+        "median": 1.3325063191757924,
+        "mean": 1.3325063191757924
+      },
+      "dE_ours": {
+        "acc_le2": 1.0,
+        "median": 1.3129293225875853,
+        "mean": 1.3129293225875853
+      },
+      "reported_table1_dE": 1.4,
+      "n": 1,
+      "wall_time_s_sum": 317.8769974708557
+    },
+    "cr_table1:IV": {
+      "dE_theirs": {
+        "acc_le2": 1.0,
+        "median": 0.1791961774679722,
+        "mean": 0.1791961774679722
+      },
+      "dE_theirs_int_nm": {
+        "acc_le2": 1.0,
+        "median": 0.8308693015012661,
+        "mean": 0.8308693015012661
+      },
+      "dE_theirs_int_snap": {
+        "acc_le2": 1.0,
+        "median": 0.19822811780148397,
+        "mean": 0.19822811780148397
+      },
+      "dE_ours": {
+        "acc_le2": 1.0,
+        "median": 0.17064605302509156,
+        "mean": 0.17064605302509156
+      },
+      "reported_table1_dE": 1.6,
+      "n": 1,
+      "wall_time_s_sum": 289.90266513824463
+    },
+    "cr_table1:V": {
+      "dE_theirs": {
+        "acc_le2": 1.0,
+        "median": 0.6578353552300514,
+        "mean": 0.6578353552300514
+      },
+      "dE_theirs_int_nm": {
+        "acc_le2": 1.0,
+        "median": 0.7020084556529868,
+        "mean": 0.7020084556529868
+      },
+      "dE_theirs_int_snap": {
+        "acc_le2": 1.0,
+        "median": 0.6743895218819255,
+        "mean": 0.6743895218819255
+      },
+      "dE_ours": {
+        "acc_le2": 1.0,
+        "median": 0.589589816634474,
+        "mean": 0.589589816634474
+      },
+      "reported_table1_dE": 1.6,
+      "n": 1,
+      "wall_time_s_sum": 286.89060378074646
+    },
+    "picture:flower_guo_group": {
+      "dE_theirs": {
+        "acc_le2": 1.0,
+        "median": 0.8552706837623547,
+        "mean": 0.6955354345485021,
+        "image_mean_estimate": {
+          "est": 0.6955354345485021,
+          "lo": 0.36339868118692525,
+          "hi": 0.9908084018751703
+        }
+      },
+      "dE_theirs_int_nm": {
+        "acc_le2": 0.16666666666666666,
+        "median": 4.509542293856645,
+        "mean": 5.404689239877295,
+        "image_mean_estimate": {
+          "est": 5.404689239877295,
+          "lo": 3.0030782135092493,
+          "hi": 7.996198636638908
+        }
+      },
+      "dE_theirs_int_snap": {
+        "acc_le2": 0.8333333333333334,
+        "median": 0.9966534042723649,
+        "mean": 1.0780073335565186,
+        "image_mean_estimate": {
+          "est": 1.0780073335565186,
+          "lo": 0.659808111052025,
+          "hi": 1.5664161575718711
+        }
+      },
+      "dE_ours": {
+        "acc_le2": 1.0,
+        "median": 0.6210242335004387,
+        "mean": 0.6304994767928241,
+        "image_mean_estimate": {
+          "est": 0.6304994767928241,
+          "lo": 0.31260229081866403,
+          "hi": 0.9503691674223906
+        }
+      },
+      "reported_table2": {
+        "materials": "Ta2O5/Au/Ti/Al2O3/Au",
+        "mdn_only": 19.37,
+        "pso_random_init": 5.0,
+        "neutron": 3.93,
+        "time_s": 11249
+      },
+      "n": 6,
+      "wall_time_s_sum": 1833.4261016845703
+    },
+    "picture:great_wall": {
+      "dE_theirs": {
+        "acc_le2": 0.6666666666666666,
+        "median": 0.7823673350739964,
+        "mean": 3.8606733506162336,
+        "image_mean_estimate": {
+          "est": 3.8606733506162336,
+          "lo": 0.5141686809073934,
+          "hi": 8.50107283369576
+        }
+      },
+      "dE_theirs_int_nm": {
+        "acc_le2": 0.16666666666666666,
+        "median": 4.830110459137854,
+        "mean": 6.284488017584802,
+        "image_mean_estimate": {
+          "est": 6.284488017584802,
+          "lo": 2.817412893043534,
+          "hi": 10.42702841101724
+        }
+      },
+      "dE_theirs_int_snap": {
+        "acc_le2": 0.5,
+        "median": 1.6493017059912471,
+        "mean": 4.338508390204987,
+        "image_mean_estimate": {
+          "est": 4.338508390204987,
+          "lo": 1.149036475270438,
+          "hi": 8.63467860016611
+        }
+      },
+      "dE_ours": {
+        "acc_le2": 0.6666666666666666,
+        "median": 0.7597352756762537,
+        "mean": 3.8724205742928732,
+        "image_mean_estimate": {
+          "est": 3.8724205742928732,
+          "lo": 0.46429177051291876,
+          "hi": 8.572512675912769
+        }
+      },
+      "reported_table2": {
+        "materials": "HfO2/Au/Ti/SiO2/Au",
+        "mdn_only": 21.46,
+        "pso_random_init": 6.45,
+        "neutron": 5.69,
+        "time_s": 6835
+      },
+      "n": 6,
+      "wall_time_s_sum": 1799.7470149993896
+    },
+    "picture:the_white_orchard": {
+      "dE_theirs": {
+        "acc_le2": 0.6666666666666666,
+        "median": 0.7824893538874536,
+        "mean": 2.780337015911471,
+        "image_mean_estimate": {
+          "est": 2.780337015911471,
+          "lo": 0.3891016986629597,
+          "hi": 6.027150054944443
+        }
+      },
+      "dE_theirs_int_nm": {
+        "acc_le2": 0.5,
+        "median": 1.785544783078173,
+        "mean": 3.484271995813826,
+        "image_mean_estimate": {
+          "est": 3.484271995813826,
+          "lo": 1.1252463904621897,
+          "hi": 6.5888282135835645
+        }
+      },
+      "dE_theirs_int_snap": {
+        "acc_le2": 0.6666666666666666,
+        "median": 0.8836571894103087,
+        "mean": 2.8916794041251035,
+        "image_mean_estimate": {
+          "est": 2.8916794041251035,
+          "lo": 0.5426020832208172,
+          "hi": 6.113919624261091
+        }
+      },
+      "dE_ours": {
+        "acc_le2": 0.6666666666666666,
+        "median": 0.7853636703491252,
+        "mean": 2.790890300899054,
+        "image_mean_estimate": {
+          "est": 2.790890300899054,
+          "lo": 0.3978586118446967,
+          "hi": 6.034710483552142
+        }
+      },
+      "reported_table2": {
+        "materials": "Al2O3/Ge/Al/Al2O3/Zn",
+        "mdn_only": 18.55,
+        "pso_random_init": 5.16,
+        "neutron": 3.76,
+        "time_s": 9917
+      },
+      "n": 6,
+      "wall_time_s_sum": 1674.1122090816498
+    },
+    "picture:tulip_fields": {
+      "dE_theirs": {
+        "acc_le2": 0.6666666666666666,
+        "median": 1.5718092765583118,
+        "mean": 1.4064472529631462,
+        "image_mean_estimate": {
+          "est": 1.4064472529631462,
+          "lo": 0.6925949271770953,
+          "hi": 2.051259304461095
+        }
+      },
+      "dE_theirs_int_nm": {
+        "acc_le2": 0.5,
+        "median": 1.9607186904186893,
+        "mean": 2.4441019520057523,
+        "image_mean_estimate": {
+          "est": 2.4441019520057523,
+          "lo": 1.640492620103151,
+          "hi": 3.7131677927453377
+        }
+      },
+      "dE_theirs_int_snap": {
+        "acc_le2": 0.6666666666666666,
+        "median": 1.221516076232728,
+        "mean": 1.3093645612081861,
+        "image_mean_estimate": {
+          "est": 1.3093645612081861,
+          "lo": 0.6751936954705692,
+          "hi": 1.9435476782939538
+        }
+      },
+      "dE_ours": {
+        "acc_le2": 0.6666666666666666,
+        "median": 1.5550992644865174,
+        "mean": 1.3754283818135473,
+        "image_mean_estimate": {
+          "est": 1.3754283818135473,
+          "lo": 0.7013831053307357,
+          "hi": 1.9728888548474972
+        }
+      },
+      "reported_table2": {
+        "materials": "Ta2O5/Au/Ti/Al2O3/Au",
+        "mdn_only": 19.45,
+        "pso_random_init": 4.34,
+        "neutron": 3.48,
+        "time_s": 9246
+      },
+      "n": 6,
+      "wall_time_s_sum": 1851.3706729412079
+    }
+  },
+  "reported": {
+    "cr_table1": {
+      "I": 0.8,
+      "II": 1.2,
+      "III": 1.4,
+      "IV": 1.6,
+      "V": 1.6
+    },
+    "pictures_table2": {
+      "White Orchard": {
+        "materials": "Al2O3/Ge/Al/Al2O3/Zn",
+        "mdn_only": 18.55,
+        "pso_random_init": 5.16,
+        "neutron": 3.76,
+        "time_s": 9917
+      },
+      "Tulip Field": {
+        "materials": "Ta2O5/Au/Ti/Al2O3/Au",
+        "mdn_only": 19.45,
+        "pso_random_init": 4.34,
+        "neutron": 3.48,
+        "time_s": 9246
+      },
+      "Great Wall": {
+        "materials": "HfO2/Au/Ti/SiO2/Au",
+        "mdn_only": 21.46,
+        "pso_random_init": 6.45,
+        "neutron": 5.69,
+        "time_s": 6835
+      },
+      "Flower (style-transferred)": {
+        "materials": "Ta2O5/Au/Ti/Al2O3/Au",
+        "mdn_only": 19.37,
+        "pso_random_init": 5.0,
+        "neutron": 3.93,
+        "time_s": 11249
+      },
+      "Street (style-transferred)": {
+        "materials": "ZnO/Ti/Au/MgF2/Au",
+        "mdn_only": 21.6,
+        "pso_random_init": 4.45,
+        "neutron": 3.28,
+        "time_s": 7349
+      }
+    }
+  },
+  "rows": [
+    {
+      "row_idx": 0,
+      "target_lab": [
+        84.96137261390686,
+        -0.2466278225183487,
+        -3.4272046089172363
+      ],
+      "dE_ours": 0.134339603684593,
+      "wall_time_s": 223.280424118042,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "SiO2",
+        "ZnS",
+        "Zn",
+        "ZnS",
+        "MgF2"
+      ],
+      "thickness_nm": [
+        65.90745309189118,
+        60.51631635284059,
+        25.50006639368313,
+        152.60442053341754,
+        107.64058867746951
+      ],
+      "lab_theirs": [
+        84.83074843713858,
+        -0.06014074063820374,
+        -3.728378797103682
+      ],
+      "dE_theirs": 0.38464070061607897,
+      "dE_theirs_int_nm": 1.0269013014067487,
+      "thickness_snap_nm": [
+        66,
+        60,
+        26,
+        152,
+        107
+      ],
+      "dE_theirs_int_snap": 0.2318855760159703,
+      "set": "cr",
+      "pixels": null,
+      "pps": false,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 1,
+      "target_lab": [
+        84.96137261390686,
+        -0.2466278225183487,
+        -3.4272046089172363
+      ],
+      "dE_ours": 0.05623769235913199,
+      "wall_time_s": 316.63038420677185,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "HfO2",
+        "W",
+        "Ge",
+        "SiO2",
+        "Zn"
+      ],
+      "thickness_nm": [
+        96.59602357786771,
+        11.342211149223207,
+        14.265489817522472,
+        7.0021988954946925,
+        100.0
+      ],
+      "lab_theirs": [
+        84.94612832847861,
+        0.256537705652371,
+        -3.5041977247030953
+      ],
+      "dE_theirs": 0.7301819342390917,
+      "dE_theirs_int_nm": 0.8628703492593682,
+      "thickness_snap_nm": [
+        97,
+        11,
+        14,
+        7,
+        100
+      ],
+      "dE_theirs_int_snap": 0.7376397961662738,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "cr_table1:I",
+      "pixels": null,
+      "pps": false,
+      "reported_dE": 0.8,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 2,
+      "target_lab": [
+        84.96137261390686,
+        -0.2466278225183487,
+        -3.4272046089172363
+      ],
+      "dE_ours": 0.14396788599795818,
+      "wall_time_s": 297.7575843334198,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "HfO2",
+        "Zn",
+        "Ge",
+        "Al2O3",
+        "Ni"
+      ],
+      "thickness_nm": [
+        81.74765353490007,
+        12.986558981060327,
+        14.590928093564486,
+        164.22954200550316,
+        100.0
+      ],
+      "lab_theirs": [
+        85.05550192052459,
+        -0.32567168624175746,
+        -3.358084260464711
+      ],
+      "dE_theirs": 0.14305735668362227,
+      "dE_theirs_int_nm": 0.89359842542838,
+      "thickness_snap_nm": [
+        82,
+        13,
+        15,
+        164,
+        100
+      ],
+      "dE_theirs_int_snap": 0.20145903829148099,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "cr_table1:II",
+      "pixels": null,
+      "pps": false,
+      "reported_dE": 1.2,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 3,
+      "target_lab": [
+        84.96137261390686,
+        -0.2466278225183487,
+        -3.4272046089172363
+      ],
+      "dE_ours": 1.3129293225875853,
+      "wall_time_s": 317.8769974708557,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "SiO2",
+        "Ag",
+        "Ge",
+        "SiO2",
+        "Au"
+      ],
+      "thickness_nm": [
+        5.0,
+        15.0,
+        15.0,
+        96.32499225271421,
+        100.0
+      ],
+      "lab_theirs": [
+        83.93835013515758,
+        -1.0784583462042918,
+        -3.7351469225376466
+      ],
+      "dE_theirs": 1.3593348341590827,
+      "dE_theirs_int_nm": 1.3749611058221056,
+      "thickness_snap_nm": [
+        5,
+        15,
+        15,
+        97,
+        100
+      ],
+      "dE_theirs_int_snap": 1.3325063191757924,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "cr_table1:III",
+      "pixels": null,
+      "pps": false,
+      "reported_dE": 1.4,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 4,
+      "target_lab": [
+        84.96137261390686,
+        -0.2466278225183487,
+        -3.4272046089172363
+      ],
+      "dE_ours": 0.17064605302509156,
+      "wall_time_s": 289.90266513824463,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "HfO2",
+        "Zn",
+        "Ge",
+        "Al2O3",
+        "Au"
+      ],
+      "thickness_nm": [
+        94.4171340962504,
+        14.255009878038262,
+        12.495862149697235,
+        188.31009085234717,
+        100.0
+      ],
+      "lab_theirs": [
+        85.17682179812554,
+        -0.18254133339556944,
+        -3.3557882538247874
+      ],
+      "dE_theirs": 0.1791961774679722,
+      "dE_theirs_int_nm": 0.8308693015012661,
+      "thickness_snap_nm": [
+        95,
+        14,
+        13,
+        188,
+        100
+      ],
+      "dE_theirs_int_snap": 0.19822811780148397,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "cr_table1:IV",
+      "pixels": null,
+      "pps": false,
+      "reported_dE": 1.6,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 5,
+      "target_lab": [
+        84.96137261390686,
+        -0.2466278225183487,
+        -3.4272046089172363
+      ],
+      "dE_ours": 0.589589816634474,
+      "wall_time_s": 286.89060378074646,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "HfO2",
+        "Zn",
+        "Ge",
+        "MgF2",
+        "Au"
+      ],
+      "thickness_nm": [
+        5.0,
+        10.391309102055724,
+        15.0,
+        109.73412196010611,
+        100.0
+      ],
+      "lab_theirs": [
+        84.61115680935114,
+        -0.6819613332402774,
+        -3.40342351288514
+      ],
+      "dE_theirs": 0.6578353552300514,
+      "dE_theirs_int_nm": 0.7020084556529868,
+      "thickness_snap_nm": [
+        5,
+        10,
+        15,
+        110,
+        100
+      ],
+      "dE_theirs_int_snap": 0.6743895218819255,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "cr_table1:V",
+      "pixels": null,
+      "pps": false,
+      "reported_dE": 1.6,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 6,
+      "target_lab": [
+        49.59068298339844,
+        10.959482192993164,
+        28.39866828918457
+      ],
+      "dE_ours": 0.18189611169371298,
+      "wall_time_s": 271.3144762516022,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Ta2O5",
+        "Au",
+        "Ti",
+        "Al2O3",
+        "Au"
+      ],
+      "thickness_nm": [
+        61.806711285361764,
+        9.764988934235209,
+        5.894188518502007,
+        86.0023216246737,
+        100.0
+      ],
+      "lab_theirs": [
+        49.73991952584066,
+        10.857157440865128,
+        28.50272451927155
+      ],
+      "dE_theirs": 0.1863490151345715,
+      "dE_theirs_int_nm": 10.525146873774984,
+      "thickness_snap_nm": [
+        62,
+        9,
+        6,
+        87,
+        100
+      ],
+      "dE_theirs_int_snap": 0.5848421019050938,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:flower_guo_group",
+      "pixels": 173,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 7,
+      "target_lab": [
+        41.25770926475525,
+        -5.98280143737793,
+        4.3680877685546875
+      ],
+      "dE_ours": 0.7779063735988735,
+      "wall_time_s": 312.75998878479004,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Ta2O5",
+        "Au",
+        "Ti",
+        "Al2O3",
+        "Au"
+      ],
+      "thickness_nm": [
+        47.93125567984244,
+        9.065801563921465,
+        8.664232286771728,
+        106.56722538372341,
+        100.0
+      ],
+      "lab_theirs": [
+        40.604585262720455,
+        -6.758783674097546,
+        5.103875328982143
+      ],
+      "dE_theirs": 1.097430040646507,
+      "dE_theirs_int_nm": 8.953906742285092,
+      "thickness_snap_nm": [
+        48,
+        10,
+        8,
+        107,
+        100
+      ],
+      "dE_theirs_int_snap": 0.7887387407551275,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:flower_guo_group",
+      "pixels": 350,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 8,
+      "target_lab": [
+        24.45867657661438,
+        -6.387195110321045,
+        24.156890869140625
+      ],
+      "dE_ours": 1.104986679349191,
+      "wall_time_s": 306.8674750328064,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Ta2O5",
+        "Au",
+        "Ti",
+        "Al2O3",
+        "Au"
+      ],
+      "thickness_nm": [
+        44.973937309082956,
+        14.12594481945041,
+        7.775710171520902,
+        82.0522712772671,
+        100.0
+      ],
+      "lab_theirs": [
+        23.796222691965816,
+        -5.579002215526763,
+        22.92128315379755
+      ],
+      "dE_theirs": 0.9407571886933451,
+      "dE_theirs_int_nm": 4.546445072747274,
+      "thickness_snap_nm": [
+        45,
+        14,
+        8,
+        82,
+        100
+      ],
+      "dE_theirs_int_snap": 2.1520168933761683,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:flower_guo_group",
+      "pixels": 93,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 9,
+      "target_lab": [
+        20.488987863063812,
+        -2.143488883972168,
+        6.386613845825195
+      ],
+      "dE_ours": 0.4641420934020038,
+      "wall_time_s": 313.8120822906494,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Ta2O5",
+        "Au",
+        "Ti",
+        "Al2O3",
+        "Au"
+      ],
+      "thickness_nm": [
+        39.72264420837115,
+        12.260225288597866,
+        7.823340041838998,
+        65.89906891991114,
+        100.0
+      ],
+      "lab_theirs": [
+        20.742338166086498,
+        -2.72454472480671,
+        6.685798479555071
+      ],
+      "dE_theirs": 0.7697841788313642,
+      "dE_theirs_int_nm": 4.4726395149660165,
+      "thickness_snap_nm": [
+        40,
+        12,
+        8,
+        65,
+        100
+      ],
+      "dE_theirs_int_snap": 1.3149299572765398,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:flower_guo_group",
+      "pixels": 284,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 10,
+      "target_lab": [
+        69.88826394081116,
+        1.9433646202087402,
+        -5.117839336395264
+      ],
+      "dE_ours": 0.12902817360210073,
+      "wall_time_s": 314.4014780521393,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Ta2O5",
+        "Au",
+        "Ti",
+        "Al2O3",
+        "Au"
+      ],
+      "thickness_nm": [
+        102.2058426190316,
+        11.499561627971335,
+        14.999513673954624,
+        81.98253414379442,
+        100.0
+      ],
+      "lab_theirs": [
+        69.973937387463,
+        1.9101923481514294,
+        -5.049107010871867
+      ],
+      "dE_theirs": 0.09450056815409028,
+      "dE_theirs_int_nm": 2.7254291677007974,
+      "thickness_snap_nm": [
+        103,
+        11,
+        15,
+        82,
+        100
+      ],
+      "dE_theirs_int_snap": 0.42294824023657984,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:flower_guo_group",
+      "pixels": 500,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 11,
+      "target_lab": [
+        74.11612272262573,
+        3.5488529205322266,
+        1.2725389003753662
+      ],
+      "dE_ours": 1.1250374291110634,
+      "wall_time_s": 314.270601272583,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Ta2O5",
+        "Au",
+        "Ti",
+        "Al2O3",
+        "Au"
+      ],
+      "thickness_nm": [
+        88.44446711698163,
+        15.0,
+        13.32378118690164,
+        58.620872437708506,
+        100.0
+      ],
+      "lab_theirs": [
+        72.82695686457802,
+        3.214642311067717,
+        1.571075236821029
+      ],
+      "dE_theirs": 1.084391615831134,
+      "dE_theirs_int_nm": 1.2045680677896025,
+      "thickness_snap_nm": [
+        88,
+        15,
+        13,
+        58,
+        100
+      ],
+      "dE_theirs_int_snap": 1.2045680677896025,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:flower_guo_group",
+      "pixels": 749,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 12,
+      "target_lab": [
+        46.98145091533661,
+        -16.46285629272461,
+        -11.445637702941895
+      ],
+      "dE_ours": 0.9387070173151377,
+      "wall_time_s": 303.0090444087982,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "HfO2",
+        "Au",
+        "Ti",
+        "SiO2",
+        "Au"
+      ],
+      "thickness_nm": [
+        181.39692901374403,
+        10.773595743823398,
+        5.934843775814906,
+        68.47579938088559,
+        100.0
+      ],
+      "lab_theirs": [
+        47.716013873510214,
+        -17.326492061530196,
+        -11.54975076394984
+      ],
+      "dE_theirs": 0.9191824067971339,
+      "dE_theirs_int_nm": 10.421577661288946,
+      "thickness_snap_nm": [
+        182,
+        11,
+        6,
+        69,
+        100
+      ],
+      "dE_theirs_int_snap": 0.9193484195651109,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:great_wall",
+      "pixels": 79,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 13,
+      "target_lab": [
+        48.6861377954483,
+        -5.472609996795654,
+        -20.57428741455078
+      ],
+      "dE_ours": 0.49867285573382986,
+      "wall_time_s": 285.4444696903229,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "HfO2",
+        "Au",
+        "Ti",
+        "SiO2",
+        "Au"
+      ],
+      "thickness_nm": [
+        18.779329934524416,
+        7.760426187389078,
+        11.571633112834009,
+        98.3062652986474,
+        100.0
+      ],
+      "lab_theirs": [
+        48.37980939614779,
+        -6.105740305587359,
+        -20.8434185045852
+      ],
+      "dE_theirs": 0.6455522633508589,
+      "dE_theirs_int_nm": 2.149861634449607,
+      "thickness_snap_nm": [
+        19,
+        8,
+        12,
+        99,
+        100
+      ],
+      "dE_theirs_int_snap": 0.8740124943812833,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:great_wall",
+      "pixels": 2694,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 14,
+      "target_lab": [
+        28.30396592617035,
+        -8.365825653076172,
+        10.752243995666504
+      ],
+      "dE_ours": 0.5807635340373695,
+      "wall_time_s": 315.67973351478577,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "HfO2",
+        "Au",
+        "Ti",
+        "SiO2",
+        "Au"
+      ],
+      "thickness_nm": [
+        42.32313162094553,
+        11.609786382461428,
+        7.5671046354076035,
+        72.83110100119733,
+        100.0
+      ],
+      "lab_theirs": [
+        27.716386379768217,
+        -8.257373315506383,
+        10.609155189462282
+      ],
+      "dE_theirs": 0.4607893874439383,
+      "dE_theirs_int_nm": 3.0925975718187555,
+      "thickness_snap_nm": [
+        42,
+        12,
+        7,
+        73,
+        100
+      ],
+      "dE_theirs_int_snap": 2.297704795123929,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:great_wall",
+      "pixels": 299,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 15,
+      "target_lab": [
+        84.4642162322998,
+        1.8612109422683716,
+        -4.922911167144775
+      ],
+      "dE_ours": 6.483989831427505,
+      "wall_time_s": 267.0058169364929,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "HfO2",
+        "Au",
+        "Ti",
+        "SiO2",
+        "Au"
+      ],
+      "thickness_nm": [
+        79.6227974545108,
+        9.618180445223844,
+        15.0,
+        5.0,
+        100.0
+      ],
+      "lab_theirs": [
+        77.07253628532389,
+        0.46234094520097857,
+        -0.835737422537397
+      ],
+      "dE_theirs": 6.457178889218711,
+      "dE_theirs_int_nm": 6.567623346456953,
+      "thickness_snap_nm": [
+        79,
+        10,
+        15,
+        5,
+        100
+      ],
+      "dE_theirs_int_snap": 6.464716740665057,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:great_wall",
+      "pixels": 500,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 16,
+      "target_lab": [
+        44.56552863121033,
+        9.84736442565918,
+        -2.6313509941101074
+      ],
+      "dE_ours": 0.10919101813662249,
+      "wall_time_s": 314.59694814682007,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "HfO2",
+        "Au",
+        "Ti",
+        "SiO2",
+        "Au"
+      ],
+      "thickness_nm": [
+        47.559893060698734,
+        12.435394147231294,
+        10.07954307113082,
+        25.923426674203682,
+        100.0
+      ],
+      "lab_theirs": [
+        44.66732909536852,
+        9.81374411046959,
+        -2.3886256594932043
+      ],
+      "dE_theirs": 0.20696788225078525,
+      "dE_theirs_int_nm": 1.0008986168585656,
+      "thickness_snap_nm": [
+        47,
+        12,
+        10,
+        25,
+        100
+      ],
+      "dE_theirs_int_snap": 1.0008986168585656,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:great_wall",
+      "pixels": 120,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 17,
+      "target_lab": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "dE_ours": 14.623199189106776,
+      "wall_time_s": 314.0110023021698,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "HfO2",
+        "Au",
+        "Ti",
+        "SiO2",
+        "Au"
+      ],
+      "thickness_nm": [
+        40.0,
+        6.0,
+        10.0,
+        42.0,
+        100.0
+      ],
+      "lab_theirs": [
+        15.182602604168903,
+        2.234285841762995,
+        -14.398856291484996
+      ],
+      "dE_theirs": 14.474369274635976,
+      "dE_theirs_int_nm": 14.474369274635976,
+      "thickness_snap_nm": [
+        40,
+        6,
+        10,
+        42,
+        100
+      ],
+      "dE_theirs_int_snap": 14.474369274635976,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:great_wall",
+      "pixels": 666,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 18,
+      "target_lab": [
+        83.28275680541992,
+        -6.588551998138428,
+        19.893781661987305
+      ],
+      "dE_ours": 1.1702289782624709,
+      "wall_time_s": 246.55372548103333,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Al2O3",
+        "Ge",
+        "Al",
+        "Al2O3",
+        "Zn"
+      ],
+      "thickness_nm": [
+        163.40378910372525,
+        5.063502626710727,
+        10.738150146007493,
+        42.666764295337096,
+        100.0
+      ],
+      "lab_theirs": [
+        82.79680076606708,
+        -5.35011338773278,
+        19.502447408095726
+      ],
+      "dE_theirs": 1.1846025681116135,
+      "dE_theirs_int_nm": 1.2966273185720119,
+      "thickness_snap_nm": [
+        164,
+        5,
+        11,
+        43,
+        100
+      ],
+      "dE_theirs_int_snap": 1.2078162290766798,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:the_white_orchard",
+      "pixels": 1068,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 19,
+      "target_lab": [
+        43.03855895996094,
+        -20.818706512451172,
+        24.40627098083496
+      ],
+      "dE_ours": 10.376209253147401,
+      "wall_time_s": 315.0067801475525,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Al2O3",
+        "Ge",
+        "Al",
+        "Al2O3",
+        "Zn"
+      ],
+      "thickness_nm": [
+        40.287243851326984,
+        8.902637783779987,
+        5.289290869921836,
+        45.56133499365918,
+        100.0
+      ],
+      "lab_theirs": [
+        41.95889438966152,
+        -5.939118458835102,
+        13.921949410422096
+      ],
+      "dE_theirs": 10.369456952864294,
+      "dE_theirs_int_nm": 10.597683311969577,
+      "thickness_snap_nm": [
+        40,
+        9,
+        5,
+        45,
+        100
+      ],
+      "dE_theirs_int_snap": 10.399999259159866,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:the_white_orchard",
+      "pixels": 141,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 20,
+      "target_lab": [
+        81.80698752403259,
+        -13.857057571411133,
+        17.617361068725586
+      ],
+      "dE_ours": 0.40049836243577963,
+      "wall_time_s": 203.66526293754578,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Al2O3",
+        "Ge",
+        "Al",
+        "Al2O3",
+        "Zn"
+      ],
+      "thickness_nm": [
+        134.0249985251295,
+        10.058834615706546,
+        6.728802566391899,
+        159.75975097106985,
+        100.0
+      ],
+      "lab_theirs": [
+        81.91892024646212,
+        -13.346612184358786,
+        17.635571330766076
+      ],
+      "dE_theirs": 0.38037613966329364,
+      "dE_theirs_int_nm": 1.15936310823903,
+      "thickness_snap_nm": [
+        134,
+        10,
+        7,
+        160,
+        100
+      ],
+      "dE_theirs_int_snap": 0.4854080918250117,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:the_white_orchard",
+      "pixels": 338,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 21,
+      "target_lab": [
+        55.26897311210632,
+        -18.846466064453125,
+        34.77354431152344
+      ],
+      "dE_ours": 4.446254722139297,
+      "wall_time_s": 314.41762018203735,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Al2O3",
+        "Ge",
+        "Al",
+        "Al2O3",
+        "Zn"
+      ],
+      "thickness_nm": [
+        178.23715868208805,
+        9.919509884057407,
+        5.0,
+        66.98744778561714,
+        100.0
+      ],
+      "lab_theirs": [
+        57.407105703466456,
+        -11.87563290317134,
+        30.694702447995702
+      ],
+      "dE_theirs": 4.428398657075989,
+      "dE_theirs_int_nm": 5.146664708448634,
+      "thickness_snap_nm": [
+        178,
+        10,
+        5,
+        67,
+        100
+      ],
+      "dE_theirs_int_snap": 4.438613726517995,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:the_white_orchard",
+      "pixels": 268,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 22,
+      "target_lab": [
+        83.48976969718933,
+        -5.0686235427856445,
+        14.906294822692871
+      ],
+      "dE_ours": 0.2328820572955685,
+      "wall_time_s": 297.58235120773315,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Al2O3",
+        "Ge",
+        "Al",
+        "Al2O3",
+        "Zn"
+      ],
+      "thickness_nm": [
+        159.0961903124508,
+        6.011303546147997,
+        9.68697475606914,
+        14.237612896740945,
+        100.0
+      ],
+      "lab_theirs": [
+        83.36296548754319,
+        -4.8487995245589115,
+        14.85070679528111
+      ],
+      "dE_theirs": 0.24575467433449483,
+      "dE_theirs_int_nm": 0.4308312800693662,
+      "thickness_snap_nm": [
+        159,
+        6,
+        10,
+        15,
+        100
+      ],
+      "dE_theirs_int_snap": 0.25874096842713096,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:the_white_orchard",
+      "pixels": 1354,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 23,
+      "target_lab": [
+        69.11012530326843,
+        -3.5633301734924316,
+        10.328513145446777
+      ],
+      "dE_ours": 0.11926843211380696,
+      "wall_time_s": 296.8864691257477,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Al2O3",
+        "Ge",
+        "Al",
+        "Al2O3",
+        "Zn"
+      ],
+      "thickness_nm": [
+        68.06436980870747,
+        7.164240299316238,
+        14.276453720154867,
+        162.67530060991442,
+        100.0
+      ],
+      "lab_theirs": [
+        69.04739452083663,
+        -3.517227195399375,
+        10.323404268153169
+      ],
+      "dE_theirs": 0.07343310341914136,
+      "dE_theirs_int_nm": 2.274462247584334,
+      "thickness_snap_nm": [
+        69,
+        7,
+        14,
+        163,
+        100
+      ],
+      "dE_theirs_int_snap": 0.5594981497439376,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:the_white_orchard",
+      "pixels": 189,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 24,
+      "target_lab": [
+        49.976012110710144,
+        27.11051368713379,
+        17.8345947265625
+      ],
+      "dE_ours": 1.9733319287929363,
+      "wall_time_s": 288.04466128349304,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Ta2O5",
+        "Au",
+        "Ti",
+        "Al2O3",
+        "Au"
+      ],
+      "thickness_nm": [
+        48.45504267745713,
+        14.308149313217779,
+        12.774673780947218,
+        194.1325336684267,
+        100.0
+      ],
+      "lab_theirs": [
+        48.81941773485629,
+        28.33139635262427,
+        16.005600388613495
+      ],
+      "dE_theirs": 1.9608728817911754,
+      "dE_theirs_int_nm": 1.5994429826746697,
+      "thickness_snap_nm": [
+        49,
+        14,
+        12,
+        194,
+        100
+      ],
+      "dE_theirs_int_snap": 0.29771483210579586,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:tulip_fields",
+      "pixels": 243,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 25,
+      "target_lab": [
+        61.95753812789917,
+        15.165416717529297,
+        5.836984634399414
+      ],
+      "dE_ours": 0.36781014574779786,
+      "wall_time_s": 303.7906541824341,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Ta2O5",
+        "Au",
+        "Ti",
+        "Al2O3",
+        "Au"
+      ],
+      "thickness_nm": [
+        60.93432242625638,
+        11.282379418996088,
+        13.636351698251262,
+        187.09841591931104,
+        100.0
+      ],
+      "lab_theirs": [
+        62.248870688411316,
+        15.239904655147019,
+        6.238186026016224
+      ],
+      "dE_theirs": 0.37992351001462654,
+      "dE_theirs_int_nm": 1.5486183936624307,
+      "thickness_snap_nm": [
+        60,
+        12,
+        14,
+        187,
+        100
+      ],
+      "dE_theirs_int_snap": 0.5067547131132392,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:tulip_fields",
+      "pixels": 78,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 26,
+      "target_lab": [
+        38.6623740196228,
+        0.565299391746521,
+        13.053767204284668
+      ],
+      "dE_ours": 1.1368666001800987,
+      "wall_time_s": 313.9426658153534,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Ta2O5",
+        "Au",
+        "Ti",
+        "Al2O3",
+        "Au"
+      ],
+      "thickness_nm": [
+        55.60678701430042,
+        9.724143469707396,
+        8.424254359275674,
+        77.94175139026598,
+        100.0
+      ],
+      "lab_theirs": [
+        37.779981942497784,
+        1.20324662349941,
+        12.556018097025879
+      ],
+      "dE_theirs": 1.182745671325448,
+      "dE_theirs_int_nm": 5.327447952137067,
+      "thickness_snap_nm": [
+        56,
+        10,
+        8,
+        77,
+        100
+      ],
+      "dE_theirs_int_snap": 1.8675747207184534,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:tulip_fields",
+      "pixels": 15,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 27,
+      "target_lab": [
+        53.85349988937378,
+        -3.6810758113861084,
+        10.856918334960938
+      ],
+      "dE_ours": 0.41099431610447795,
+      "wall_time_s": 315.5886228084564,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Ta2O5",
+        "Au",
+        "Ti",
+        "Al2O3",
+        "Au"
+      ],
+      "thickness_nm": [
+        54.81918770773685,
+        9.90505268629457,
+        6.319249084544192,
+        51.41087089420857,
+        100.0
+      ],
+      "lab_theirs": [
+        53.56319524080939,
+        -3.641690657122887,
+        10.591641569576327
+      ],
+      "dE_theirs": 0.33317281782265246,
+      "dE_theirs_int_nm": 1.4375530707344526,
+      "thickness_snap_nm": [
+        54,
+        10,
+        6,
+        51,
+        100
+      ],
+      "dE_theirs_int_snap": 0.5754574317470024,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:tulip_fields",
+      "pixels": 251,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 28,
+      "target_lab": [
+        76.72099471092224,
+        -1.7983331680297852,
+        5.047929286956787
+      ],
+      "dE_ours": 2.1965112218187053,
+      "wall_time_s": 319.80556058883667,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Ta2O5",
+        "Au",
+        "Ti",
+        "Al2O3",
+        "Au"
+      ],
+      "thickness_nm": [
+        93.18463110346693,
+        7.405428860187513,
+        15.0,
+        13.91992196683496,
+        100.0
+      ],
+      "lab_theirs": [
+        75.92844471772449,
+        -0.19580398230861773,
+        5.062385891444321
+      ],
+      "dE_theirs": 2.3027027051814124,
+      "dE_theirs_int_nm": 2.3219943981627087,
+      "thickness_snap_nm": [
+        93,
+        7,
+        15,
+        13,
+        100
+      ],
+      "dE_theirs_int_snap": 2.3219943981627087,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:tulip_fields",
+      "pixels": 9117,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    },
+    {
+      "row_idx": 29,
+      "target_lab": [
+        76.72099471092224,
+        -1.7983331680297852,
+        5.047929286956787
+      ],
+      "dE_ours": 2.1670560782372688,
+      "wall_time_s": 310.1985082626343,
+      "file": "results/neutron_runs/pilot_model/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Ta2O5",
+        "Au",
+        "Ti",
+        "Al2O3",
+        "Au"
+      ],
+      "thickness_nm": [
+        92.98344378930591,
+        7.174837126757523,
+        15.0,
+        12.08683548881037,
+        100.0
+      ],
+      "lab_theirs": [
+        76.16728624511231,
+        -0.1828284110526046,
+        4.92146734285146
+      ],
+      "dE_theirs": 2.279265931643561,
+      "dE_theirs_int_nm": 2.4295549146631847,
+      "thickness_snap_nm": [
+        93,
+        7,
+        15,
+        12,
+        100
+      ],
+      "dE_theirs_int_snap": 2.286691271401917,
+      "matches_row_materials": true,
+      "within_bounds": true,
+      "set": "picture:tulip_fields",
+      "pixels": 9117,
+      "pps": true,
+      "reported_dE": null,
+      "label_pso_acc": null
+    }
+  ]
+}

@@ -473,6 +473,28 @@ def write_testset(repo: Path, targets_json: Path, out_dir: Path,
     return len(rows)
 
 
+def snap_int_nm(mats, names, t, target_lab, bounds=None):
+    """Whole-nm thicknesses for a stack (their constraint), chosen without
+    their physics: of every floor/ceil combination within bounds, the one
+    OUR simulator puts closest to the target, the objective INDIGO's search
+    already uses. At most 2^L simulations. Returns the thickness list."""
+    import itertools
+    lab0 = np.asarray(target_lab, float)
+    opts = []
+    for i, x in enumerate(t):
+        c = sorted({math.floor(x), math.ceil(x)})
+        if bounds is not None:
+            lo, hi = bounds[i]
+            c = [v for v in c if lo <= v <= hi] or [int(min(max(round(x), lo), hi))]
+        opts.append(c)
+    best, best_de = None, math.inf
+    for combo in itertools.product(*opts):
+        d = de2000(our_lab(mats, names, combo), lab0)
+        if d < best_de:
+            best, best_de = list(combo), d
+    return best
+
+
 def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) -> dict:
     """Each chosen stack in their physics (all layers coherent, their glass
     and back air), against the target, beside our own simulator's DeltaE;
@@ -481,6 +503,7 @@ def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) 
     set and pictures get their metric: DeltaE00 averaged over the image's
     pixels."""
     nk = {n: their_nk(repo, n) for n in MATERIALS}
+    ours = our_materials(repo)
     idx = {e["row"]: e for e in json.load(open(index))} if index else {}
     rows_out = []
     for rp in sorted(glob.glob(str(run_dir / "**" / "rows.json"), recursive=True)):
@@ -499,9 +522,13 @@ def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) 
                     lab = their_lab_from_R(their_reflectance([nk[n] for n in names], t))
                     lab_i = their_lab_from_R(their_reflectance([nk[n] for n in names],
                                                                [int(x) for x in t]))
+                    ts = snap_int_nm(ours, names, t, r["target_lab"], THEIR_BOUNDS)
+                    lab_s = their_lab_from_R(their_reflectance([nk[n] for n in names], ts))
                     ent.update(materials=names, thickness_nm=t, lab_theirs=lab.tolist(),
                                dE_theirs=de2000(lab, r["target_lab"]),
                                dE_theirs_int_nm=de2000(lab_i, r["target_lab"]),
+                               thickness_snap_nm=ts,
+                               dE_theirs_int_snap=de2000(lab_s, r["target_lab"]),
                                matches_row_materials=ok,
                                within_bounds=all(lo <= x <= hi for x, (lo, hi)
                                                  in zip(t, THEIR_BOUNDS)))
@@ -511,9 +538,14 @@ def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) 
                     lab_i = their_lab_from_R(their_reflectance([nk[n] for n in names],
                                                                [int(x) for x in t],
                                                                template=False))
+                    ts = snap_int_nm(ours, names, t, r["target_lab"])
+                    lab_s = their_lab_from_R(their_reflectance([nk[n] for n in names], ts,
+                                                               template=False))
                     ent.update(materials=names, thickness_nm=t, lab_theirs=lab.tolist(),
                                dE_theirs=de2000(lab, r["target_lab"]),
-                               dE_theirs_int_nm=de2000(lab_i, r["target_lab"]))
+                               dE_theirs_int_nm=de2000(lab_i, r["target_lab"]),
+                               thickness_snap_nm=ts,
+                               dE_theirs_int_snap=de2000(lab_s, r["target_lab"]))
                 else:
                     ent["untraceable"] = f"materials not in the NEUTRON set: {names}"
             ent["set"], ent["pixels"] = meta.get("set"), meta.get("pixels")
@@ -524,7 +556,7 @@ def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) 
     for sname in sorted({x["set"] for x in rows_out if x["set"]}):
         g = [x for x in rows_out if x["set"] == sname]
         e = {}
-        for key in ("dE_theirs", "dE_theirs_int_nm", "dE_ours"):
+        for key in ("dE_theirs", "dE_theirs_int_nm", "dE_theirs_int_snap", "dE_ours"):
             v = np.array([x[key] if x.get(key) is not None else math.inf for x in g])
             e[key] = {"acc_le2": float(np.mean(v <= 2)), "median": float(np.median(v)),
                       "mean": float(np.mean(v))}
@@ -543,7 +575,7 @@ def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) 
             e["label_pso_acc_le2"] = float(np.mean(lab_acc))
         if len(lab_acc) == len(g) and g:
             # Row for row against their PSO label, on whole-nm thicknesses.
-            mine = np.array([(x.get("dE_theirs_int_nm") if x.get("dE_theirs_int_nm") is not None
+            mine = np.array([(x.get("dE_theirs_int_snap") if x.get("dE_theirs_int_snap") is not None
                               else math.inf) <= 2 for x in g])
             theirs = np.array(lab_acc, bool)
             e["paired_vs_label"] = {"both": int(np.sum(mine & theirs)),
