@@ -1,0 +1,61 @@
+{
+  "checkpoint": "data/checkpoints/production/current",
+  "checkpoint_tag": "flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1",
+  "checkpoint_sha256": "4fd024434fcc0c02",
+  "tiers": {
+    "tier_a": {
+      "n_attempted": 30,
+      "n_succeeded": 30,
+      "n_failed": 0,
+      "delta_e": {
+        "mean": 1.814104759235954,
+        "median": 0.5851766753359218,
+        "std": 3.205068925648823,
+        "p25": 0.19464259809417686,
+        "p75": 1.2772542365063067,
+        "p95": 8.624710513373437,
+        "min": 0.05623769235913199,
+        "max": 14.623199189106776
+      },
+      "buckets": {
+        "<1.0": {
+          "count": 18,
+          "fraction": 0.6
+        },
+        "<2.0": {
+          "count": 24,
+          "fraction": 0.8
+        },
+        "<5.0": {
+          "count": 27,
+          "fraction": 0.9
+        },
+        "<10.0": {
+          "count": 28,
+          "fraction": 0.9333333333333333
+        }
+      },
+      "tier": "a",
+      "model_tag": "flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1",
+      "model_sha256": "4fd024434fcc0c02",
+      "runtime_seconds": 8892.217347860336,
+      "rows_per_second": 0.0033737366987794852,
+      "args": {
+        "ensemble_n": 250,
+        "temperature": 1.0,
+        "tolerance": 0.0,
+        "weight_lambda": 1.0,
+        "top_k": 10,
+        "refine_iters": 100,
+        "offset": 0,
+        "mc_samples": 0,
+        "plot_examples": 0,
+        "seed": 42,
+        "proposer": "model",
+        "layer_count": 5,
+        "row_constraints": "data/neutron_pilot/tier_a/row_constraints.json",
+        "split": "all"
+      }
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "n_attempted": 100,
+  "n_succeeded": 100,
+  "n_failed": 0,
+  "delta_e": {
+    "mean": 1.1512387826934174,
+    "median": 0.28808478493265066,
+    "std": 3.283325106851595,
+    "p25": 0.06162905234252253,
+    "p75": 0.8109448761758082,
+    "p95": 3.31323817879732,
+    "min": 0.00018821642065062994,
+    "max": 25.16443441894755
+  },
+  "buckets": {
+    "<1.0": {
+      "count": 81,
+      "fraction": 0.81
+    },
+    "<2.0": {
+      "count": 91,
+      "fraction": 0.91
+    },
+    "<5.0": {
+      "count": 95,
+      "fraction": 0.95
+    },
+    "<10.0": {
+      "count": 97,
+      "fraction": 0.97
+    }
+  },
+  "tier": "b",
+  "model_tag": "flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1",
+  "model_sha256": "4fd024434fcc0c02",
+  "runtime_seconds": 20352.3266787529,
+  "rows_per_second": 0.004913443144777959,
+  "args": {
+    "ensemble_n": 50,
+    "temperature": 1.0,
+    "tolerance": 0.0,
+    "weight_lambda": 1.0,
+    "top_k": 10,
+    "refine_iters": 100,
+    "offset": 400,
+    "mc_samples": 0,
+    "plot_examples": 0,
+    "seed": 42,
+    "proposer": "model",
+    "layer_count": 0,
+    "row_constraints": null,
+    "split": "train"
+  }
+}

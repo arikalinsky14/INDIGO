@@ -1,0 +1,61 @@
+{
+  "checkpoint": "data/checkpoints/production/current",
+  "checkpoint_tag": "flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1",
+  "checkpoint_sha256": "4fd024434fcc0c02",
+  "tiers": {
+    "tier_a": {
+      "n_attempted": 100,
+      "n_succeeded": 100,
+      "n_failed": 0,
+      "delta_e": {
+        "mean": 1.1866664936560922,
+        "median": 0.18695431470659235,
+        "std": 6.079014071124617,
+        "p25": 0.052913242984810455,
+        "p75": 0.5283303949741082,
+        "p95": 1.31444805349706,
+        "min": 0.00011546934734396155,
+        "max": 48.93668052434979
+      },
+      "buckets": {
+        "<1.0": {
+          "count": 92,
+          "fraction": 0.92
+        },
+        "<2.0": {
+          "count": 98,
+          "fraction": 0.98
+        },
+        "<5.0": {
+          "count": 98,
+          "fraction": 0.98
+        },
+        "<10.0": {
+          "count": 98,
+          "fraction": 0.98
+        }
+      },
+      "tier": "a",
+      "model_tag": "flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1",
+      "model_sha256": "4fd024434fcc0c02",
+      "runtime_seconds": 19769.41265130043,
+      "rows_per_second": 0.005058319220901184,
+      "args": {
+        "ensemble_n": 250,
+        "temperature": 1.0,
+        "tolerance": 0.0,
+        "weight_lambda": 1.0,
+        "top_k": 10,
+        "refine_iters": 100,
+        "offset": 0,
+        "mc_samples": 0,
+        "plot_examples": 0,
+        "seed": 42,
+        "proposer": "model",
+        "layer_count": 0,
+        "row_constraints": null,
+        "split": "train"
+      }
+    }
+  }
+}
