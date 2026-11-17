@@ -177,6 +177,12 @@ PRESETS: Dict[str, Dict[str, Any]] = {
     "high":     dict(ensemble_N=250, top_k=1, refine_top_n=1,
                      refine_max_iters=40, tolerance_pct=0.0,
                      weight_lambda=1.0, mc_samples=0, temperature=1.0),
+    # The paper's strong setting (test_eval ENSEMBLE_N=250 TOP_K=10
+    # REFINE_ITERS=100): every one of the top 10 polished with 100 DoG steps
+    # (refine_top_n=0 means all of top_k). Top-1 selection, no MC (Nov 17).
+    "strong":   dict(ensemble_N=250, top_k=10, refine_top_n=0,
+                     refine_max_iters=100, tolerance_pct=0.0,
+                     weight_lambda=1.0, mc_samples=0, temperature=1.0),
     "fast":     dict(ensemble_N=100, top_k=1, refine_top_n=1,
                      refine_max_iters=15, tolerance_pct=0.0,
                      weight_lambda=1.0, mc_samples=0, temperature=1.0),

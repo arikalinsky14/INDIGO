@@ -122,8 +122,8 @@ if [[ ! -e "${CHECKPOINT}" ]]; then
   exit 2
 fi
 case "${PRESET}" in
-  light|mid|high|fast|balanced|best|max) ;;
-  *) echo "[ERROR] PRESET must be one of light/mid/high/fast/balanced/best/max (got ${PRESET})" >&2; exit 2 ;;
+  light|mid|high|strong|fast|balanced|best|max) ;;
+  *) echo "[ERROR] PRESET must be one of light/mid/high/strong/fast/balanced/best/max (got ${PRESET})" >&2; exit 2 ;;
 esac
 case "${OPTIMIZER}" in
   dog|adam|both) ;;
