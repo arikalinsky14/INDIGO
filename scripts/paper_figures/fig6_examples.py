@@ -6,10 +6,8 @@ and the target is a physical color (L* in [0, 100], C* <= 150; 10 of the
 1000 headline rows are not, see Fig. 2). For each of the two chromatic
 buckets (8 <= C* < 30 and C* >= 30), compute per target the gain
 g = DeltaE00(random) - DeltaE00(INDIGO), same row, same pool, same budget,
-and take the target whose g is closest to the median, the 90th percentile,
-the maximum (largest gain) and the minimum (largest loss: where random
-proposals did best relative to INDIGO). The last column is there so the
-figure shows the other side too.
+and take the target whose g is closest to each of GAIN_PERCENTILES
+(75th, 90th, 95th, 99th) of g in that bucket.
 
 Each example: two split swatches, target on the left half and the returned
 stack's color on the right, for INDIGO and for random proposals, each run's
@@ -29,8 +27,8 @@ from matplotlib.patches import Rectangle
 import _style as S
 import _runs as R
 
-COLUMNS = (("median", "Typical gain\n(median)"), ("p90", "Large gain\n(90th percentile)"),
-           ("max", "Largest gain"), ("min", "Largest loss"))
+GAIN_PERCENTILES = (75, 90, 95, 99)
+COLUMNS = tuple((p, f"{p}th percentile\nof gain") for p in GAIN_PERCENTILES)
 ROW_BUCKETS = ("8<=C<30", "C>=30")
 MODEL, BASE = "INDIGO", "random"
 TYPE_COL = {"real": "#4D4D4D", "lorentz": S.OI["purple"], "perturb": S.OI["orange"],
@@ -79,10 +77,8 @@ def pick(dm, db):
         ii = np.where((dm["bucket"] == b) & np.isfinite(gain) & phys)[0]
         g = gain[ii]
         pools[b] = len(ii)
-        targets = {"median": np.median(g), "p90": np.percentile(g, 90),
-                   "max": g.max(), "min": g.min()}
-        for k, v in targets.items():
-            out[(b, k)] = int(ii[np.argmin(np.abs(g - v))])
+        for p in GAIN_PERCENTILES:
+            out[(b, p)] = int(ii[np.argmin(np.abs(g - np.percentile(g, p)))])
     return out, pools
 
 
@@ -155,7 +151,7 @@ def main():
             tot = sum(L["thickness_nm"] for L in layers)
             ax.text(sx + sww + 0.06, sy, LABELS["layers"].format(n=len(layers), t=tot),
                     rotation=90, ha="left", va="bottom", fontsize=S.SMALL_PT - 1.5, color="#404040")
-            notes.append(f"{b} {ck}: tier {dm['tier'][i]} row {dm['idx'][i]} "
+            notes.append(f"{b} p{ck}: tier {dm['tier'][i]} row {dm['idx'][i]} "
                          f"(INDIGO {dm['de'][i]:.2f}, random {db['de'][i]:.2f})")
     # DeltaE label once, left of the first row's numbers
     ax.text(x0 - 0.12, y_top - 0.3 - sw - 0.08, LABELS["ylabel"], ha="right", va="top",
@@ -182,7 +178,7 @@ def main():
         "achieved_lab, delta_e, layers[].{material, thickness_nm}. Selection: per bucket "
         "(8<=C<30, C>=30), physical targets (L* 0-100, C* <= 150) where both runs returned a stack "
         f"(n = {pools['8<=C<30']}, {pools['C>=30']}), gain g = delta_e(random) - delta_e(INDIGO); "
-        "rows nearest median g, 90th percentile g, max g, min g. Chosen: " + "; ".join(notes) + ". Swatches are Lab -> sRGB "
+        f"rows nearest the {', '.join(map(str, GAIN_PERCENTILES))}th percentiles of g. Chosen: " + "; ".join(notes) + ". Swatches are Lab -> sRGB "
         "(D65), clipped; dagger = target outside sRGB. Material type from the layer name "
         "(lorentz_*, perturb_*, interp(...), else real).")
 
