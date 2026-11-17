@@ -95,22 +95,41 @@ shopt -u nullglob
 git add results "${ANALYSES[@]}"
 if git diff --cached --quiet -- results analyses; then
     echo "[git] no new results to commit."
-    exit 0
+else
+    git diff --cached --stat -- results analyses | tail -3
+    git commit -q -m "Results from CRC ($(date +%Y-%m-%d)): eval outputs, LR curves, scaling runs, production metadata" \
+        -- results "${ANALYSES[@]}"
+    echo "[git] committed $(git rev-parse --short HEAD)"
 fi
-git diff --cached --stat -- results analyses | tail -3
-git commit -q -m "Results from CRC ($(date +%Y-%m-%d)): eval outputs, LR curves, scaling runs, production metadata" \
-    -- results "${ANALYSES[@]}"
-echo "[git] committed $(git rev-parse --short HEAD)"
 
 if [[ "${NO_PUSH:-0}" == "1" ]]; then
     echo "[git] NO_PUSH=1: not pushed."
     exit 0
 fi
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-# Take in whatever reached the branch meanwhile (a merge, never a rebase:
-# others may have the branch checked out), then push.
-if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
-    git pull -q --no-rebase --no-edit origin "${BRANCH}"
+# Push whenever this branch holds commits GitHub lacks, new or left from an
+# earlier run whose push failed (Nov 17: a failed push used to stay local,
+# because the next run found nothing new to commit and stopped).
+git fetch -q origin "${BRANCH}" 2>/dev/null || true
+AHEAD=$(git rev-list --count "origin/${BRANCH}..HEAD" 2>/dev/null || echo 1)
+if (( AHEAD == 0 )); then
+    echo "[git] origin/${BRANCH} already has everything; nothing to push."
+    exit 0
 fi
-git push -q -u origin "${BRANCH}"
-echo "[git] pushed to origin/${BRANCH}"
+echo "[git] ${AHEAD} commit(s) to push"
+# Take in whatever reached the branch meanwhile (a merge, never a rebase:
+# others may have the branch checked out), then push; a push that loses a
+# race with another pusher is retried after merging again.
+for attempt in 1 2 3; do
+    if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
+        git pull -q --no-rebase --no-edit origin "${BRANCH}"
+    fi
+    if git push -q -u origin "${BRANCH}"; then
+        echo "[git] pushed to origin/${BRANCH}"
+        exit 0
+    fi
+    echo "[git] push attempt ${attempt} failed; merging and retrying" >&2
+    sleep $(( 2 ** attempt ))
+done
+echo "[git] could not push; the commit is safe locally. Run: git push origin ${BRANCH}" >&2
+exit 1
