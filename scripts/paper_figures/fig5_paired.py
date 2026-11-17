@@ -8,9 +8,10 @@ better. Colored by target chroma bucket. Tiers A and B pooled (n = 1000).
 Failed rows sit on the "failed" band. Dashed lines mark DeltaE00 = 1; the
 corner counts are rows in each quadrant.
 
-The "better on X%" figure is headline.json comparisons["INDIGO - random"]
-["A+B"].rows_better (strict, per row); the script recomputes it from the
-rows and stops if they disagree.
+The share of targets INDIGO solves better belongs in the caption, not on
+the figure: headline.json comparisons["INDIGO - random"]["A+B"].rows_better
+(strict, per row). The script recomputes it from the rows, stops if they
+disagree, and records it in the provenance line.
 
     python scripts/paper_figures/fig5_paired.py
 """
@@ -34,7 +35,6 @@ BUCKET_COL = {"C<8": S.OI["green"], "8<=C<30": S.OI["orange"], "C>=30": S.OI["pu
 LABELS = {
     "x": r"$\Delta E_{00}$, random proposals",
     "y": r"$\Delta E_{00}$, INDIGO",
-    "better": "INDIGO better on {p:.0f}% of targets",
     "fail": "failed",
     "floor": "≤0.001",
     "quad": "{n}",
@@ -97,8 +97,6 @@ def main():
         ax.text(px, py, LABELS["quad"].format(n=n), ha=ha, va=va, fontsize=S.SMALL_PT,
                 fontweight="bold", color=S.INK, zorder=5,
                 bbox=dict(boxstyle="square,pad=0.1", fc="white", ec="none", alpha=0.8))
-    ax.text(0.97, 0.03, LABELS["better"].format(p=100 * better), transform=ax.transAxes,
-            ha="right", va="bottom", fontsize=S.SMALL_PT, zorder=5)
     lg = ax.legend(loc="upper left", bbox_to_anchor=(0.0, 0.86), markerscale=2.2,
                    handletextpad=0.1, borderaxespad=0.3,
                    labelspacing=0.2, fontsize=S.SMALL_PT - 0.5)
@@ -112,7 +110,7 @@ def main():
         "(x) and `results/paper_runs/strong_model` (y), tiers A+B rows 0-499 each, paired by "
         "(tier, row_idx), loaded with paper_numbers.load_run; failed rows on the 'failed' band "
         f"({int(np.sum(~np.isfinite(xd)))} random, {int(np.sum(~np.isfinite(yd)))} INDIGO). "
-        "'Better on' = headline.json comparisons['INDIGO - random']['A+B'].rows_better "
+        "Caption number, not drawn: rows_better = headline.json comparisons['INDIGO - random']['A+B'].rows_better "
         f"= {better:.3f} (recomputed and checked). Quadrant counts at DeltaE00 = 1 from the rows: "
         f"both < 1 {q[(0, 0)]}, INDIGO only {q[(1, 0)]}, random only {q[(0, 1)]}, neither {q[(1, 1)]}.")
 
