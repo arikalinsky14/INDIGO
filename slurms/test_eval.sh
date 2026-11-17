@@ -69,6 +69,37 @@ echo "Started:  $(date)"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || true
 echo
 
+# GPU pre-flight (Nov 17). Faulty GPUs (uncorrectable ECC errors on gpu-n60,
+# then gpu-n73) killed 44 jobs at model load in seconds each, so SLURM kept
+# handing the bad GPU the next job in the queue. Touch the GPU first; if it
+# fails, resubmit this same job with this node excluded (the list grows with
+# each retry, INDIGO_GPU_RETRIES of them, default 3) and stop.
+if ! python - <<'PYEOF'
+import sys, torch
+try:
+    x = torch.ones(16 * 1024 * 1024, device="cuda")   # 64 MB
+    torch.cuda.synchronize()
+    assert float(x.sum()) == x.numel()
+except Exception as exc:
+    print(f"[preflight] GPU check failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+    sys.exit(1)
+PYEOF
+then
+    NODE="$(hostname -s)"
+    EXCL="${INDIGO_EXCLUDE_NODES:+${INDIGO_EXCLUDE_NODES},}${NODE}"
+    LEFT="${INDIGO_GPU_RETRIES:-3}"
+    echo "[preflight] GPU on ${NODE} is faulty; excluded so far: ${EXCL}" >&2
+    if (( LEFT > 0 )) && [[ -n "${SLURM_JOB_ID:-}" ]]; then
+        TL="$(squeue -M "${SLURM_CLUSTER_NAME:-gpu}" -h -j "${SLURM_JOB_ID}" -o %l 2>/dev/null | tail -1)"
+        INDIGO_EXCLUDE_NODES="${EXCL}" INDIGO_GPU_RETRIES=$(( LEFT - 1 )) \
+            sbatch --exclude="${EXCL}" ${TL:+--time="${TL}"} slurms/test_eval.sh "$@" \
+            && echo "[preflight] resubmitted with --exclude=${EXCL} (${TL:-default time})" >&2
+    else
+        echo "[preflight] no retries left; resubmit by hand with --exclude=${EXCL}" >&2
+    fi
+    exit 3
+fi
+
 # ============================================================================
 # CONFIGURATION (env-var overrideable)
 # ============================================================================
