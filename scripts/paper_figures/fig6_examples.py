@@ -132,11 +132,8 @@ def main():
                     ax.add_patch(Rectangle((xs + sw / 2, ys), sw / 2, sw,
                                            fc=S.lab_to_srgb(lab), ec="none"))
                 ax.add_patch(Rectangle((xs, ys), sw, sw, fc="none", ec=S.INK, lw=0.4))
-                # divider between target and result halves: black dots on a
-                # white line, so it shows on light and dark colors alike
+                # divider between target and result halves: black dots only
                 xm = xs + sw / 2
-                ax.plot([xm, xm], [ys, ys + sw], color="white", lw=0.9, zorder=3,
-                        solid_capstyle="butt")
                 ax.plot([xm, xm], [ys, ys + sw], color=S.INK, lw=0.9, ls=(0, (1, 1.2)),
                         zorder=4, dash_capstyle="butt")
                 txt = LABELS["de"].format(v=de) if np.isfinite(de) else LABELS["fail"]
