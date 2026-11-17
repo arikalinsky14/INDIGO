@@ -10,7 +10,14 @@ Every figure in the INDIGO paper is made by one script here. Outputs go to
 | TOC graphic | `fig1_pipeline.py` | `toc_graphic.{tiff,pdf}` (8 x 4 cm) | none |
 | Fig 2, material and target diversity | `fig2_diversity.py` | `fig2_diversity.{pdf,png}` | JaxLayerLumos materials, `results/prod_eval/eval_tier_{a,b}_greedy.json` |
 | Fig 3, architecture | `fig3_architecture.py` | `fig3_architecture.{pdf,png}` | sizes from `src/` and `results/production/current/config.json` |
+| Fig 4, INDIGO vs random (headline) | `fig4_headline.py` | `fig4_headline.{pdf,png}` | `results/paper/headline.json`, `results/paper_runs/{strong_model, strong_random, budget50_model}` |
+| Fig 5, paired per-target comparison | `fig5_paired.py` | `fig5_paired.{pdf,png}` (8.3 cm) | `results/paper_runs/{strong_model, strong_random}` |
+| Fig 6, example targets | `fig6_examples.py` | `fig6_examples.{pdf,png}` | `results/paper_runs/{strong_model, strong_random}` |
 | Fig 8, scaling | `fig8_scaling.py` | `fig8_scaling.{pdf,png}` | `analyses/scaling/results/tuned/` |
+
+`_runs.py` loads the headline runs with `scripts/paper_numbers.py`'s own loader
+(failed rows count as failures) and stops if the rows disagree with
+`headline.json`.
 
 `_style.py` holds the shared rules: 8.3 cm or 17 cm wide, 8 pt sans-serif,
 Okabe-Ito colors, no titles, vector PDF with editable text plus 600 dpi PNG.
@@ -24,6 +31,9 @@ would bias the figure.
 python scripts/paper_figures/fig1_pipeline.py
 python scripts/paper_figures/fig2_diversity.py   # --jll-materials-dir DIR if jaxlayerlumos is not installed
 python scripts/paper_figures/fig3_architecture.py
+python scripts/paper_figures/fig4_headline.py
+python scripts/paper_figures/fig5_paired.py
+python scripts/paper_figures/fig6_examples.py
 python scripts/paper_figures/fig8_scaling.py
 ```
 

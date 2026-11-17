@@ -126,8 +126,14 @@ def write_provenance(fig_id: str, line: str) -> None:
     p.write_text(head + "\n".join(lines) + "\n")
 
 
-def lab_to_srgb(lab):
-    """CIE Lab (D65) -> sRGB in [0, 1], clipped. Used only to paint swatches."""
+def lab_in_srgb(lab, tol=0.002) -> bool:
+    """True if the Lab color is inside the sRGB gamut (no clipping needed)."""
+    return lab_to_srgb(lab, clip=False) is not None
+
+
+def lab_to_srgb(lab, clip=True):
+    """CIE Lab (D65) -> sRGB in [0, 1], clipped. Used only to paint swatches.
+    With clip=False, returns None for a color outside the sRGB gamut."""
     import numpy as np
     L, a, b = (float(v) for v in lab)
     fy = (L + 16) / 116
@@ -139,5 +145,7 @@ def lab_to_srgb(lab):
                   [-0.9689, 1.8758, 0.0415],
                   [0.0557, -0.2040, 1.0570]])
     rgb = M @ np.array([X, Y, Z])
+    if not clip and (rgb.min() < -0.002 or rgb.max() > 1.002):
+        return None
     rgb = np.where(rgb <= 0.0031308, 12.92 * rgb, 1.055 * np.clip(rgb, 0, None) ** (1 / 2.4) - 0.055)
     return tuple(np.clip(rgb, 0, 1))
