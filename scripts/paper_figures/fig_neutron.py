@@ -50,7 +50,6 @@ LABELS = {
     "y": r"Image-mean $\Delta E_{00}$ (their physics)",
     "b_y": r"$\Delta E_{00}$ (their physics)",
     "b_x": "Chrome design (their Table 1)",
-    "free_line": "no Cr",
     "fail": "failed",
     "Flower (style-transferred)": "Flower\n(style-transferred)",
 }
@@ -189,8 +188,6 @@ def main():
             mec=S.INK, mew=0.4, zorder=3)
     # Materials free: one result for the chrome target, so a line across every design.
     bx.axhline(free_cr, color=ARM_COL["any"], lw=1.1, ls=(0, (1, 1.5)), zorder=2)
-    bx.text(len(ks) - 0.45, free_cr + 0.04, LABELS["free_line"], ha="right", va="bottom",
-            fontsize=S.SMALL_PT - 1, color=S.INK)
     bx.set_xticks(xb); bx.set_xticklabels(ks)
     bx.set_xlim(-0.6, len(ks) - 0.4)
     bx.set_ylim(0, 2.1)
