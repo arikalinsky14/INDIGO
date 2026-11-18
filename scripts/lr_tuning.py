@@ -36,6 +36,7 @@ import json
 import math
 import sys
 import time
+import dataclasses
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
@@ -356,8 +357,13 @@ def train_with_lr(
         wdir.mkdir(parents=True, exist_ok=True)
         sd_model = getattr(model, "_orig_mod", model)
         torch.save(sd_model.state_dict(), wdir / "model.pt")
+        # The trial's own learning rate and batch size: `config` is built once
+        # per cell without them, so its fields held ModelConfig's defaults
+        # (4.42e-5, 64) and every saved config.json, and every ModelConfig.tag()
+        # built from it, misreported the run (fixed Nov 18).
         with open(wdir / "config.json", "w") as f:
-            json.dump(config.to_dict(), f, indent=2)
+            json.dump(dataclasses.replace(config, learning_rate=float(f"{lr:.6g}"),
+                                          batch_size=int(batch_size)).to_dict(), f, indent=2)
         with open(wdir / "meta.json", "w") as f:
             json.dump({"lr": lr, "seed": seed, "epochs": epochs,
                        "train_examples": len(train_dataset),

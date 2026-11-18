@@ -2,6 +2,11 @@
   "source": "/ix1/ohinder/ajk245/Github/INDIGO/outputs/lr_curves/cross_attn/weights/ep1_lim39959808_d352_se6_bs256_b20.999_r5/lr3.104000e-04",
   "chosen_by": "highest learning rate that did not diverge: 3.1040e-04 (lowest diverged 6.2080e-04)",
   "lr": 0.0003104000000000001,
+  "batch_size": 256,
+  "d_model": 352,
+  "slot_encoder_layers": 6,
+  "decoder_layers": 1,
+  "n_heads": 11,
   "seed": 42,
   "epochs": 1,
   "train_examples": 39959808,
@@ -10,5 +15,6 @@
   "model_sha256": "4fd024434fcc0c027a4b3fd38f2cc2efb18baf890c28f641e4b4e3d172d3ffda",
   "model_sha256_16": "4fd024434fcc0c02",
   "promoted_at": "2026-11-15T12:46:36",
-  "git_commit": "d5fd1e2"
+  "git_commit": "d5fd1e2",
+  "corrected": "2026-11-18: batch_size and architecture fields added from results/lr_curves/lr_search_ep1_lim39959808_d352_se6_bs256_b20.999_r5.json; config.json learning_rate/batch_size corrected from lr_tuning.py defaults. See PROVENANCE.md."
 }

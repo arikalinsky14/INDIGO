@@ -159,10 +159,22 @@ def promote(wdir: Path, dest: Path, reason: str, dry_run: bool) -> None:
             shutil.copy2(wdir / f, tmp / f)
         if sha256(tmp / "model.pt") != digest:
             sys.exit("[promote] copy does not match the source; nothing promoted")
+        # config.json from lr_tuning.py runs before Nov 18 carries ModelConfig's
+        # default learning_rate and batch_size, not the run's. Write the run's
+        # own: the rate from meta.json, the batch size from the cell tag.
+        cfg = json.load(open(tmp / "config.json"))
+        m_bs = re.search(r"_bs(\d+)_", wdir.parent.name)
+        if not m_bs:
+            sys.exit(f"[promote] no _bs<N>_ in {wdir.parent.name}; cannot record the batch size")
+        cfg["learning_rate"], cfg["batch_size"] = float(f"{float(meta['lr']):.6g}"), int(m_bs.group(1))
+        json.dump(cfg, open(tmp / "config.json", "w"), indent=2)
         json.dump({
             "source": str(wdir.resolve()),
             "chosen_by": reason,
             "lr": meta["lr"],
+            "batch_size": cfg["batch_size"],
+            **{k: cfg[k] for k in ("d_model", "slot_encoder_layers", "decoder_layers",
+                                    "n_heads")},
             "seed": meta.get("seed"),
             "epochs": meta.get("epochs"),
             "train_examples": meta.get("train_examples"),

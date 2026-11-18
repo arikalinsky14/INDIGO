@@ -10,8 +10,8 @@
   "n_heads": 11,
   "slot_encoder_layers": 6,
   "decoder_layers": 1,
-  "learning_rate": 4.42e-05,
-  "batch_size": 64,
+  "learning_rate": 0.0003104,
+  "batch_size": 256,
   "epochs": 1,
   "limit_examples": null,
   "vocab_size": 3201

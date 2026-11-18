@@ -38,6 +38,7 @@ the copy, and `slurms/lr_grid.sh` calls it after every `STAGE=lrcurve` task on
 an explicit-D cell (`CURVES="d352/se6@D=..."`), so a retrain promotes its own
 winner once its grid is complete. The eval scripts default to `current`. Paper
 write-up is in progress; the no-model baseline is `PROPOSER=random`.
+Its `config.json` said lr 4.42e-5, batch 64 until Nov 18: `lr_tuning.py` saved ModelConfig's defaults, so every eval directory named `..._lr4.42e-05_bs64_...` is this model all the same (see `results/production/current/PROVENANCE.md`; `scripts/check_production_config.py` guards it).
 Results reach git through `bash scripts/sync_results.sh` on CRC: it mirrors
 outputs/ (prod_eval, lr_curves, lr_search, isoflop_confirm) and the production
 metadata into the tracked `results/`, never weights, then commits and pushes.

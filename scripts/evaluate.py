@@ -223,6 +223,17 @@ def create_color_swatch(results: List[EvalResult], output_path: str, n: int = 10
 # ============================================================================
 
 
+def checkpoint_sha256(model_path: Path) -> str:
+    """sha256 of model.pt, as promote_production.py and every inference eval
+    record it (they print the first 16 hex characters)."""
+    import hashlib
+    h = hashlib.sha256()
+    with open(model_path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def load_model(checkpoint_dir: Path, device: torch.device) -> Tuple[torch.nn.Module, ModelConfig]:
     config_path = checkpoint_dir / "config.json"
     model_path = checkpoint_dir / "model.pt"
@@ -325,6 +336,12 @@ def main() -> None:
 
     print(f"[INFO] Loading model from {checkpoint_dir}")
     model, config = load_model(checkpoint_dir, device)
+    sha_full = checkpoint_sha256(checkpoint_dir / "model.pt")
+    # Ties this output to one weights file. The config tag alone cannot: runs
+    # before Nov 18 saved ModelConfig's default lr and batch size in it.
+    provenance = {"model_sha256": sha_full[:16], "model_sha256_full": sha_full,
+                  "checkpoint": str(checkpoint_dir.resolve())}
+    print(f"[INFO] Model sha256: {sha_full[:16]}")
     print(f"[INFO] Model params: {sum(p.numel() for p in model.parameters()):,}")
     print(f"[INFO] Config tag: {config.tag()}")
 
@@ -351,6 +368,7 @@ def main() -> None:
             "n_samples": tf_results["n_samples"],
             "n_examples": len(dataset),
             "config_tag": config.tag(),
+            **provenance,
         }
         print(f"\n--- Teacher Forcing Results ---")
         print(f"  Loss:     {tf_results['loss']:.4f}")
@@ -486,6 +504,7 @@ def main() -> None:
         "layer_count_match": n_layers_match / n_total if n_total else 0,
         "avg_layer_diff": avg_layer_diff,
         "config_tag": config.tag(),
+        **provenance,
     }
 
     ciede_values = [r.ciede2000 for r in results if r.ciede2000 is not None]
