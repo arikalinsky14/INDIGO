@@ -50,7 +50,7 @@ LABELS = {
     "y": r"Image-mean $\Delta E_{00}$ (their physics)",
     "b_y": r"$\Delta E_{00}$ (their physics)",
     "b_x": "Chrome design (their Table 1)",
-    "free_line": "INDIGO, materials free (no Cr)",
+    "free_line": "no Cr",
     "fail": "failed",
     "Flower (style-transferred)": "Flower\n(style-transferred)",
 }
