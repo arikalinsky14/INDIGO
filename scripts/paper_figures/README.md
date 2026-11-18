@@ -14,7 +14,7 @@ Every figure in the INDIGO paper is made by one script here. Outputs go to
 | Fig 5, paired per-target comparison | `fig5_paired.py` | `fig5_paired.{pdf,png}` (8.3 cm) | `results/paper_runs/{strong_model, strong_random}` |
 | Fig 6, example targets | `fig6_examples.py` | `fig6_examples.{pdf,png}` | `results/paper_runs/{strong_model, strong_random}` |
 | Fig 7, gamut batteries (out-of-distribution) | `fig7_gamut.py` | `fig7_gamut.{pdf,png}` | `results/prod_eval/gamut/gamut_strong_dog{,_random}.json` |
-| NEUTRON head-to-head (number TBD) | `fig_neutron.py` | `fig_neutron.{pdf,png}` | `results/neutron/rescore_final_{fixed,full}.json` |
+| NEUTRON head-to-head (number TBD) | `fig_neutron.py` | `fig_neutron.{pdf,png}`; caption `results/paper/neutron_caption.tex` (generated) | `results/neutron/rescore_final_{fixed,full}.json` |
 | LR law (number TBD) | `fig_lr_law.py` | `fig_lr_law.{pdf,png}`; paragraph `results/paper/lr_law_paragraph.tex`, its numbers `results/paper/lr_law_numbers.json` | `analyses/scaling/results/lr_law_fit_cliff.json`, `tuned/isoflop_tuned.json`, production LR sweep in `results/lr_curves/` |
 | Fig 8, scaling | `fig8_scaling.py` | `fig8_scaling.{pdf,png}` | `analyses/scaling/results/tuned/` |
 
