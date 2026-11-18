@@ -37,7 +37,7 @@ import _style as S
 FILES = {"fixed": S.REPO / "results/neutron/rescore_final_fixed.json",
          "any": S.REPO / "results/neutron/rescore_final_full.json"}
 METRIC = "dE_theirs_int_snap"
-CRASHED_COUNT_AS_FAILURE = False
+CRASHED_COUNT_AS_FAILURE = True
 FAIL_Y = 60.0
 ORDER = ["White Orchard", "Tulip Field", "Great Wall", "Flower (style-transferred)"]
 
@@ -169,11 +169,17 @@ def main():
                         mec=S.INK if not hollow else ARM_COL[arm], mew=0.6 if not hollow else 1.2,
                         elinewidth=0.9, capsize=0, zorder=5)
     ax.axhline(2, color=S.GREY, lw=0.6, ls=(0, (3, 2)), zorder=1)
-    ax.axhspan(FAIL_Y / 1.6, FAIL_Y * 1.6, color="#F2F2F2", lw=0, zorder=0)
+    any_fail = any(not np.all(np.isfinite(pics[n][a]["vals"])) for n in order for a in pics[n])
     ax.set_yscale("log")
-    ax.set_ylim(0.01, FAIL_Y * 1.6)
-    ax.set_yticks([0.01, 0.1, 1, 10, FAIL_Y])
-    ax.set_yticklabels(["0.01", "0.1", "1", "10", LABELS["fail"]])
+    if any_fail:
+        ax.axhspan(FAIL_Y / 1.6, FAIL_Y * 1.6, color="#F2F2F2", lw=0, zorder=0)
+        ax.set_ylim(0.01, FAIL_Y * 1.6)
+        ax.set_yticks([0.01, 0.1, 1, 10, FAIL_Y])
+        ax.set_yticklabels(["0.01", "0.1", "1", "10", LABELS["fail"]])
+    else:                                    # no failed rows: no "failed" band
+        ax.set_ylim(0.01, 30)
+        ax.set_yticks([0.01, 0.1, 1, 10])
+        ax.set_yticklabels(["0.01", "0.1", "1", "10"])
     ax.set_xticks(range(len(order)))
     ax.set_xticklabels([LABELS.get(n, n) for n in order])
     ax.set_xlim(-0.55, len(order) - 0.45)
