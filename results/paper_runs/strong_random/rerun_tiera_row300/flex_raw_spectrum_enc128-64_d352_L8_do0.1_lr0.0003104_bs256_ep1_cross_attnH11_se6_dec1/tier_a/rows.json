@@ -1,0 +1,70 @@
+[
+  {
+    "row_idx": 300,
+    "target_lab": [
+      92.6527738571167,
+      -9.871554374694824,
+      28.041648864746094
+    ],
+    "n_pool": 11,
+    "ground_truth_n_layers": 4,
+    "pool_names": [
+      "perturb_large(SiO2)",
+      "lorentz_dielectric_n2",
+      "perturb_large(TiO2)",
+      "perturb_large(Mn)",
+      "perturb_large(Air)",
+      "perturb_large(AZO)",
+      "perturb_large(AZO)",
+      "perturb_small(cSi)",
+      "interp(Cr,Al,w=0.89)",
+      "perturb_large(Sapphire)",
+      "lorentz_dielectric_n2"
+    ],
+    "pool_sources": [
+      "synthetic_perturb_large",
+      "synthetic_lorentz",
+      "synthetic_perturb_large",
+      "synthetic_perturb_large",
+      "synthetic_perturb_large",
+      "synthetic_perturb_large",
+      "synthetic_perturb_large",
+      "synthetic_perturb_small",
+      "synthetic_interp",
+      "synthetic_perturb_large",
+      "synthetic_lorentz"
+    ],
+    "wall_time_s": 190.77212047576904,
+    "achieved_lab": [
+      86.45716084615583,
+      -14.33533694202177,
+      28.728667366172367
+    ],
+    "delta_e": 4.886912535007447,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "perturb_small(cSi)",
+        "thickness_nm": 49.71154794465327
+      },
+      {
+        "material": "perturb_large(Mn)",
+        "thickness_nm": 34.13489942971279
+      },
+      {
+        "material": "perturb_large(SiO2)",
+        "thickness_nm": 16.64427742992257
+      },
+      {
+        "material": "perturb_small(cSi)",
+        "thickness_nm": 183.8274989908568
+      },
+      {
+        "material": "perturb_large(SiO2)",
+        "thickness_nm": 69.86320390986579
+      }
+    ],
+    "objective": 4.886912535007447,
+    "refined": true
+  }
+]

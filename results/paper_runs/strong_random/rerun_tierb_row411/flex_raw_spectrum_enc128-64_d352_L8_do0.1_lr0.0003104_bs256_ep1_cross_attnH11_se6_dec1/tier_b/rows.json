@@ -1,0 +1,102 @@
+[
+  {
+    "row_idx": 411,
+    "target_lab": [
+      45.47830820083618,
+      22.2510986328125,
+      -30.034713745117188
+    ],
+    "n_pool": 31,
+    "ground_truth_n_layers": 4,
+    "pool_names": [
+      "lorentz_dielectric_n1",
+      "TiN",
+      "lorentz_dielectric_n2",
+      "lorentz_metal_n3",
+      "Au",
+      "perturb_small(Au)",
+      "perturb_small(Au)",
+      "interp(TiN,GaAs,w=0.47)",
+      "ZnO",
+      "lorentz_dielectric_n3",
+      "TiN",
+      "perturb_small(Ge)",
+      "lorentz_metal_n2",
+      "lorentz_dielectric_n3",
+      "interp(ZnO,Au,w=0.43)",
+      "Ge",
+      "interp(Au,Al2O3,w=0.66)",
+      "lorentz_dielectric_n2",
+      "lorentz_dielectric_n2",
+      "perturb_large(TiN)",
+      "perturb_large(Al2O3)",
+      "perturb_large(GaAs)",
+      "Pt",
+      "lorentz_dielectric_n1",
+      "ZnO",
+      "lorentz_dielectric_n3",
+      "Pt",
+      "interp(ITO,Au,w=0.50)",
+      "lorentz_metal_n2",
+      "interp(Au,Al2O3,w=0.63)",
+      "TiN"
+    ],
+    "pool_sources": [
+      "synthetic_lorentz",
+      "jaxlayerlumos",
+      "synthetic_lorentz",
+      "synthetic_lorentz",
+      "jaxlayerlumos",
+      "synthetic_perturb_small",
+      "synthetic_perturb_small",
+      "synthetic_interp",
+      "jaxlayerlumos",
+      "synthetic_lorentz",
+      "jaxlayerlumos",
+      "synthetic_perturb_small",
+      "synthetic_lorentz",
+      "synthetic_lorentz",
+      "synthetic_interp",
+      "jaxlayerlumos",
+      "synthetic_interp",
+      "synthetic_lorentz",
+      "synthetic_lorentz",
+      "synthetic_perturb_large",
+      "synthetic_perturb_large",
+      "synthetic_perturb_large",
+      "jaxlayerlumos",
+      "synthetic_lorentz",
+      "jaxlayerlumos",
+      "synthetic_lorentz",
+      "jaxlayerlumos",
+      "synthetic_interp",
+      "synthetic_lorentz",
+      "synthetic_interp",
+      "jaxlayerlumos"
+    ],
+    "wall_time_s": 239.85289478302002,
+    "achieved_lab": [
+      45.84686635815531,
+      17.683085522763708,
+      -28.037764731587966
+    ],
+    "delta_e": 2.3471676867424947,
+    "n_layers": 3,
+    "layers": [
+      {
+        "material": "lorentz_dielectric_n2",
+        "thickness_nm": 123.08205931454292
+      },
+      {
+        "material": "lorentz_dielectric_n3",
+        "thickness_nm": 60.82633589059127
+      },
+      {
+        "material": "lorentz_dielectric_n1",
+        "thickness_nm": 144.0997983040951
+      }
+    ],
+    "objective": 2.3471676867424947,
+    "refined": true
+  }
+]

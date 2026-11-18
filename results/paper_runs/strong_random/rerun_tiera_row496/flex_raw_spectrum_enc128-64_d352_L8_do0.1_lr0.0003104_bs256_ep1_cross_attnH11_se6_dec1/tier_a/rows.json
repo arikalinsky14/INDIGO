@@ -1,0 +1,90 @@
+[
+  {
+    "row_idx": 496,
+    "target_lab": [
+      90.57239890098572,
+      2.2811779975891113,
+      23.35761070251465
+    ],
+    "n_pool": 23,
+    "ground_truth_n_layers": 4,
+    "pool_names": [
+      "perturb_small(GaInP)",
+      "lorentz_dielectric_n1",
+      "lorentz_dielectric_n1",
+      "perturb_small(BK7)",
+      "GaP",
+      "lorentz_metal_n2",
+      "perturb_small(InP)",
+      "Mn",
+      "lorentz_dielectric_n2",
+      "perturb_small(Mg)",
+      "interp(Fe,Air,w=0.72)",
+      "perturb_small(Cu)",
+      "lorentz_metal_n1",
+      "perturb_small(Cu)",
+      "perturb_large(Si3N4)",
+      "Si3N4",
+      "perturb_small(Cu)",
+      "perturb_small(Air)",
+      "interp(Cr,Mg,w=0.15)",
+      "Air",
+      "SiC",
+      "interp(Zn,Mn,w=0.83)",
+      "perturb_small(Fe)"
+    ],
+    "pool_sources": [
+      "synthetic_perturb_small",
+      "synthetic_lorentz",
+      "synthetic_lorentz",
+      "synthetic_perturb_small",
+      "jaxlayerlumos",
+      "synthetic_lorentz",
+      "synthetic_perturb_small",
+      "jaxlayerlumos",
+      "synthetic_lorentz",
+      "synthetic_perturb_small",
+      "synthetic_interp",
+      "synthetic_perturb_small",
+      "synthetic_lorentz",
+      "synthetic_perturb_small",
+      "synthetic_perturb_large",
+      "jaxlayerlumos",
+      "synthetic_perturb_small",
+      "synthetic_perturb_small",
+      "synthetic_interp",
+      "jaxlayerlumos",
+      "jaxlayerlumos",
+      "synthetic_interp",
+      "synthetic_perturb_small"
+    ],
+    "wall_time_s": 137.2733986377716,
+    "achieved_lab": [
+      90.57458459391302,
+      2.2805920259074686,
+      23.356034609313813
+    ],
+    "delta_e": 0.0016347317624287373,
+    "n_layers": 4,
+    "layers": [
+      {
+        "material": "perturb_small(Cu)",
+        "thickness_nm": 130.1480572851771
+      },
+      {
+        "material": "lorentz_metal_n2",
+        "thickness_nm": 60.03253037586628
+      },
+      {
+        "material": "perturb_small(Cu)",
+        "thickness_nm": 2.0262501027900983
+      },
+      {
+        "material": "GaP",
+        "thickness_nm": 114.02697890937084
+      }
+    ],
+    "objective": 0.0016347317624287373,
+    "refined": true
+  }
+]

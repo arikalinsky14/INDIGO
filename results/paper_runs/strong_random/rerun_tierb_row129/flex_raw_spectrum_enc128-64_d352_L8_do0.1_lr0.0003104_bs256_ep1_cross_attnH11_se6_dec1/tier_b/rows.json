@@ -1,0 +1,60 @@
+[
+  {
+    "row_idx": 129,
+    "target_lab": [
+      75.34258365631104,
+      2.942228317260742,
+      48.848880767822266
+    ],
+    "n_pool": 10,
+    "ground_truth_n_layers": 5,
+    "pool_names": [
+      "perturb_small(Au)",
+      "perturb_large(Pt)",
+      "TiN",
+      "perturb_large(ITO)",
+      "perturb_large(ZnO)",
+      "perturb_small(Al2O3)",
+      "perturb_large(Au)",
+      "lorentz_metal_n1",
+      "perturb_large(Pt)",
+      "perturb_large(Ge)"
+    ],
+    "pool_sources": [
+      "synthetic_perturb_small",
+      "synthetic_perturb_large",
+      "jaxlayerlumos",
+      "synthetic_perturb_large",
+      "synthetic_perturb_large",
+      "synthetic_perturb_small",
+      "synthetic_perturb_large",
+      "synthetic_lorentz",
+      "synthetic_perturb_large",
+      "synthetic_perturb_large"
+    ],
+    "wall_time_s": 109.90170812606812,
+    "achieved_lab": [
+      77.047439206138,
+      3.7510691976868626,
+      47.18073842103849
+    ],
+    "delta_e": 1.4787231017751417,
+    "n_layers": 3,
+    "layers": [
+      {
+        "material": "TiN",
+        "thickness_nm": 68.93989231246178
+      },
+      {
+        "material": "perturb_large(Ge)",
+        "thickness_nm": 62.600242921958404
+      },
+      {
+        "material": "TiN",
+        "thickness_nm": 28.369933640957697
+      }
+    ],
+    "objective": 1.4787231017751417,
+    "refined": true
+  }
+]
