@@ -54,11 +54,19 @@ SEARCH_RUNS = (("light: 16 candidates, top-1, 5 steps", "results/prod_eval/test_
 def search_medians(folder: Path) -> dict:
     out = {}
     for tier in ("a", "b"):
-        des = []
-        for rp in glob.glob(str(folder / "**" / f"tier_{tier}" / "rows.json"), recursive=True):
+        by_row = {}
+        for rp in sorted(glob.glob(str(folder / "**" / f"tier_{tier}" / "rows.json"),
+                                   recursive=True)):
             for r in json.load(open(rp)):
-                d = r.get("delta_e")
-                des.append(float(d) if d is not None and math.isfinite(float(d)) else math.inf)
+                # A rerun after the sampler crash (fixed Nov 18) replaces the crash.
+                old = by_row.get(r["row_idx"])
+                if old is None or ("out of range [0, 3201)" in str(old.get("error") or "")
+                                   and not r.get("error")):
+                    by_row[r["row_idx"]] = r
+        des = []
+        for r in by_row.values():
+            d = r.get("delta_e")
+            des.append(float(d) if d is not None and math.isfinite(float(d)) else math.inf)
         if des:
             out[tier] = {"median": float(np.median(des)), "n": len(des),
                          "n_failed": int(np.sum(~np.isfinite(des)))}

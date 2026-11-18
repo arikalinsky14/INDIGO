@@ -79,12 +79,22 @@ def held_out_list() -> List[str]:
     return list(HELD_OUT_REAL_MATERIALS)
 
 
+SAMPLER_BUG = "out of range [0, 3201)"
+
+
+def is_sampler_bug(r: dict) -> bool:
+    """The generate crash fixed Nov 18 (inference/src/generate.py:_sample_token):
+    a float32 rounding draw past the vocabulary, not a search outcome."""
+    return SAMPLER_BUG in str(r.get("error") or "")
+
+
 def load_run(folder: Path):
     """({tier: {row_idx: row}}, settings, [rows.json files]) over all chunks."""
     rows: Dict[str, Dict[int, dict]] = {t: {} for t in TIERS}
     settings: Optional[dict] = None
     sha = set()
     files = []
+    replaced = []
     for tier in TIERS:
         for rp in sorted(glob.glob(str(folder / "**" / f"tier_{tier}" / "rows.json"),
                                    recursive=True)):
@@ -108,14 +118,24 @@ def load_run(folder: Path):
                 i = int(r["row_idx"])
                 old = rows[tier].get(i)
                 if old is not None and old.get("delta_e") != r.get("delta_e"):
-                    sys.exit(f"[paper_numbers] {folder}: tier {tier} row {i} appears twice "
-                             f"with different results ({old.get('delta_e')} vs {r.get('delta_e')})")
+                    # A row rerun after the sampler's token-3201 crash (fixed
+                    # Nov 18) replaces the crashed copy; nothing else may.
+                    if is_sampler_bug(old) and not r.get("error"):
+                        replaced.append((tier, i))
+                    elif is_sampler_bug(r) and not old.get("error"):
+                        replaced.append((tier, i))
+                        continue
+                    else:
+                        sys.exit(f"[paper_numbers] {folder}: tier {tier} row {i} appears twice "
+                                 f"with different results ({old.get('delta_e')} vs "
+                                 f"{r.get('delta_e')})")
                 rows[tier][i] = r
     if not files:
         sys.exit(f"[paper_numbers] no tier_*/rows.json under {folder}")
     if len(sha) > 1:
         sys.exit(f"[paper_numbers] {folder}: chunks scored different checkpoints {sorted(sha)}")
-    return rows, {**(settings or {}), "model_sha256": next(iter(sha), None)}, files
+    return rows, {**(settings or {}), "model_sha256": next(iter(sha), None),
+                  "rerun_after_sampler_bug": sorted(replaced)}, files
 
 
 def chroma(lab) -> float:
@@ -491,7 +511,10 @@ def markdown(out: dict) -> str:
         lines.append(f"- **{name}** (`{res['folder']}`): proposer {s.get('proposer')}, "
                      f"N = {s.get('ensemble_n')}, top-k {s.get('top_k')}, "
                      f"{s.get('refine_iters')} refinement steps, seed {s.get('seed')}, "
-                     f"layers {s.get('layer_count') or 'free'}, checkpoint {s.get('model_sha256')}")
+                     f"layers {s.get('layer_count') or 'free'}, checkpoint {s.get('model_sha256')}"
+                     + (f"; rows rerun after the sampler crash fixed Nov 18: "
+                        + ", ".join(f"{t.upper()}{i}" for t, i in s["rerun_after_sampler_bug"])
+                        if s.get("rerun_after_sampler_bug") else ""))
     lines.append("")
     for tier_name, _ in TIER_SETS:
         body = []

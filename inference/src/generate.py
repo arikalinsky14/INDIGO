@@ -432,7 +432,14 @@ def _sample_token(logits_row: np.ndarray, temperature: float,
     # the actual sample is a numpy operation behind a torch RNG draw.
     u = torch.rand((), generator=generator, device=device).item()
     cum = np.cumsum(probs)
-    return int(np.searchsorted(cum, u))
+    idx = int(np.searchsorted(cum, u))
+    if idx >= len(cum):
+        # Rounding: cum[-1] can land just under 1 (0.99999994 in float32), and
+        # a draw above it pointed one past the vocabulary (token 3201, Nov 18,
+        # one NEUTRON row in 601). Such a draw belongs to the last token with
+        # probability. Every other draw is unchanged.
+        idx = int(np.flatnonzero(probs > 0)[-1])
+    return idx
 
 
 def _plan_chunks(N: int, chunk_size: Optional[int]

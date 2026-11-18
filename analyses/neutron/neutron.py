@@ -518,68 +518,86 @@ def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) 
     ours = our_materials(repo)
     idx = {e["row"]: e for e in json.load(open(index))} if index else {}
     rows_out = []
+    # A row rerun after the sampler's token-3201 crash (fixed Nov 18) replaces
+    # the crashed copy; any other duplicate row stops the rescore.
+    def _bug(x: dict) -> bool:
+        return "out of range [0, 3201)" in str(x.get("error") or "")
+
+    by_idx, replaced = {}, []
     for rp in sorted(glob.glob(str(run_dir / "**" / "rows.json"), recursive=True)):
         for r in json.load(open(rp)):
-            ent = {"row_idx": r["row_idx"], "target_lab": r.get("target_lab"),
-                   "dE_ours": r.get("delta_e"), "wall_time_s": r.get("wall_time_s"),
-                   "file": rp}
-            meta = idx.get(r["row_idx"], {})
-            if r.get("layers"):
-                names = [l["material"] for l in r["layers"]]
-                t = [l["thickness_nm"] for l in r["layers"]]
-                if meta.get("their_task"):
-                    # Their task: their exact template (5th layer and glass
-                    # incoherent), thicknesses as is and truncated to whole nm.
-                    ok = names == meta.get("materials")
-                    lab = their_lab_from_R(their_reflectance([nk[n] for n in names], t))
-                    lab_i = their_lab_from_R(their_reflectance([nk[n] for n in names],
-                                                               [int(x) for x in t]))
-                    ts = snap_int_nm(ours, names, t, r["target_lab"], THEIR_BOUNDS)
-                    lab_s = their_lab_from_R(their_reflectance([nk[n] for n in names], ts))
-                    ent.update(materials=names, thickness_nm=t, lab_theirs=lab.tolist(),
-                               dE_theirs=de2000(lab, r["target_lab"]),
-                               dE_theirs_int_nm=de2000(lab_i, r["target_lab"]),
-                               thickness_snap_nm=ts,
-                               dE_theirs_int_snap=de2000(lab_s, r["target_lab"]),
-                               matches_row_materials=ok,
-                               within_bounds=all(lo <= x <= hi for x, (lo, hi)
-                                                 in zip(t, THEIR_BOUNDS)))
-                elif meta.get("back_metal") and all(n in nk for n in names):
-                    # Free materials, their geometry: 5 layers, the last an
-                    # opaque 100 nm metal, scored with their exact inc_list.
-                    bnd = [(0, 10 ** 6)] * 4 + [THEIR_BOUNDS[4]]
-                    lab = their_lab_from_R(their_reflectance([nk[n] for n in names], t))
-                    lab_i = their_lab_from_R(their_reflectance([nk[n] for n in names],
-                                                               [int(x) for x in t]))
-                    ts = snap_int_nm(ours, names, t, r["target_lab"], bnd)
-                    lab_s = their_lab_from_R(their_reflectance([nk[n] for n in names], ts))
-                    ent.update(materials=names, thickness_nm=t, lab_theirs=lab.tolist(),
-                               dE_theirs=de2000(lab, r["target_lab"]),
-                               dE_theirs_int_nm=de2000(lab_i, r["target_lab"]),
-                               thickness_snap_nm=ts,
-                               dE_theirs_int_snap=de2000(lab_s, r["target_lab"]),
-                               back_metal_ok=(len(names) == 5 and names[4] in M
-                                              and abs(t[4] - 100) < 1e-6))
-                elif all(n in nk for n in names):
-                    lab = their_lab_from_R(their_reflectance([nk[n] for n in names], t,
-                                                             template=False))
-                    lab_i = their_lab_from_R(their_reflectance([nk[n] for n in names],
-                                                               [int(x) for x in t],
-                                                               template=False))
-                    ts = snap_int_nm(ours, names, t, r["target_lab"])
-                    lab_s = their_lab_from_R(their_reflectance([nk[n] for n in names], ts,
-                                                               template=False))
-                    ent.update(materials=names, thickness_nm=t, lab_theirs=lab.tolist(),
-                               dE_theirs=de2000(lab, r["target_lab"]),
-                               dE_theirs_int_nm=de2000(lab_i, r["target_lab"]),
-                               thickness_snap_nm=ts,
-                               dE_theirs_int_snap=de2000(lab_s, r["target_lab"]))
-                else:
-                    ent["untraceable"] = f"materials not in the NEUTRON set: {names}"
-            ent["set"], ent["pixels"] = meta.get("set"), meta.get("pixels")
-            ent["pps"], ent["reported_dE"] = meta.get("pps", False), meta.get("reported_dE")
-            ent["label_pso_acc"] = meta.get("label_pso_acc")
-            rows_out.append(ent)
+            i, old = r["row_idx"], by_idx.get(r["row_idx"])
+            if old is None:
+                by_idx[i] = (rp, r)
+            elif _bug(old[1]) and not r.get("error"):
+                by_idx[i] = (rp, r)
+                replaced.append(i)
+            elif _bug(r) and not old[1].get("error"):
+                replaced.append(i)
+            else:
+                sys.exit(f"[rescore] row {i} appears twice: {old[0]} and {rp}")
+    for i in sorted(by_idx):
+        rp, r = by_idx[i]
+        ent = {"row_idx": r["row_idx"], "target_lab": r.get("target_lab"),
+               "dE_ours": r.get("delta_e"), "wall_time_s": r.get("wall_time_s"),
+               "file": rp}
+        meta = idx.get(r["row_idx"], {})
+        if r.get("layers"):
+            names = [l["material"] for l in r["layers"]]
+            t = [l["thickness_nm"] for l in r["layers"]]
+            if meta.get("their_task"):
+                # Their task: their exact template (5th layer and glass
+                # incoherent), thicknesses as is and truncated to whole nm.
+                ok = names == meta.get("materials")
+                lab = their_lab_from_R(their_reflectance([nk[n] for n in names], t))
+                lab_i = their_lab_from_R(their_reflectance([nk[n] for n in names],
+                                                           [int(x) for x in t]))
+                ts = snap_int_nm(ours, names, t, r["target_lab"], THEIR_BOUNDS)
+                lab_s = their_lab_from_R(their_reflectance([nk[n] for n in names], ts))
+                ent.update(materials=names, thickness_nm=t, lab_theirs=lab.tolist(),
+                           dE_theirs=de2000(lab, r["target_lab"]),
+                           dE_theirs_int_nm=de2000(lab_i, r["target_lab"]),
+                           thickness_snap_nm=ts,
+                           dE_theirs_int_snap=de2000(lab_s, r["target_lab"]),
+                           matches_row_materials=ok,
+                           within_bounds=all(lo <= x <= hi for x, (lo, hi)
+                                             in zip(t, THEIR_BOUNDS)))
+            elif meta.get("back_metal") and all(n in nk for n in names):
+                # Free materials, their geometry: 5 layers, the last an
+                # opaque 100 nm metal, scored with their exact inc_list.
+                bnd = [(0, 10 ** 6)] * 4 + [THEIR_BOUNDS[4]]
+                lab = their_lab_from_R(their_reflectance([nk[n] for n in names], t))
+                lab_i = their_lab_from_R(their_reflectance([nk[n] for n in names],
+                                                           [int(x) for x in t]))
+                ts = snap_int_nm(ours, names, t, r["target_lab"], bnd)
+                lab_s = their_lab_from_R(their_reflectance([nk[n] for n in names], ts))
+                ent.update(materials=names, thickness_nm=t, lab_theirs=lab.tolist(),
+                           dE_theirs=de2000(lab, r["target_lab"]),
+                           dE_theirs_int_nm=de2000(lab_i, r["target_lab"]),
+                           thickness_snap_nm=ts,
+                           dE_theirs_int_snap=de2000(lab_s, r["target_lab"]),
+                           back_metal_ok=(len(names) == 5 and names[4] in M
+                                          and abs(t[4] - 100) < 1e-6))
+            elif all(n in nk for n in names):
+                lab = their_lab_from_R(their_reflectance([nk[n] for n in names], t,
+                                                         template=False))
+                lab_i = their_lab_from_R(their_reflectance([nk[n] for n in names],
+                                                           [int(x) for x in t],
+                                                           template=False))
+                ts = snap_int_nm(ours, names, t, r["target_lab"])
+                lab_s = their_lab_from_R(their_reflectance([nk[n] for n in names], ts,
+                                                           template=False))
+                ent.update(materials=names, thickness_nm=t, lab_theirs=lab.tolist(),
+                           dE_theirs=de2000(lab, r["target_lab"]),
+                           dE_theirs_int_nm=de2000(lab_i, r["target_lab"]),
+                           thickness_snap_nm=ts,
+                           dE_theirs_int_snap=de2000(lab_s, r["target_lab"]))
+            else:
+                ent["untraceable"] = f"materials not in the NEUTRON set: {names}"
+        ent["set"], ent["pixels"] = meta.get("set"), meta.get("pixels")
+        ent["pps"], ent["reported_dE"] = meta.get("pps", False), meta.get("reported_dE")
+        ent["label_pso_acc"] = meta.get("label_pso_acc")
+        rows_out.append(ent)
     by_set = {}
     for sname in sorted({x["set"] for x in rows_out if x["set"]}):
         g = [x for x in rows_out if x["set"] == sname]
@@ -635,7 +653,8 @@ def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) 
            "wall_time_s_per_target": {"mean": float(np.mean(wt)) if wt else None,
                                       "median": float(np.median(wt)) if wt else None,
                                       "n": len(wt)},
-           "failed_rows_count_as_failures": True, "by_set": by_set,
+           "failed_rows_count_as_failures": True,
+           "rerun_after_sampler_bug": sorted(replaced), "by_set": by_set,
            "reported": {"cr_table1": REPORTED_CR_DE, "pictures_table2": REPORTED_PICTURES},
            "rows": rows_out}
     out.parent.mkdir(parents=True, exist_ok=True)

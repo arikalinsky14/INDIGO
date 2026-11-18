@@ -168,3 +168,36 @@ def test_old_rows_traced_through_shards_and_list_checked(tmp_path):
     _write_shards(tmp_path / "bad", "a", [([1.0, 2.0, 3.0], ["Au", "SiO2"])], False)
     r, _ = run(tmp_path, "--run", f"old={tmp_path/'old'}", "--test-dir", str(tmp_path / "bad"))
     assert r.returncode != 0 and "held-out list does not match" in (r.stderr + r.stdout)
+
+
+def _add_chunk(root: Path, name: str, tier: str, rows, settings):
+    d = root / name / "ckpt" / f"tier_{tier}"
+    d.mkdir(parents=True)
+    json.dump(rows, open(d / "rows.json", "w"))
+    json.dump({"model_sha256": "abc", "args": settings}, open(d / "summary.json", "w"))
+
+
+def test_rerun_replaces_only_a_sampler_crash(tmp_path):
+    des = {t: np.full(200, 1.0) for t in "ab"}
+    crash = "generate failed: ValueError: token_id 3201 out of range [0, 3201)"
+    lab = [50.0, 0.0, 0.0]
+    # A crashed row 7, then its rerun in its own chunk: the rerun counts.
+    write_run(tmp_path / "m", des, SET, fail={("a", 7)})
+    rows = json.load(open(tmp_path / "m" / "chunk_000" / "ckpt" / "tier_a" / "rows.json"))
+    for r in rows:
+        if r["row_idx"] == 7:
+            r["error"] = crash
+    json.dump(rows, open(tmp_path / "m" / "chunk_000" / "ckpt" / "tier_a" / "rows.json", "w"))
+    _add_chunk(tmp_path / "m", "rerun_a_7", "a",
+               [{"row_idx": 7, "target_lab": lab, "delta_e": 1.5}], SET)
+    r, out = run(tmp_path, "--run", f"INDIGO={tmp_path/'m'}")
+    assert r.returncode == 0, r.stderr
+    h = json.load(open(out))
+    assert h["runs"]["INDIGO"]["tiers"]["A"]["n_failed"] == 0
+    assert h["runs"]["INDIGO"]["settings"]["rerun_after_sampler_bug"] == [["a", 7]]
+    # Any other failure is not replaceable: a second result for a "boom" row stops it.
+    write_run(tmp_path / "n", des, SET, fail={("a", 7)})
+    _add_chunk(tmp_path / "n", "rerun_a_7", "a",
+               [{"row_idx": 7, "target_lab": lab, "delta_e": 1.5}], SET)
+    r, _ = run(tmp_path, "--run", f"INDIGO={tmp_path/'n'}")
+    assert r.returncode != 0 and "appears twice" in r.stderr + r.stdout
