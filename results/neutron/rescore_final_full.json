@@ -1,16 +1,19 @@
 {
   "run": "results/neutron_final_runs/full",
   "n": 601,
-  "acc_le2_their_physics": 0.8286189683860233,
-  "acc_le2_our_physics": 0.826955074875208,
+  "acc_le2_their_physics": 0.8302828618968386,
+  "acc_le2_our_physics": 0.8286189683860233,
   "median_dE_their_physics": 0.6786815773941152,
   "median_dE_our_physics": 0.6019300194805761,
   "wall_time_s_per_target": {
-    "mean": 244.49912096299664,
-    "median": 261.52041125297546,
+    "mean": 244.94318063762938,
+    "median": 261.57725977897644,
     "n": 601
   },
   "failed_rows_count_as_failures": true,
+  "rerun_after_sampler_bug": [
+    173
+  ],
   "by_set": {
     "cr": {
       "dE_theirs": {
@@ -91,43 +94,43 @@
     },
     "picture:great_wall": {
       "dE_theirs": {
-        "acc_le2": 0.4866666666666667,
-        "median": 2.1426946920662404,
-        "mean": Infinity,
+        "acc_le2": 0.49333333333333335,
+        "median": 2.058076895795498,
+        "mean": 3.4340269949898894,
         "image_mean_estimate": {
-          "est": Infinity,
-          "lo": 3.0497028395417587,
-          "hi": NaN
+          "est": 3.4340269949898894,
+          "lo": 2.888612965037422,
+          "hi": 4.011004920706536
         }
       },
       "dE_theirs_int_nm": {
         "acc_le2": 0.3466666666666667,
         "median": 2.990961707588893,
-        "mean": Infinity,
+        "mean": 4.2045945413182455,
         "image_mean_estimate": {
-          "est": Infinity,
-          "lo": 3.7854054421191,
-          "hi": NaN
+          "est": 4.2045945413182455,
+          "lo": 3.6441411646545205,
+          "hi": 4.816177561725563
         }
       },
       "dE_theirs_int_snap": {
         "acc_le2": 0.54,
         "median": 1.8242031064628845,
-        "mean": Infinity,
+        "mean": 3.0839870211223466,
         "image_mean_estimate": {
-          "est": Infinity,
-          "lo": 2.692081191272419,
-          "hi": NaN
+          "est": 3.0839870211223466,
+          "lo": 2.5812649344656218,
+          "hi": 3.6057290141586518
         }
       },
       "dE_ours": {
-        "acc_le2": 0.48,
-        "median": 2.136003347348331,
-        "mean": Infinity,
+        "acc_le2": 0.4866666666666667,
+        "median": 2.0971299005488198,
+        "mean": 3.4505814217891992,
         "image_mean_estimate": {
-          "est": Infinity,
-          "lo": 3.056266009486085,
-          "hi": NaN
+          "est": 3.4505814217891992,
+          "lo": 2.900524770297552,
+          "hi": 4.034770113088306
         }
       },
       "n_back_metal_violations": 0,
@@ -139,7 +142,7 @@
         "time_s": 6835
       },
       "n": 150,
-      "wall_time_s_sum": 39739.06774687767
+      "wall_time_s_sum": 40005.94761133194
     },
     "picture:the_white_orchard": {
       "dE_theirs": {
@@ -8258,9 +8261,39 @@
         -8.210375785827637,
         -9.152417182922363
       ],
-      "dE_ours": null,
-      "wall_time_s": 0.07436227798461914,
-      "file": "results/neutron_final_runs/full/rows0150/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "dE_ours": 0.8920233925380239,
+      "wall_time_s": 266.954226732254,
+      "file": "results/neutron_final_runs/full/rerun_row0173/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr0.0003104_bs256_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "materials": [
+        "Ta2O5",
+        "ZnSe",
+        "Ti",
+        "Fe2O3",
+        "Ti"
+      ],
+      "thickness_nm": [
+        77.25660567368199,
+        161.84458538795988,
+        2.359586875424492,
+        33.90470919212187,
+        100.0
+      ],
+      "lab_theirs": [
+        41.36946273994906,
+        -8.608510458577106,
+        -9.39826079352054
+      ],
+      "dE_theirs": 0.8795888574730981,
+      "dE_theirs_int_nm": 3.808166324733643,
+      "thickness_snap_nm": [
+        77,
+        161,
+        2,
+        34,
+        100
+      ],
+      "dE_theirs_int_snap": 2.0612525331799607,
+      "back_metal_ok": true,
       "set": "picture:great_wall",
       "pixels": 262,
       "pps": true,

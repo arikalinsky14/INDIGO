@@ -115,6 +115,19 @@
         "n": 500,
         "n_failed": 1
       }
+    },
+    "strong: 250 candidates, top-10, 100 steps": {
+      "folder": "results/paper_runs/strong_model",
+      "a": {
+        "median": 0.2670444888709663,
+        "n": 500,
+        "n_failed": 0
+      },
+      "b": {
+        "median": 0.2141052708971648,
+        "n": 500,
+        "n_failed": 0
+      }
     }
   },
   "sources": {

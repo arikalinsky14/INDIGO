@@ -11,5 +11,6 @@ Median DeltaE00. Greedy rows are on a validation slice, built the same way for t
 | production, shipped LR | 1.00e+17 | search, light: 16 candidates, top-1, 5 steps | A 2.81 / B 2.18 |
 | production, shipped LR | 1.00e+17 | search, mid: 50 candidates, top-1, 20 steps | A 1.20 / B 0.96 |
 | production, shipped LR | 1.00e+17 | search, high: 250 candidates, top-1, 40 steps | A 0.64 / B 0.50 |
+| production, shipped LR | 1.00e+17 | search, strong: 250 candidates, top-10, 100 steps | A 0.27 / B 0.21 |
 
 Bridge, same decoding and statistic on other rows: eval_tier_a_greedy 12.57 (n=2000); eval_tier_b_greedy 7.98 (n=2000); eval_val_greedy 12.25 (n=2000).
