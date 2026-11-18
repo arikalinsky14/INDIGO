@@ -1,0 +1,66 @@
+% LR law: paragraph and figure caption (draft).
+% Every number below is in results/paper/lr_law_numbers.json, written by
+% scripts/paper_figures/fig_lr_law.py from:
+%   analyses/scaling/results/lr_law_fit_cliff.json   (the law, 38 points)
+%   analyses/scaling/results/lr_law_fit.json         (strict variant, 20 points)
+%   results/lr_curves/lr_search_ep1_lim39959808_d352_se6_*.json (production sweep)
+% Figure: results/paper/figures/fig_lr_law.{pdf,png}
+
+\paragraph{Learning-rate law.}
+Along our IsoFLOP curves the model size $N$ and the number of training examples
+$D$ change together, and the ratio $D^*/N^*$ falls with compute, so a learning
+rate tuned as a function of $N$ alone would conflate the two. We therefore tuned
+the learning rate at every point of every IsoFLOP curve: a grid of seven rates
+per $(N, D)$ cell spaced by a factor of 1.85, extended with further rates wherever
+the optimum fell at an edge, with AdamW ($\beta_2 = 0.999$), batch size 256 and a
+cosine schedule held fixed. Each cell's optimum is the argmin of an
+Akima interpolation of validation $\dE$ against $\log\eta$, following
+Porian et al.~\cite{porian2024}. Of 42 cells, 38 bracket their optimum: 20 with
+stable rates on both sides, and 18 closed from above by a rate that diverged.
+The remaining 4 have their best rate at the edge of the grid, which bounds the
+optimum without locating it, and are excluded. Within one IsoFLOP curve $N$ and
+$D$ are almost perfectly anti-correlated, so it is the six curves at different
+compute budgets that separate the two exponents. A plane in log space describes
+the 38 optima (Fig.~\ref{fig:lr_law}):
+\begin{equation}
+  \eta^*(N, D) = 4.2\times10^{5}\, N^{-0.69}\, D^{-0.72}, \qquad r^2 = 0.83,
+\end{equation}
+over $N$ from $8.1\times10^{4}$ to $1.8\times10^{7}$ parameters and $D$ from
+$3.5\times10^{5}$ to $3.6\times10^{7}$ examples. The root-mean-square residual is
+0.26 decades, a factor of 1.8, about one step of the tuning grid; a law in $N$
+alone explains much less of the variation ($r^2 = 0.50$). The exponents are
+stable: refitting with any one compute budget left out gives $N$ exponents from
+$-0.70$ to $-0.66$ and $D$ exponents from $-0.74$ to $-0.63$, and the law fitted
+without the highest budget predicts that budget's five optima with a median
+ratio of measured to predicted of 1.00 (worst 5.1). Requiring a stable rate on
+both sides of every optimum leaves 20 points and gives $N^{-0.49} D^{-0.74}$
+($r^2 = 0.74$): the $D$ exponent is unchanged and the $N$ exponent shallower.
+We use the 38-point law because it spans every model size in the sweep.
+As a held-out check, we swept eight rates at the production configuration
+($N = 1.13\times10^{7}$, $D = 4.0\times10^{7}$, 1.1 times the largest $D$ in the
+fit), which the fit never saw. The law predicts $\eta^* = 1.9\times10^{-5}$; the
+sweep's lowest validation cross-entropy is at $1.94\times10^{-5}$ and its lowest
+greedy $\dE$ at $9.7\times10^{-6}$, one grid step (a factor of 2) below the
+prediction (single seed).
+% OPEN, decide before submission: the production checkpoint was trained at
+% 3.1e-4, the highest rate that did not diverge, 16x above the law. On the same
+% sweep it has greedy dE 12.12 vs 9.12 at 9.7e-6, and val CE 6.205 vs 6.013 at
+% 1.94e-5. The paper needs one sentence on why (or a retrain at the law's rate).
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\textwidth]{fig_lr_law}
+  \caption{\textbf{The tuned learning rate lies close to one plane in
+  $(\log N, \log D, \log\eta)$.} Each marker is the $\dE$-optimal learning rate
+  of one IsoFLOP point, at its own model size $N$ and number of training
+  examples $D$. Circles: optimum bracketed by stable rates on both sides.
+  Triangles: optimum closed from above by a rate that diverged. Open circles:
+  best rate at the edge of the grid, a bound, excluded from the fit. The
+  translucent plane is the fitted law,
+  $\eta^* = 4.2\times10^{5} N^{-0.69} D^{-0.72}$ ($r^2 = 0.83$, 38 points);
+  vertical lines are residuals to it. Star: the $\dE$-optimal rate of a separate
+  sweep at the production configuration, not used in the fit.
+  \textbf{a}, oblique view: the rate falls along both $N$ and $D$.
+  \textbf{b}, view along the plane: scatter about it.}
+  \label{fig:lr_law}
+\end{figure}
