@@ -1,0 +1,4052 @@
+[
+  {
+    "row_idx": 225,
+    "target_lab": [
+      34.73525047302246,
+      -22.358400344848633,
+      30.33252716064453
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 327.8055672645569,
+    "achieved_lab": [
+      35.428483383074564,
+      -21.724655371336194,
+      29.871283084782675
+    ],
+    "delta_e": 0.6519495776276519,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 45.300102220137425
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 7.079167547899622
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 8.566950015355776
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 91.59517688953655
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.6519495776276519,
+    "refined": true
+  },
+  {
+    "row_idx": 226,
+    "target_lab": [
+      13.924872875213623,
+      -13.421472549438477,
+      10.689691543579102
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 321.7561984062195,
+    "achieved_lab": [
+      14.675052280054011,
+      -13.76470207344878,
+      10.755460432307734
+    ],
+    "delta_e": 0.5523562648299539,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 40.281959104892174
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 13.995259567606203
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 8.734898762879709
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 94.80324319099273
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.5523562648299539,
+    "refined": true
+  },
+  {
+    "row_idx": 227,
+    "target_lab": [
+      87.76088953018188,
+      0.006912861485034227,
+      0.003162269713357091
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 185.75209259986877,
+    "achieved_lab": [
+      80.66393196081862,
+      0.5606564830039074,
+      3.325298304096891
+    ],
+    "delta_e": 5.677038389463593,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 80.55316514623975
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 13.527899616066154
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 5.677038389463593,
+    "refined": true
+  },
+  {
+    "row_idx": 228,
+    "target_lab": [
+      13.757815957069397,
+      -15.097064971923828,
+      15.78453540802002
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.6237041950226,
+    "achieved_lab": [
+      14.0856692740056,
+      -15.58618976120446,
+      16.21597794793739
+    ],
+    "delta_e": 0.4107075571775822,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 43.011591572257146
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 6.477832836969477
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 13.555561824418772
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 84.07437262615781
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.4107075571775822,
+    "refined": true
+  },
+  {
+    "row_idx": 229,
+    "target_lab": [
+      35.45646071434021,
+      -14.053141593933105,
+      -4.418976306915283
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.9695014953613,
+    "achieved_lab": [
+      35.87906098446448,
+      -12.724730574596748,
+      -3.9204964736092474
+    ],
+    "delta_e": 1.1035261280873658,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 32.342117904912854
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 10.401846954671345
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 12.918677849470207
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 101.92609785739045
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.1035261280873658,
+    "refined": true
+  },
+  {
+    "row_idx": 230,
+    "target_lab": [
+      13.757815957069397,
+      -15.097064971923828,
+      15.78453540802002
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.0919027328491,
+    "achieved_lab": [
+      14.047427457626174,
+      -13.912940580682056,
+      14.462725636540885
+    ],
+    "delta_e": 0.9833535908802475,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 41.7834562325104
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 12.139002624360275
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 9.454195880591985
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 85.78198946540854
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.9833535908802475,
+    "refined": true
+  },
+  {
+    "row_idx": 231,
+    "target_lab": [
+      47.943633794784546,
+      -11.220394134521484,
+      -9.901498794555664
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.31210827827454,
+    "achieved_lab": [
+      48.461189627353335,
+      -11.55022006527162,
+      -8.380971205416765
+    ],
+    "delta_e": 1.2851738004380955,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 193.10592571164386
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 7.6859341720162275
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 7.396902311117539
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 78.28851612033252
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.2851738004380955,
+    "refined": true
+  },
+  {
+    "row_idx": 232,
+    "target_lab": [
+      18.588025867938995,
+      -13.140803337097168,
+      10.252897262573242
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.28279733657837,
+    "achieved_lab": [
+      18.67560413666513,
+      -13.125708098303296,
+      10.35245135334329
+    ],
+    "delta_e": 0.09178694306552895,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 38.239788306060575
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 13.807856421735915
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 7.645532790811409
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 89.79948227737934
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.09178694306552895,
+    "refined": true
+  },
+  {
+    "row_idx": 233,
+    "target_lab": [
+      10.013507306575775,
+      -7.174370765686035,
+      5.349879264831543
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.4395053386688,
+    "achieved_lab": [
+      12.364609675936236,
+      -6.908488136561836,
+      4.964456779123783
+    ],
+    "delta_e": 1.5351268047816147,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 42.81751791242051
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 11.393969692343934
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 10.253428475290407
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 80.3788087732933
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.5351268047816147,
+    "refined": true
+  },
+  {
+    "row_idx": 234,
+    "target_lab": [
+      5.300147086381912,
+      -5.225828170776367,
+      3.7362303733825684
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.7723581790924,
+    "achieved_lab": [
+      12.689364220333776,
+      -6.1958239289553045,
+      2.8493765268278572
+    ],
+    "delta_e": 4.783116740599179,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 43.37275562923349
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 8.204845168662322
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 14.02679984244592
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 93.60152210793052
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 4.783116740599179,
+    "refined": true
+  },
+  {
+    "row_idx": 235,
+    "target_lab": [
+      13.924872875213623,
+      -13.421472549438477,
+      10.689691543579102
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.95462131500244,
+    "achieved_lab": [
+      13.294365990325865,
+      -11.814316088066295,
+      9.603896285044922
+    ],
+    "delta_e": 1.3659749103255086,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 43.254751935355266
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 11.476336534217937
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 10.097337981827549
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 84.54146222739593
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.3659749103255086,
+    "refined": true
+  },
+  {
+    "row_idx": 236,
+    "target_lab": [
+      17.69939512014389,
+      -20.289915084838867,
+      20.760334014892578
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.5414090156555,
+    "achieved_lab": [
+      17.54768022745602,
+      -19.958938932438844,
+      20.565346147222918
+    ],
+    "delta_e": 0.20637481899176263,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 42.28458649719173
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 6.761569803905681
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 13.03493662024657
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 88.05527627954422
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.20637481899176263,
+    "refined": true
+  },
+  {
+    "row_idx": 237,
+    "target_lab": [
+      27.822190523147583,
+      -12.400898933410645,
+      27.804813385009766
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 324.16169142723083,
+    "achieved_lab": [
+      27.37389793534721,
+      -12.34566722469943,
+      27.59113801075449
+    ],
+    "delta_e": 0.35043069589568515,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 45.41314872362824
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 12.310144608165636
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 7.863817044564732
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 89.94592657295466
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.35043069589568515,
+    "refined": true
+  },
+  {
+    "row_idx": 238,
+    "target_lab": [
+      24.437014758586884,
+      -4.12790060043335,
+      -1.3916138410568237
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 324.086838722229,
+    "achieved_lab": [
+      24.431447820998365,
+      -3.9698767396748327,
+      -1.3464778787946718
+    ],
+    "delta_e": 0.1884739554683355,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 35.079423425832125
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 11.093514952972148
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 6.334779869219623
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 71.62721614788197
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.1884739554683355,
+    "refined": true
+  },
+  {
+    "row_idx": 239,
+    "target_lab": [
+      87.76088953018188,
+      0.006912861485034227,
+      0.003162269713357091
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 184.5776824951172,
+    "achieved_lab": [
+      80.67327678117462,
+      0.5610564502992466,
+      3.3366480212424054
+    ],
+    "delta_e": 5.677120866157165,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 80.4796344808233
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 13.58029725617414
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 5.677120866157165,
+    "refined": true
+  },
+  {
+    "row_idx": 240,
+    "target_lab": [
+      87.76088953018188,
+      0.006912861485034227,
+      0.003162269713357091
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 188.53715419769287,
+    "achieved_lab": [
+      80.67585242880074,
+      0.5610922068563506,
+      3.339653449857849
+    ],
+    "delta_e": 5.6770767359309815,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 80.56942904940887
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 13.535740465635739
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 5.6770767359309815,
+    "refined": true
+  },
+  {
+    "row_idx": 241,
+    "target_lab": [
+      42.39263832569122,
+      -2.237260341644287,
+      24.09193992614746
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 324.2134997844696,
+    "achieved_lab": [
+      42.5283296869787,
+      -2.531426564468503,
+      23.90825544739701
+    ],
+    "delta_e": 0.32376480253789114,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 50.423524887061554
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 7.605471824822702
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 7.748672176416279
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 112.0583146789926
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.32376480253789114,
+    "refined": true
+  },
+  {
+    "row_idx": 242,
+    "target_lab": [
+      48.180609941482544,
+      -7.963875770568848,
+      -21.394485473632812
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 324.03180599212646,
+    "achieved_lab": [
+      48.218819517492676,
+      -7.920756783028504,
+      -21.3488870660399
+    ],
+    "delta_e": 0.054079632961989525,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 19.96505328479772
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 8.57899242052948
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 11.265799058800784
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 101.01698742582725
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.054079632961989525,
+    "refined": true
+  },
+  {
+    "row_idx": 243,
+    "target_lab": [
+      58.07505249977112,
+      0.7689136266708374,
+      -11.802193641662598
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 289.5124468803406,
+    "achieved_lab": [
+      58.168490541376414,
+      0.8281182749355076,
+      -11.733512269611968
+    ],
+    "delta_e": 0.12741808117363684,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 66.55859167010414
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 10.467133429711351
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 13.561009932864437
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 43.63103703034642
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.12741808117363684,
+    "refined": true
+  },
+  {
+    "row_idx": 244,
+    "target_lab": [
+      87.76088953018188,
+      0.006912861485034227,
+      0.003162269713357091
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 161.01094031333923,
+    "achieved_lab": [
+      80.65432318138181,
+      0.5603147114056628,
+      3.3137457690437966
+    ],
+    "delta_e": 5.677043896764469,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 80.52311791828487
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 13.530662727728952
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 5.677043896764469,
+    "refined": true
+  },
+  {
+    "row_idx": 245,
+    "target_lab": [
+      4.519297555088997,
+      -9.232158660888672,
+      6.599440574645996
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.135950088501,
+    "achieved_lab": [
+      9.487705816430253,
+      -8.804803712674572,
+      6.470616023395371
+    ],
+    "delta_e": 3.05219503317288,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 40.04103052875561
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 11.279145755343214
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 10.215868142351518
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 79.83898822957087
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 3.05219503317288,
+    "refined": true
+  },
+  {
+    "row_idx": 246,
+    "target_lab": [
+      9.79178473353386,
+      -9.12486457824707,
+      10.350471496582031
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.72794914245605,
+    "achieved_lab": [
+      11.050734019125024,
+      -9.989983052717852,
+      10.624190817911133
+    ],
+    "delta_e": 1.096320955802429,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 42.7904101177008
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 6.457210530356684
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 14.049538245444678
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 80.20766268364204
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.096320955802429,
+    "refined": true
+  },
+  {
+    "row_idx": 247,
+    "target_lab": [
+      22.76952862739563,
+      -16.123510360717773,
+      21.795927047729492
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.81914043426514,
+    "achieved_lab": [
+      21.876076438500306,
+      -16.6252942179681,
+      20.515782713761503
+    ],
+    "delta_e": 1.0692047181826105,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 41.72773122675657
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 14.080616287678925
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 7.640931469084588
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 97.59620623814399
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.0692047181826105,
+    "refined": true
+  },
+  {
+    "row_idx": 248,
+    "target_lab": [
+      9.349361062049866,
+      -10.979888916015625,
+      4.314099311828613
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.04539585113525,
+    "achieved_lab": [
+      11.895572758323262,
+      -11.912634096388569,
+      5.074645055295668
+    ],
+    "delta_e": 1.8373015854001646,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 38.21871640565007
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 11.526291632106547
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 11.131797790112556
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 89.09052912821046
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.8373015854001646,
+    "refined": true
+  },
+  {
+    "row_idx": 249,
+    "target_lab": [
+      43.8348114490509,
+      -10.832759857177734,
+      -16.221269607543945
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.7617082595825,
+    "achieved_lab": [
+      43.91904800784254,
+      -10.738856700234278,
+      -16.130338906182917
+    ],
+    "delta_e": 0.11159851036655974,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 23.048890248003783
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 5.139532542864936
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 11.430110839416258
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 93.23826985952802
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.11159851036655974,
+    "refined": true
+  },
+  {
+    "row_idx": 250,
+    "target_lab": [
+      18.39897930622101,
+      -14.939521789550781,
+      16.470420837402344
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.91296339035034,
+    "achieved_lab": [
+      18.615165104542328,
+      -15.510557455140878,
+      16.709086936560265
+    ],
+    "delta_e": 0.3991884753463465,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 40.88863480960612
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 14.1635703824442
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 8.027699982584709
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 95.86554137609185
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.3991884753463465,
+    "refined": true
+  },
+  {
+    "row_idx": 251,
+    "target_lab": [
+      18.39897930622101,
+      -14.939521789550781,
+      16.470420837402344
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.77461767196655,
+    "achieved_lab": [
+      18.472787760363552,
+      -15.163463883914401,
+      16.383227278717655
+    ],
+    "delta_e": 0.18527380735840662,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 42.27061404613654
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 11.937884231497861
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 8.859364172654592
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 84.49738814186642
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.18527380735840662,
+    "refined": true
+  },
+  {
+    "row_idx": 252,
+    "target_lab": [
+      19.17199045419693,
+      -7.9996538162231445,
+      -2.5617570877075195
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.911105632782,
+    "achieved_lab": [
+      19.588425169826444,
+      -8.590360579789348,
+      -2.567082655117048
+    ],
+    "delta_e": 0.6370347488304654,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 35.45166111674409
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 11.853710226854037
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 7.247818154626823
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 79.13777884011354
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.6370347488304654,
+    "refined": true
+  },
+  {
+    "row_idx": 253,
+    "target_lab": [
+      9.349361062049866,
+      -10.979888916015625,
+      4.314099311828613
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.94444584846497,
+    "achieved_lab": [
+      11.357655265924478,
+      -12.096415212733746,
+      4.537231906280698
+    ],
+    "delta_e": 1.5663043617794006,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 38.191178365520535
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 11.548767831505913
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 9.600015414658078
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 81.60996637373823
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.5663043617794006,
+    "refined": true
+  },
+  {
+    "row_idx": 254,
+    "target_lab": [
+      49.1013377904892,
+      -2.419325828552246,
+      -25.795251846313477
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 287.6776123046875,
+    "achieved_lab": [
+      49.31999394798984,
+      -2.236828681005665,
+      -25.576649154660736
+    ],
+    "delta_e": 0.30795635133055493,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 14.611385544413954
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 8.854202005736227
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 10.56912079300994
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 98.87703457564653
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.30795635133055493,
+    "refined": true
+  },
+  {
+    "row_idx": 255,
+    "target_lab": [
+      43.62409710884094,
+      -13.9574613571167,
+      -4.457728862762451
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.08753776550293,
+    "achieved_lab": [
+      42.82036838613538,
+      -14.853200589406146,
+      -5.059638587302984
+    ],
+    "delta_e": 1.0486807496843658,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 29.914443900185525
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 5.375459915326247
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 12.909028666579587
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 98.12194414313562
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.0486807496843658,
+    "refined": true
+  },
+  {
+    "row_idx": 256,
+    "target_lab": [
+      46.64433002471924,
+      -19.393056869506836,
+      -6.011013507843018
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.1557071208954,
+    "achieved_lab": [
+      46.77638852972605,
+      -19.23251058965908,
+      -5.965995635214094
+    ],
+    "delta_e": 0.16163840749042396,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 29.506762086509035
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 7.988931456812436
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 12.807214881220368
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 107.94577626638396
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.16163840749042396,
+    "refined": true
+  },
+  {
+    "row_idx": 257,
+    "target_lab": [
+      8.571751415729523,
+      -15.684048652648926,
+      8.440037727355957
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.9495141506195,
+    "achieved_lab": [
+      10.213720345520919,
+      -15.569179169345235,
+      6.306054712205755
+    ],
+    "delta_e": 1.7683795498885466,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 41.772160928523355
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 7.040419349623097
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 12.940600700681957
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 76.43231757376428
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.7683795498885466,
+    "refined": true
+  },
+  {
+    "row_idx": 258,
+    "target_lab": [
+      35.006484389305115,
+      -16.686277389526367,
+      -5.136593818664551
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.82038259506226,
+    "achieved_lab": [
+      33.02488425392265,
+      -18.039211450616598,
+      -5.1807833525190805
+    ],
+    "delta_e": 1.8440262743159161,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 32.85088426773595
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 12.575736110296374
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 91.20293106720267
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.8440262743159161,
+    "refined": true
+  },
+  {
+    "row_idx": 259,
+    "target_lab": [
+      27.789393067359924,
+      10.66672420501709,
+      -2.7205750942230225
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.8707175254822,
+    "achieved_lab": [
+      27.869625533099423,
+      10.631993101774734,
+      -2.671143882382565
+    ],
+    "delta_e": 0.0756673584590039,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 43.94424827426551
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 12.217391553761177
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 9.75243269469214
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 51.905056836357375
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.0756673584590039,
+    "refined": true
+  },
+  {
+    "row_idx": 260,
+    "target_lab": [
+      13.757815957069397,
+      -15.097064971923828,
+      15.78453540802002
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.10252833366394,
+    "achieved_lab": [
+      14.892368468482243,
+      -15.558504755786268,
+      15.667025329667744
+    ],
+    "delta_e": 0.8181527493220427,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 42.381993979886865
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 7.608874432501338
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 13.492746001489708
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 90.28408763071475
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.8181527493220427,
+    "refined": true
+  },
+  {
+    "row_idx": 261,
+    "target_lab": [
+      23.382125794887543,
+      -10.573311805725098,
+      3.6461689472198486
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.92631006240845,
+    "achieved_lab": [
+      23.563244403726237,
+      -10.75826564653734,
+      3.693497646595234
+    ],
+    "delta_e": 0.2063495770770389,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 36.14467647548246
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 9.931477163502548
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 12.931403004276367
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 93.75676547965926
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.2063495770770389,
+    "refined": true
+  },
+  {
+    "row_idx": 262,
+    "target_lab": [
+      2.15885229408741,
+      -2.614713430404663,
+      -0.9209684133529663
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 306.7381191253662,
+    "achieved_lab": [
+      8.29720733307554,
+      -3.4779378584809257,
+      -2.2083524256270524
+    ],
+    "delta_e": 3.9891008861072184,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 37.49293068097995
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 6.280604831259243
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 12.242262597536762
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 60.0952124682494
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 3.9891008861072184,
+    "refined": true
+  },
+  {
+    "row_idx": 263,
+    "target_lab": [
+      9.115705639123917,
+      -12.900936126708984,
+      9.294116973876953
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.8345263004303,
+    "achieved_lab": [
+      12.546963952464267,
+      -13.672450454270804,
+      6.458941554121345
+    ],
+    "delta_e": 3.0675686522823766,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 40.2051370285446
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 5.8014429061757795
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 13.108074319652681
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 70.75526571113758
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 3.0675686522823766,
+    "refined": true
+  },
+  {
+    "row_idx": 264,
+    "target_lab": [
+      11.263610422611237,
+      0.0018163834465667605,
+      0.000830899691209197
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.2627794742584,
+    "achieved_lab": [
+      13.18582521910118,
+      -0.8793444049764038,
+      -0.7508511733270717
+    ],
+    "delta_e": 1.917185250293791,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 33.78965482574899
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 6.532653385101579
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 11.655492044997521
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 61.609666937258574
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.917185250293791,
+    "refined": true
+  },
+  {
+    "row_idx": 265,
+    "target_lab": [
+      27.87398099899292,
+      -8.052685737609863,
+      -9.475956916809082
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 320.0910518169403,
+    "achieved_lab": [
+      29.38255490816732,
+      -8.364501027594812,
+      -9.204431793879275
+    ],
+    "delta_e": 1.2134290418817157,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 41.41905543335717
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 5.015113430712941
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 7.97418700412833
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 43.30619176206472
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.2134290418817157,
+    "refined": true
+  },
+  {
+    "row_idx": 266,
+    "target_lab": [
+      27.163955569267273,
+      -15.987499237060547,
+      21.42973518371582
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.1087465286255,
+    "achieved_lab": [
+      27.612537462590836,
+      -16.036291035581048,
+      21.636715652369276
+    ],
+    "delta_e": 0.35236389150072556,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 43.820688182342046
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 11.513336700713005
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 7.785281826503134
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 84.80472862757622
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.35236389150072556,
+    "refined": true
+  },
+  {
+    "row_idx": 267,
+    "target_lab": [
+      65.68706035614014,
+      0.6913565397262573,
+      -11.534224510192871
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 294.87451362609863,
+    "achieved_lab": [
+      64.63789462480163,
+      0.29118146350198826,
+      -11.65738794827027
+    ],
+    "delta_e": 1.0177070101099261,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 67.21515508291957
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 6.898364916052505
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 6.356170841139138
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.0177070101099261,
+    "refined": true
+  },
+  {
+    "row_idx": 268,
+    "target_lab": [
+      25.882691144943237,
+      -25.15852928161621,
+      25.137847900390625
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.4105043411255,
+    "achieved_lab": [
+      25.945068060440725,
+      -25.153384810784967,
+      25.21458080542562
+    ],
+    "delta_e": 0.06027649982304683,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 42.31615211751905
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 12.13634501376834
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 7.857467765204403
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 97.91324397420297
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.06027649982304683,
+    "refined": true
+  },
+  {
+    "row_idx": 269,
+    "target_lab": [
+      4.519297555088997,
+      -9.232158660888672,
+      6.599440574645996
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.2026860713959,
+    "achieved_lab": [
+      9.125914721741083,
+      -11.96577727918334,
+      8.240639476218748
+    ],
+    "delta_e": 3.708584873726192,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 42.4151917474851
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 7.705587505734745
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 13.389459179811803
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 82.01916588426845
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 3.708584873726192,
+    "refined": true
+  },
+  {
+    "row_idx": 270,
+    "target_lab": [
+      57.35428333282471,
+      -2.4994516372680664,
+      -12.958884239196777
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.6548182964325,
+    "achieved_lab": [
+      58.6526069933783,
+      -1.9597437892157066,
+      -11.507482096548948
+    ],
+    "delta_e": 1.5989538296228676,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 17.88853433729226
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 10.82681823199544
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 103.56525603057278
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.5989538296228676,
+    "refined": true
+  },
+  {
+    "row_idx": 271,
+    "target_lab": [
+      5.5584196001291275,
+      -3.410889148712158,
+      -1.2013440132141113
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.6423456668854,
+    "achieved_lab": [
+      9.960779507151251,
+      -5.9114809095045935,
+      -4.39097418841658
+    ],
+    "delta_e": 4.629089503551239,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 36.009158839197234
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 5.415172737695092
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 11.715242005339892
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 56.22170448876387
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 4.629089503551239,
+    "refined": true
+  },
+  {
+    "row_idx": 272,
+    "target_lab": [
+      9.349361062049866,
+      -10.979888916015625,
+      4.314099311828613
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 321.08649039268494,
+    "achieved_lab": [
+      10.877275472412922,
+      -12.933149474952582,
+      6.512709945488987
+    ],
+    "delta_e": 2.284362510294472,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 43.15937841269354
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 6.391592559008057
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 13.515777381386728
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 77.8479355537701
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 2.284362510294472,
+    "refined": true
+  },
+  {
+    "row_idx": 273,
+    "target_lab": [
+      87.76088953018188,
+      0.006912861485034227,
+      0.003162269713357091
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 164.6697769165039,
+    "achieved_lab": [
+      80.64025607974375,
+      0.5597810982430618,
+      3.2968081020762208
+    ],
+    "delta_e": 5.6770763499951835,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 80.53271113497719
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 13.506033123791786
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 5.6770763499951835,
+    "refined": true
+  },
+  {
+    "row_idx": 274,
+    "target_lab": [
+      52.478986978530884,
+      -5.157298564910889,
+      -26.374042510986328
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 298.6478180885315,
+    "achieved_lab": [
+      51.43219711578996,
+      -2.5475888923734424,
+      -31.12705900281092
+    ],
+    "delta_e": 2.200223194816521,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 118.0454202985797
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 6.056269307931325
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 7.9664477627953145
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 108.65874618605247
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 2.200223194816521,
+    "refined": true
+  },
+  {
+    "row_idx": 275,
+    "target_lab": [
+      19.333365559577942,
+      -8.731977462768555,
+      11.378870010375977
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.9806098937988,
+    "achieved_lab": [
+      19.575991747478923,
+      -8.986496690685048,
+      11.982431270834471
+    ],
+    "delta_e": 0.4408455498592191,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 48.62365108666511
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 5.620594092120549
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 12.681093065793117
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 88.20671220778152
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.4408455498592191,
+    "refined": true
+  },
+  {
+    "row_idx": 276,
+    "target_lab": [
+      10.013507306575775,
+      -7.174370765686035,
+      5.349879264831543
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.76501083374023,
+    "achieved_lab": [
+      11.197075255454475,
+      -7.569302862624527,
+      5.364295402203645
+    ],
+    "delta_e": 0.8446124711824324,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 42.96133761865624
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 11.432735655860254
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 10.443958567520239
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 82.43892722124595
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.8446124711824324,
+    "refined": true
+  },
+  {
+    "row_idx": 277,
+    "target_lab": [
+      23.70143085718155,
+      -7.902857780456543,
+      -2.5599381923675537
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.98888874053955,
+    "achieved_lab": [
+      23.189599608480812,
+      -7.5279426559966005,
+      -2.935969086905166
+    ],
+    "delta_e": 0.6348540065239101,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 43.89283308487092
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 9.213816159977668
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 9.39783593937684
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 63.78163241766898
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.6348540065239101,
+    "refined": true
+  },
+  {
+    "row_idx": 278,
+    "target_lab": [
+      19.333365559577942,
+      -8.731977462768555,
+      11.378870010375977
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.1637761592865,
+    "achieved_lab": [
+      19.888834349377305,
+      -9.184169094823503,
+      11.683674357599095
+    ],
+    "delta_e": 0.5636309672267268,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 38.30426646961876
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 13.596026850349517
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 7.403765735347369
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 85.92596782698408
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.5636309672267268,
+    "refined": true
+  },
+  {
+    "row_idx": 279,
+    "target_lab": [
+      64.65928554534912,
+      -4.8249406814575195,
+      -7.547903537750244
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 320.6661503314972,
+    "achieved_lab": [
+      65.40308311653253,
+      -5.051576216333009,
+      -6.443535262405642
+    ],
+    "delta_e": 1.0996168359648089,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 119.78347235114676
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 8.104214861146346
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 13.2968604616754
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 105.6406687169953
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.0996168359648089,
+    "refined": true
+  },
+  {
+    "row_idx": 280,
+    "target_lab": [
+      30.4452121257782,
+      -21.764408111572266,
+      13.436949729919434
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.1625814437866,
+    "achieved_lab": [
+      30.59544833278826,
+      -21.662512226442026,
+      13.373209075288116
+    ],
+    "delta_e": 0.13068507152363368,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 42.59023498504187
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 10.071504305223735
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 81.93248577288146
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.13068507152363368,
+    "refined": true
+  },
+  {
+    "row_idx": 281,
+    "target_lab": [
+      9.115705639123917,
+      -12.900936126708984,
+      9.294116973876953
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.32442593574524,
+    "achieved_lab": [
+      10.260941991762266,
+      -12.444113785928746,
+      9.957275196118431
+    ],
+    "delta_e": 0.9610135658259144,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 41.39232943561026
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 7.173056301275053
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 13.419645748504506
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 78.4514534645582
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.9610135658259144,
+    "refined": true
+  },
+  {
+    "row_idx": 282,
+    "target_lab": [
+      84.19846296310425,
+      0.006675521843135357,
+      0.0030536993872374296
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 248.921315908432,
+    "achieved_lab": [
+      79.63826811833063,
+      0.518823604446661,
+      2.1049990504506733
+    ],
+    "delta_e": 3.7559496655977895,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 80.24329239144522
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 12.322820677716368
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 3.7559496655977895,
+    "refined": true
+  },
+  {
+    "row_idx": 283,
+    "target_lab": [
+      35.41621267795563,
+      -18.032690048217773,
+      31.27509880065918
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.26711535453796,
+    "achieved_lab": [
+      35.356773070835466,
+      -18.134540937829346,
+      31.30814859898441
+    ],
+    "delta_e": 0.07365665688966003,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 45.944182614379756
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 6.281990759495468
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 10.1689001014256
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 104.52805332509233
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.07365665688966003,
+    "refined": true
+  },
+  {
+    "row_idx": 284,
+    "target_lab": [
+      9.79178473353386,
+      -9.12486457824707,
+      10.350471496582031
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.8329653739929,
+    "achieved_lab": [
+      11.578812986748954,
+      -8.529451505091545,
+      8.934104100894158
+    ],
+    "delta_e": 1.5108483728330073,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 40.42505881042105
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 11.800869163296761
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 9.715706889631473
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 80.7905577275588
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.5108483728330073,
+    "refined": true
+  },
+  {
+    "row_idx": 285,
+    "target_lab": [
+      9.619227796792984,
+      -10.62540340423584,
+      14.178688049316406
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.8145797252655,
+    "achieved_lab": [
+      12.938330923496373,
+      -10.057104245719081,
+      12.985462663767382
+    ],
+    "delta_e": 2.241959127137133,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 41.08145810664537
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 13.623050590724569
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 9.145139180719642
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 92.24941270754623
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 2.241959127137133,
+    "refined": true
+  },
+  {
+    "row_idx": 286,
+    "target_lab": [
+      27.163955569267273,
+      -15.987499237060547,
+      21.42973518371582
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.03330755233765,
+    "achieved_lab": [
+      26.764066938089087,
+      -15.67364386608494,
+      20.829431238340447
+    ],
+    "delta_e": 0.43428236216164656,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 42.97040443558228
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 5.465752964741125
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 13.792703132438666
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 98.34861167028623
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.43428236216164656,
+    "refined": true
+  },
+  {
+    "row_idx": 287,
+    "target_lab": [
+      9.349361062049866,
+      -10.979888916015625,
+      4.314099311828613
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.2856459617615,
+    "achieved_lab": [
+      9.774446802162963,
+      -10.412971559101743,
+      4.571461195138271
+    ],
+    "delta_e": 0.6178998204079947,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 37.92437177228017
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 10.853940527240288
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 10.699869908368601
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 81.72546006492635
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.6178998204079947,
+    "refined": true
+  },
+  {
+    "row_idx": 288,
+    "target_lab": [
+      37.78940737247467,
+      0.7771130204200745,
+      -19.383834838867188
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.327499628067,
+    "achieved_lab": [
+      38.09650063806626,
+      0.6747745460516374,
+      -19.074027104871462
+    ],
+    "delta_e": 0.3111495669363867,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 53.21052113739134
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 5.381373796698771
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 11.777618324016839
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 30.241386226012075
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.3111495669363867,
+    "refined": true
+  },
+  {
+    "row_idx": 289,
+    "target_lab": [
+      32.2414368391037,
+      -11.342696189880371,
+      22.166013717651367
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 322.6400353908539,
+    "achieved_lab": [
+      32.4681324659338,
+      -11.754867843827622,
+      22.883159240710917
+    ],
+    "delta_e": 0.4342258733855638,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 47.4272966049006
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 5.767540170012154
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 11.199187202501719
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 105.33362576528855
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.4342258733855638,
+    "refined": true
+  },
+  {
+    "row_idx": 290,
+    "target_lab": [
+      4.9755241721868515,
+      -6.026150703430176,
+      -2.122563123703003
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.40854597091675,
+    "achieved_lab": [
+      9.820465978189695,
+      -9.02616932773051,
+      -1.8278561880150201
+    ],
+    "delta_e": 4.232367119597593,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 37.156142968216194
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 9.748542043351781
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 10.242421048378429
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 73.5162741387301
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 4.232367119597593,
+    "refined": true
+  },
+  {
+    "row_idx": 291,
+    "target_lab": [
+      53.47331762313843,
+      -2.4640471935272217,
+      -13.112979888916016
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.64949798583984,
+    "achieved_lab": [
+      53.713999261746,
+      -0.7817557073603876,
+      -10.983893339010177
+    ],
+    "delta_e": 2.4209662171834463,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 61.38181958074547
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 5.0666042099049955
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 10.605453701437847
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 26.37752910511131
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 2.4209662171834463,
+    "refined": true
+  },
+  {
+    "row_idx": 292,
+    "target_lab": [
+      49.53939914703369,
+      -2.4185993671417236,
+      -13.2782621383667
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.6149296760559,
+    "achieved_lab": [
+      49.85589136999633,
+      -1.1013038973886613,
+      -10.582115155101679
+    ],
+    "delta_e": 2.3155488869411656,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 60.80594565366905
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 5.123386845153564
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 10.586394523543438
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 37.9931223348785
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 2.3155488869411656,
+    "refined": true
+  },
+  {
+    "row_idx": 293,
+    "target_lab": [
+      80.60408234596252,
+      0.006436053663492203,
+      0.002944155130535364
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 319.1866686344147,
+    "achieved_lab": [
+      78.58460811235223,
+      0.4693371413571623,
+      0.8832371325171451
+    ],
+    "delta_e": 1.778989342030454,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 79.55520450976077
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 11.377853773715607
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.778989342030454,
+    "refined": true
+  },
+  {
+    "row_idx": 294,
+    "target_lab": [
+      48.180609941482544,
+      -7.963875770568848,
+      -21.394485473632812
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 279.5175745487213,
+    "achieved_lab": [
+      48.270335935592456,
+      -7.525110769335763,
+      -21.002341823690895
+    ],
+    "delta_e": 0.39310737149020386,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 52.096249132833975
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 9.549344867771598
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 9.712409804498304
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 133.25561846369627
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.39310737149020386,
+    "refined": true
+  },
+  {
+    "row_idx": 295,
+    "target_lab": [
+      39.53498899936676,
+      -18.00604248046875,
+      31.028091430664062
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.83421659469604,
+    "achieved_lab": [
+      39.26892486986416,
+      -18.083932914141176,
+      30.75548607457913
+    ],
+    "delta_e": 0.2761587818802139,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 45.34910714499974
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 9.80328741008034
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 7.347974986528486
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 108.55829929485034
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.2761587818802139,
+    "refined": true
+  },
+  {
+    "row_idx": 296,
+    "target_lab": [
+      13.924872875213623,
+      -13.421472549438477,
+      10.689691543579102
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.70371675491333,
+    "achieved_lab": [
+      13.702398772219741,
+      -12.177990540955404,
+      11.065324595630194
+    ],
+    "delta_e": 1.0842887229678946,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 39.46674001004798
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 12.433105217618726
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 9.00921296910099
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 84.27007833853307
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.0842887229678946,
+    "refined": true
+  },
+  {
+    "row_idx": 297,
+    "target_lab": [
+      4.519297555088997,
+      -9.232158660888672,
+      6.599440574645996
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.76896023750305,
+    "achieved_lab": [
+      11.954810848228039,
+      -12.327768077128335,
+      3.844040216965916
+    ],
+    "delta_e": 5.857082969826961,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 39.34396630522835
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 5.699117649497459
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 12.914065504880307
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 67.33118239413506
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 5.857082969826961,
+    "refined": true
+  },
+  {
+    "row_idx": 298,
+    "target_lab": [
+      8.93363133072853,
+      -14.360452651977539,
+      13.105925559997559
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 323.6234290599823,
+    "achieved_lab": [
+      11.315060700887805,
+      -14.723509383427716,
+      12.392343562494984
+    ],
+    "delta_e": 1.6025346696781717,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 42.0017482530181
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 8.148609397797964
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 13.27755745833612
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 86.64969988868384
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.6025346696781717,
+    "refined": true
+  },
+  {
+    "row_idx": 299,
+    "target_lab": [
+      88.02402019500732,
+      1.8436816930770874,
+      -4.880549430847168
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "HfO2",
+      "Au",
+      "Ti",
+      "SiO2"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 201.86332154273987,
+    "achieved_lab": [
+      77.9244765511626,
+      0.4373830840275206,
+      0.12411618897891774
+    ],
+    "delta_e": 8.316665444496284,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 79.95362556666916
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 10.392178698318125
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 8.316665444496284,
+    "refined": true
+  }
+]

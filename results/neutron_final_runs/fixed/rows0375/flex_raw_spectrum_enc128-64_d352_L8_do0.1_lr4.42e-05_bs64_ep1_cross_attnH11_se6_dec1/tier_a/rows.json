@@ -1,0 +1,4052 @@
+[
+  {
+    "row_idx": 375,
+    "target_lab": [
+      75.09136199951172,
+      -11.887578010559082,
+      24.166778564453125
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 308.58798599243164,
+    "achieved_lab": [
+      73.1756693641884,
+      -8.386644668064324,
+      21.575380274387722
+    ],
+    "delta_e": 2.93996113865697,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 169.99602590404234
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 11.979202232671666
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 14.713088744817778
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 7.898540422909044
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 2.93996113865697,
+    "refined": true
+  },
+  {
+    "row_idx": 376,
+    "target_lab": [
+      63.95913362503052,
+      -12.103930473327637,
+      24.942657470703125
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 284.853075504303,
+    "achieved_lab": [
+      64.09029814602073,
+      -12.093122193747197,
+      25.275054150222598
+    ],
+    "delta_e": 0.20270847717277113,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 173.74055894972918
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 11.493312664112523
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 6.845254170504567
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 44.09259234908079
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.20270847717277113,
+    "refined": true
+  },
+  {
+    "row_idx": 377,
+    "target_lab": [
+      70.58735489845276,
+      2.544570207595825,
+      18.13387107849121
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 307.5204532146454,
+    "achieved_lab": [
+      70.72160363001268,
+      2.5342554909953963,
+      18.227126225474045
+    ],
+    "delta_e": 0.11698377978333513,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 29.54699208120785
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 7.922464505972305
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 12.417095461323816
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 199.59436265961708
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.11698377978333513,
+    "refined": true
+  },
+  {
+    "row_idx": 378,
+    "target_lab": [
+      50.58990120887756,
+      -1.1319055557250977,
+      17.90575408935547
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 298.93943309783936,
+    "achieved_lab": [
+      50.149300949115144,
+      -1.263269850708404,
+      17.52040707516119
+    ],
+    "delta_e": 0.5178983177090766,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 14.191711281301039
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 5.211266444111887
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.063698696464806
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 80.25202154705826
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.5178983177090766,
+    "refined": true
+  },
+  {
+    "row_idx": 379,
+    "target_lab": [
+      58.382827043533325,
+      -1.2393053770065308,
+      17.410247802734375
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 296.7387261390686,
+    "achieved_lab": [
+      58.649624818256626,
+      -1.3237296344057459,
+      17.654391522832324
+    ],
+    "delta_e": 0.2888567834337627,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 38.03025757517005
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 6.56536784334642
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 7.875332159285031
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 41.981195962040665
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.2888567834337627,
+    "refined": true
+  },
+  {
+    "row_idx": 380,
+    "target_lab": [
+      71.08711004257202,
+      -14.57317066192627,
+      34.5368537902832
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 277.15758514404297,
+    "achieved_lab": [
+      70.89831863162497,
+      -14.436872610944784,
+      35.19651268290189
+    ],
+    "delta_e": 0.35390119586577745,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 200.0
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 11.485102770080283
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 145.82247406583153
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.35390119586577745,
+    "refined": true
+  },
+  {
+    "row_idx": 381,
+    "target_lab": [
+      61.67532205581665,
+      -5.114512920379639,
+      32.907928466796875
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 282.60105323791504,
+    "achieved_lab": [
+      61.7075723386328,
+      -5.098668139653206,
+      33.463605493276674
+    ],
+    "delta_e": 0.23201673858275718,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 194.0554905920494
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 7.023133278061577
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 5.355978989602453
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.23201673858275718,
+    "refined": true
+  },
+  {
+    "row_idx": 382,
+    "target_lab": [
+      51.38936638832092,
+      -18.90264892578125,
+      35.106021881103516
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 296.5277659893036,
+    "achieved_lab": [
+      55.28056431476219,
+      -15.142052157092023,
+      25.20725513992105
+    ],
+    "delta_e": 5.662438639079373,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 57.27013694558268
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 13.18029551796654
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 145.86580369032055
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 5.662438639079373,
+    "refined": true
+  },
+  {
+    "row_idx": 383,
+    "target_lab": [
+      87.63282299041748,
+      -2.891106605529785,
+      20.927459716796875
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 287.5736172199249,
+    "achieved_lab": [
+      87.57875987844668,
+      -2.8781558594795364,
+      20.80550091242499
+    ],
+    "delta_e": 0.0719661161456237,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 165.7336562746467
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 189.20239050798997
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.0719661161456237,
+    "refined": true
+  },
+  {
+    "row_idx": 384,
+    "target_lab": [
+      73.62834215164185,
+      0.17395564913749695,
+      11.484332084655762
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 297.75522089004517,
+    "achieved_lab": [
+      74.2865639468918,
+      -0.33477653291369425,
+      11.746678921335608
+    ],
+    "delta_e": 0.8470185707995104,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 28.266713995789594
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 5.7115309192134776
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.069538805986102
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 6.934749300741315
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.8470185707995104,
+    "refined": true
+  },
+  {
+    "row_idx": 385,
+    "target_lab": [
+      79.9664556980133,
+      -6.651845455169678,
+      36.2785758972168
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 289.53901052474976,
+    "achieved_lab": [
+      79.97675029520309,
+      -6.716085543430006,
+      36.26571623325885
+    ],
+    "delta_e": 0.04791872593873525,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 27.897130957356175
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 9.372982775440304
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 7.433713767369506
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 157.8943237525791
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.04791872593873525,
+    "refined": true
+  },
+  {
+    "row_idx": 386,
+    "target_lab": [
+      60.44742465019226,
+      -12.173965454101562,
+      46.271087646484375
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 307.10051822662354,
+    "achieved_lab": [
+      59.793015208930015,
+      -8.424906824574474,
+      39.48471649725235
+    ],
+    "delta_e": 2.9146194704985637,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 182.95085718392028
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 9.665414020617632
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 6.174118936242073
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 54.370908897281694
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 2.9146194704985637,
+    "refined": true
+  },
+  {
+    "row_idx": 387,
+    "target_lab": [
+      89.44194912910461,
+      -11.613137245178223,
+      23.306934356689453
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 247.73760390281677,
+    "achieved_lab": [
+      88.61246608268523,
+      -11.574136007046377,
+      23.226714111837808
+    ],
+    "delta_e": 0.526100992620784,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 167.35194609283485
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 12.533412756335158
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 165.55101171767873
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.526100992620784,
+    "refined": true
+  },
+  {
+    "row_idx": 388,
+    "target_lab": [
+      83.20117592811584,
+      -5.225223064422607,
+      3.779766798019409
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 285.76554703712463,
+    "achieved_lab": [
+      83.00906858207317,
+      -4.98839762969544,
+      3.790081720948657
+    ],
+    "delta_e": 0.29647857694014823,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 114.00955852534936
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 5.993933085369791
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 11.061414718545322
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 170.16596011992095
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.29647857694014823,
+    "refined": true
+  },
+  {
+    "row_idx": 389,
+    "target_lab": [
+      90.38340449333191,
+      -6.531970024108887,
+      19.551559448242188
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 314.5063142776489,
+    "achieved_lab": [
+      88.86645916267443,
+      -6.520801440323298,
+      19.387476174315132
+    ],
+    "delta_e": 0.9578538024022605,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 160.45188128720503
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 12.800853247457786
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 170.2465210613363
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.9578538024022605,
+    "refined": true
+  },
+  {
+    "row_idx": 390,
+    "target_lab": [
+      47.594016790390015,
+      3.2819645404815674,
+      19.674104690551758
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 305.29951643943787,
+    "achieved_lab": [
+      47.901054321410385,
+      3.9302102713484333,
+      19.85633348433371
+    ],
+    "delta_e": 0.74765677331856,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 47.38433609412037
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 11.25815337755854
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 8.778452341085123
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 199.95617886569477
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.74765677331856,
+    "refined": true
+  },
+  {
+    "row_idx": 391,
+    "target_lab": [
+      74.08638596534729,
+      -15.945374488830566,
+      11.818330764770508
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 276.5515124797821,
+    "achieved_lab": [
+      74.77507857149809,
+      -15.921252748618775,
+      11.761581990519554
+    ],
+    "delta_e": 0.5074278695783142,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 153.5689097320712
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 151.13081589890075
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.5074278695783142,
+    "refined": true
+  },
+  {
+    "row_idx": 392,
+    "target_lab": [
+      64.35263156890869,
+      -9.052533149719238,
+      14.473102569580078
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 294.71684169769287,
+    "achieved_lab": [
+      65.59897064852514,
+      -10.73758384416612,
+      15.51451111760569
+    ],
+    "delta_e": 1.738826836061576,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 158.6470316088535
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 8.850411620871219
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 32.585603173963754
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.738826836061576,
+    "refined": true
+  },
+  {
+    "row_idx": 393,
+    "target_lab": [
+      72.02878594398499,
+      -9.373390197753906,
+      30.678503036499023
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 209.19576954841614,
+    "achieved_lab": [
+      71.50309465467166,
+      -7.605935078762172,
+      28.930042407300594
+    ],
+    "delta_e": 1.360361155392746,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 173.17552637102358
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 9.304438379695798
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 10.866944789083984
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 54.045564542038804
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.360361155392746,
+    "refined": true
+  },
+  {
+    "row_idx": 394,
+    "target_lab": [
+      62.926751375198364,
+      -16.434316635131836,
+      12.266219139099121
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 301.708518743515,
+    "achieved_lab": [
+      63.0327832017818,
+      -14.743565931532698,
+      11.668541959104672
+    ],
+    "delta_e": 1.145915847131914,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 164.29099244014492
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 12.613438328618809
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 42.09862853466823
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.145915847131914,
+    "refined": true
+  },
+  {
+    "row_idx": 395,
+    "target_lab": [
+      39.69731628894806,
+      4.998690605163574,
+      14.634428977966309
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 314.5466022491455,
+    "achieved_lab": [
+      39.81679243172116,
+      5.41251260790962,
+      15.074754108864363
+    ],
+    "delta_e": 0.4807007142074511,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 56.995642632822005
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 11.886771083993642
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 8.311972362911114
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 199.92719189649085
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.4807007142074511,
+    "refined": true
+  },
+  {
+    "row_idx": 396,
+    "target_lab": [
+      73.87042045593262,
+      -17.690025329589844,
+      16.9119873046875
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 232.9058005809784,
+    "achieved_lab": [
+      73.86145163767584,
+      -17.563058651504925,
+      16.83931181152587
+    ],
+    "delta_e": 0.07718920395694041,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 173.5721686636266
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 10.620945244982089
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 133.30039924398037
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.07718920395694041,
+    "refined": true
+  },
+  {
+    "row_idx": 397,
+    "target_lab": [
+      75.49378275871277,
+      -8.809932708740234,
+      14.004599571228027
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 303.1339020729065,
+    "achieved_lab": [
+      74.7856943967264,
+      -7.98341731758917,
+      13.628111730548543
+    ],
+    "delta_e": 0.9015889189256109,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 159.9088998702961
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 11.190792268223975
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 11.825772768737094
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 7.507115607956752
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.9015889189256109,
+    "refined": true
+  },
+  {
+    "row_idx": 398,
+    "target_lab": [
+      64.14609551429749,
+      -10.643156051635742,
+      19.719959259033203
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 314.45001006126404,
+    "achieved_lab": [
+      64.10417725392261,
+      -10.521515959782457,
+      19.725286323597867
+    ],
+    "delta_e": 0.103671964249532,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 36.80839664351924
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 14.619741548090351
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 148.69377048464497
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.103671964249532,
+    "refined": true
+  },
+  {
+    "row_idx": 399,
+    "target_lab": [
+      93.1514322757721,
+      -10.050447463989258,
+      18.25046730041504
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 300.57735109329224,
+    "achieved_lab": [
+      88.92508219012578,
+      -10.127842164867785,
+      18.630018352821743
+    ],
+    "delta_e": 2.630059172886877,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 164.76926826441405
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 165.09184352988444
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 2.630059172886877,
+    "refined": true
+  },
+  {
+    "row_idx": 400,
+    "target_lab": [
+      77.54660248756409,
+      -13.908956527709961,
+      -10.265477180480957
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 287.6411225795746,
+    "achieved_lab": [
+      77.65289774927446,
+      -13.294304452822203,
+      -10.476785360597152
+    ],
+    "delta_e": 0.5434037362506243,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 143.7701557109233
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 6.494666527020935
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 13.141094745346406
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 137.27419844242408
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.5434037362506243,
+    "refined": true
+  },
+  {
+    "row_idx": 401,
+    "target_lab": [
+      59.73514914512634,
+      -15.648214340209961,
+      40.46012878417969
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 290.43066906929016,
+    "achieved_lab": [
+      59.26225955641142,
+      -11.359301710689884,
+      34.58242151456097
+    ],
+    "delta_e": 2.8756620064845544,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 184.0691962215232
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 11.888290046700261
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 44.05713351340683
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 2.8756620064845544,
+    "refined": true
+  },
+  {
+    "row_idx": 402,
+    "target_lab": [
+      85.38312911987305,
+      -13.748616218566895,
+      17.45558738708496
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 256.2218117713928,
+    "achieved_lab": [
+      85.50184663886188,
+      -13.969536315456054,
+      17.345103365230784
+    ],
+    "delta_e": 0.20504455456552226,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 150.61662077189976
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 7.179453289105882
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 11.263542650677621
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 162.632389903466
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.20504455456552226,
+    "refined": true
+  },
+  {
+    "row_idx": 403,
+    "target_lab": [
+      68.10637712478638,
+      -8.967569351196289,
+      14.306739807128906
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 267.4667983055115,
+    "achieved_lab": [
+      68.85694694334856,
+      -9.03199639533403,
+      14.96265090137252
+    ],
+    "delta_e": 0.712231060856209,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 155.03152319302646
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 7.9427496544103295
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 6.030748397341705
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 38.20539432630825
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.712231060856209,
+    "refined": true
+  },
+  {
+    "row_idx": 404,
+    "target_lab": [
+      54.32167649269104,
+      -2.5590157508850098,
+      23.05992317199707
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 299.08742904663086,
+    "achieved_lab": [
+      56.217833325233244,
+      -0.8729142054050842,
+      20.670881834942435
+    ],
+    "delta_e": 2.6751176543442625,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 42.07706956452416
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 6.703613679703092
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 9.188950482639747
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 60.18676325618288
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 2.6751176543442625,
+    "refined": true
+  },
+  {
+    "row_idx": 405,
+    "target_lab": [
+      57.14336633682251,
+      -8.096330642700195,
+      26.757362365722656
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 315.4764847755432,
+    "achieved_lab": [
+      57.09643512399994,
+      -8.120071336785939,
+      27.111278355339675
+    ],
+    "delta_e": 0.16941236718795147,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 186.05801418884468
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 10.46818025665966
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.233901672288045
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 88.56370924495789
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.16941236718795147,
+    "refined": true
+  },
+  {
+    "row_idx": 406,
+    "target_lab": [
+      89.63926434516907,
+      -10.11577320098877,
+      18.401716232299805
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 259.0007994174957,
+    "achieved_lab": [
+      88.94764692766034,
+      -10.068443440589437,
+      18.339173803568688
+    ],
+    "delta_e": 0.43836155747092936,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 163.78343332156717
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 14.722566399061545
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 165.35338109903557
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.43836155747092936,
+    "refined": true
+  },
+  {
+    "row_idx": 407,
+    "target_lab": [
+      87.44207620620728,
+      -4.266636371612549,
+      25.863250732421875
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 286.9142370223999,
+    "achieved_lab": [
+      85.67890572140742,
+      -3.433070297468366,
+      23.361168101097253
+    ],
+    "delta_e": 1.729739056344286,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 180.92990537275955
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 14.74611727239361
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 17.402210369195185
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.729739056344286,
+    "refined": true
+  },
+  {
+    "row_idx": 408,
+    "target_lab": [
+      78.19855809211731,
+      -13.970417976379395,
+      17.788227081298828
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 191.28233933448792,
+    "achieved_lab": [
+      78.19601574474437,
+      -14.077440995269363,
+      17.72453683365358
+    ],
+    "delta_e": 0.09490910803786123,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 153.4431973788582
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 13.070106926690876
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 11.482187148225474
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 155.60792322319932
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.09490910803786123,
+    "refined": true
+  },
+  {
+    "row_idx": 409,
+    "target_lab": [
+      56.74052834510803,
+      -11.221181869506836,
+      41.908607482910156
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 315.29571986198425,
+    "achieved_lab": [
+      56.5760892847418,
+      -9.679701644014605,
+      39.338701742463044
+    ],
+    "delta_e": 1.159260741760857,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 182.74770689134056
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 9.470871874480387
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 56.26391490503472
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.159260741760857,
+    "refined": true
+  },
+  {
+    "row_idx": 410,
+    "target_lab": [
+      78.09969782829285,
+      -16.75881004333496,
+      43.65918731689453
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 315.4819538593292,
+    "achieved_lab": [
+      78.1114047945699,
+      -16.80335884528511,
+      43.62875630314649
+    ],
+    "delta_e": 0.03342627645406689,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 188.46282723684257
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 9.781423976523064
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 12.761331295756548
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 154.15946778933292
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.03342627645406689,
+    "refined": true
+  },
+  {
+    "row_idx": 411,
+    "target_lab": [
+      53.43773365020752,
+      -6.771193504333496,
+      21.727550506591797
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 293.3133864402771,
+    "achieved_lab": [
+      52.550892922447005,
+      -3.4447838610188186,
+      17.622011437864682
+    ],
+    "delta_e": 3.5844559048755635,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 37.29242343049055
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 8.173444779417975
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 8.706576381359541
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 69.63296715416394
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 3.5844559048755635,
+    "refined": true
+  },
+  {
+    "row_idx": 412,
+    "target_lab": [
+      66.47145748138428,
+      -18.025720596313477,
+      17.306339263916016
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 293.295134305954,
+    "achieved_lab": [
+      65.57807655651779,
+      -14.436246491757675,
+      15.67799991326153
+    ],
+    "delta_e": 2.3686215435917064,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 169.43969496561266
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 16.243734198920876
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 2.3686215435917064,
+    "refined": true
+  },
+  {
+    "row_idx": 413,
+    "target_lab": [
+      69.11012530326843,
+      -3.5633301734924316,
+      10.328513145446777
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 288.64954924583435,
+    "achieved_lab": [
+      68.42653262970265,
+      -2.204693011493064,
+      8.817704951185323
+    ],
+    "delta_e": 1.909722235622084,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 28.66799508454066
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 9.289075128895082
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 13.644010270485534
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 20.10084197465864
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.909722235622084,
+    "refined": true
+  },
+  {
+    "row_idx": 414,
+    "target_lab": [
+      73.68367910385132,
+      -17.427522659301758,
+      5.734543323516846
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 183.78537011146545,
+    "achieved_lab": [
+      73.77054585522303,
+      -16.890866298659436,
+      5.511371667190246
+    ],
+    "delta_e": 0.3718380260135581,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 159.83017240195022
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 11.412083917158945
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 14.817317077338123
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 132.15341750988952
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.3718380260135581,
+    "refined": true
+  },
+  {
+    "row_idx": 415,
+    "target_lab": [
+      58.18889141082764,
+      -2.6289122104644775,
+      22.759746551513672
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 313.21006298065186,
+    "achieved_lab": [
+      58.060063779671395,
+      -2.2907345856539862,
+      22.872928072971877
+    ],
+    "delta_e": 0.3584316939496169,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 66.47693764321691
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 13.129820366542669
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 10.590311657144385
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 153.9027875084917
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.3584316939496169,
+    "refined": true
+  },
+  {
+    "row_idx": 416,
+    "target_lab": [
+      90.38340449333191,
+      -6.531970024108887,
+      19.551559448242188
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 301.76879358291626,
+    "achieved_lab": [
+      88.83807622199032,
+      -6.523635514390447,
+      19.386705208568756
+    ],
+    "delta_e": 0.9758386660152686,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 159.52141198926117
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 12.401114590549543
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 170.3778820477155
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.9758386660152686,
+    "refined": true
+  },
+  {
+    "row_idx": 417,
+    "target_lab": [
+      52.8161883354187,
+      -9.33619213104248,
+      15.050178527832031
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 244.8785183429718,
+    "achieved_lab": [
+      52.336005312703904,
+      -5.345892008147446,
+      11.235385575538913
+    ],
+    "delta_e": 4.055309758650888,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 39.09944368223986
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 11.267924773571508
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 10.757921173143728
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 69.94065897872616
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 4.055309758650888,
+    "refined": true
+  },
+  {
+    "row_idx": 418,
+    "target_lab": [
+      72.02878594398499,
+      -9.373390197753906,
+      30.678503036499023
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 261.7276473045349,
+    "achieved_lab": [
+      71.52663407309336,
+      -7.78807922916852,
+      29.15834950512288
+    ],
+    "delta_e": 1.2166699060561739,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 174.32709792062988
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 10.219477471463192
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 13.48489406327595
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 74.51104357050917
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.2166699060561739,
+    "refined": true
+  },
+  {
+    "row_idx": 419,
+    "target_lab": [
+      25.58763027191162,
+      16.91240692138672,
+      14.15550422668457
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 314.105530500412,
+    "achieved_lab": [
+      29.943306640760632,
+      16.139483189791942,
+      12.576509387465663
+    ],
+    "delta_e": 3.4335664948022093,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 64.89221362664219
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 11.094222781106218
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 200.0
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 3.4335664948022093,
+    "refined": true
+  },
+  {
+    "row_idx": 420,
+    "target_lab": [
+      51.37583017349243,
+      -17.015331268310547,
+      12.833358764648438
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 305.39928793907166,
+    "achieved_lab": [
+      50.8549190027622,
+      -7.214832358881706,
+      7.268555756962236
+    ],
+    "delta_e": 7.94193490658371,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 39.83912014875417
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 13.166669777266963
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 7.079666270979983
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 7.94193490658371,
+    "refined": true
+  },
+  {
+    "row_idx": 421,
+    "target_lab": [
+      52.99032926559448,
+      -10.216710090637207,
+      37.38538360595703
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 315.3750066757202,
+    "achieved_lab": [
+      54.88131136086113,
+      -9.239283023035338,
+      39.533151307515446
+    ],
+    "delta_e": 2.1848910041739344,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 184.50563747006487
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 9.383821222160163
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 70.51702109816478
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 2.1848910041739344,
+    "refined": true
+  },
+  {
+    "row_idx": 422,
+    "target_lab": [
+      90.9685730934143,
+      -4.285701274871826,
+      25.64670181274414
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 301.6820750236511,
+    "achieved_lab": [
+      88.13786263907444,
+      -4.496549680004347,
+      25.260813874469324
+    ],
+    "delta_e": 1.8033366783799385,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 160.71716796244053
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 9.975233417221538
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 173.84190961515364
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.8033366783799385,
+    "refined": true
+  },
+  {
+    "row_idx": 423,
+    "target_lab": [
+      79.35758829116821,
+      -7.051461696624756,
+      8.834421157836914
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 263.44936656951904,
+    "achieved_lab": [
+      78.44281284252399,
+      -6.0551208139081325,
+      8.651816755430652
+    ],
+    "delta_e": 1.201060469018804,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 151.0964495943618
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 9.619369631505801
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 14.050529590994634
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 9.699788531028853
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.201060469018804,
+    "refined": true
+  },
+  {
+    "row_idx": 424,
+    "target_lab": [
+      83.71132016181946,
+      -3.461089611053467,
+      9.923556327819824
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 264.0037934780121,
+    "achieved_lab": [
+      83.69609579408122,
+      -3.418015745964398,
+      9.930608558279474
+    ],
+    "delta_e": 0.05416900128029951,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 121.67179222082096
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 6.208662458536305
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 8.50919777234466
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 171.16281402070413
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.05416900128029951,
+    "refined": true
+  },
+  {
+    "row_idx": 425,
+    "target_lab": [
+      40.78406095504761,
+      -9.670061111450195,
+      15.787455558776855
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 280.07313990592957,
+    "achieved_lab": [
+      40.8968785852209,
+      -6.219699747853912,
+      13.102601529461666
+    ],
+    "delta_e": 3.218730441616786,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 43.0552899490545
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 9.527943492980771
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 35.60843385759164
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 3.218730441616786,
+    "refined": true
+  },
+  {
+    "row_idx": 426,
+    "target_lab": [
+      72.85614609718323,
+      -5.37158727645874,
+      31.91673469543457
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 279.59537839889526,
+    "achieved_lab": [
+      73.11334473104907,
+      -5.262878955948846,
+      31.91003131322656
+    ],
+    "delta_e": 0.20899657296111246,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 181.25435643999745
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 10.057051420303122
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 14.836996566506972
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 29.924686038937466
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.20899657296111246,
+    "refined": true
+  },
+  {
+    "row_idx": 427,
+    "target_lab": [
+      64.20735120773315,
+      -12.341288566589355,
+      46.02973556518555
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 289.6410241127014,
+    "achieved_lab": [
+      63.67755920337572,
+      -7.5510421295562065,
+      39.20563381873594
+    ],
+    "delta_e": 3.3685808278368734,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 180.16967520465028
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 9.303579624533652
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 8.43093947630621
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 77.96064750080482
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 3.3685808278368734,
+    "refined": true
+  },
+  {
+    "row_idx": 428,
+    "target_lab": [
+      58.94463658332825,
+      0.37310895323753357,
+      29.437374114990234
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 309.30581283569336,
+    "achieved_lab": [
+      58.96741700926731,
+      0.33882243289218295,
+      29.21831269297346
+    ],
+    "delta_e": 0.10036114323834479,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 197.02697673658542
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 12.293776571745125
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 9.608329671941496
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 99.42001903540584
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.10036114323834479,
+    "refined": true
+  },
+  {
+    "row_idx": 429,
+    "target_lab": [
+      76.26044750213623,
+      -5.12656307220459,
+      15.192740440368652
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 302.41946029663086,
+    "achieved_lab": [
+      76.85405982374051,
+      -6.142891641076675,
+      15.653488193555877
+    ],
+    "delta_e": 1.1033523376709773,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 155.46398618514542
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 6.738525515523663
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 13.714366291177033
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.1033523376709773,
+    "refined": true
+  },
+  {
+    "row_idx": 430,
+    "target_lab": [
+      60.55521368980408,
+      -9.142047882080078,
+      14.651369094848633
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 312.39502573013306,
+    "achieved_lab": [
+      60.83000285578598,
+      -9.99537946171497,
+      16.190015373483966
+    ],
+    "delta_e": 1.0375925831251507,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 157.2326124292885
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 7.988026430816281
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.98038356643701
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 78.89846987223335
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.0375925831251507,
+    "refined": true
+  },
+  {
+    "row_idx": 431,
+    "target_lab": [
+      65.29918313026428,
+      -6.274880409240723,
+      37.6146125793457
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 236.0794415473938,
+    "achieved_lab": [
+      65.02665191836662,
+      -6.197021888598053,
+      37.01544148676579
+    ],
+    "delta_e": 0.3165778996413743,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 184.95349917244164
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 10.38432568826989
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 8.513613753872875
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 38.03561497035868
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.3165778996413743,
+    "refined": true
+  },
+  {
+    "row_idx": 432,
+    "target_lab": [
+      51.076436042785645,
+      -0.154369056224823,
+      35.38230895996094
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 268.9160838127136,
+    "achieved_lab": [
+      50.91130313809208,
+      -0.5971349303936502,
+      33.39004826816686
+    ],
+    "delta_e": 0.8748951147874204,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 194.75145403310754
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 8.710591476735637
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.528579338757359
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 93.11667836003895
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.8748951147874204,
+    "refined": true
+  },
+  {
+    "row_idx": 433,
+    "target_lab": [
+      67.16071963310242,
+      -14.343777656555176,
+      18.36536407470703
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 164.01840496063232,
+    "achieved_lab": [
+      67.1431054697106,
+      -13.84944893523371,
+      17.86505180634346
+    ],
+    "delta_e": 0.3699685404759365,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 198.9050681667188
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 10.869616707423678
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 12.925918161589573
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 132.42617409704664
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.3699685404759365,
+    "refined": true
+  },
+  {
+    "row_idx": 434,
+    "target_lab": [
+      68.49811673164368,
+      -8.090470314025879,
+      25.86332130432129
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 267.69695115089417,
+    "achieved_lab": [
+      68.41467690185283,
+      -8.339691180988373,
+      25.978872899197114
+    ],
+    "delta_e": 0.19652261287763578,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 166.34835980455668
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 7.787788975813469
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 26.185617148815286
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.19652261287763578,
+    "refined": true
+  },
+  {
+    "row_idx": 435,
+    "target_lab": [
+      49.69465732574463,
+      -5.329732418060303,
+      16.540742874145508
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 270.07743096351624,
+    "achieved_lab": [
+      49.42429901094248,
+      -4.43734986564931,
+      15.309971739245999
+    ],
+    "delta_e": 1.083830656577886,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 37.49718600956816
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 9.033187597921048
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 8.22473078856957
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 75.4297801687309
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.083830656577886,
+    "refined": true
+  },
+  {
+    "row_idx": 436,
+    "target_lab": [
+      54.72714900970459,
+      0.32423147559165955,
+      12.209844589233398
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 301.3142545223236,
+    "achieved_lab": [
+      54.33203627215134,
+      0.1432722640898887,
+      11.988371286581966
+    ],
+    "delta_e": 0.46687946365358896,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 51.39553016895864
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 8.149283191989326
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 8.75636624668498
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 18.23049098153884
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.46687946365358896,
+    "refined": true
+  },
+  {
+    "row_idx": 437,
+    "target_lab": [
+      59.30198431015015,
+      2.844268321990967,
+      18.816238403320312
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 286.5200560092926,
+    "achieved_lab": [
+      59.68428344317573,
+      3.0810508197885444,
+      19.341088307872933
+    ],
+    "delta_e": 0.48809589057734404,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 36.945841859885725
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 9.854572620663662
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 10.509863361656889
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 199.96079681804915
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.48809589057734404,
+    "refined": true
+  },
+  {
+    "row_idx": 438,
+    "target_lab": [
+      71.0896909236908,
+      -12.541004180908203,
+      13.019712448120117
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 291.2656545639038,
+    "achieved_lab": [
+      70.18074968365084,
+      -11.635576873888665,
+      12.595330496081768
+    ],
+    "delta_e": 0.9888072455913421,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 163.51585205838614
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 14.770794841545772
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 11.740507532186125
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.9888072455913421,
+    "refined": true
+  },
+  {
+    "row_idx": 439,
+    "target_lab": [
+      82.52626657485962,
+      -10.25345516204834,
+      18.727754592895508
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 251.54013586044312,
+    "achieved_lab": [
+      82.34190524214216,
+      -9.975536589808154,
+      18.78771512487305
+    ],
+    "delta_e": 0.27158791375720515,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 144.93672493195768
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 9.592488001248796
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 8.951283157670584
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 162.33088634448563
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.27158791375720515,
+    "refined": true
+  },
+  {
+    "row_idx": 440,
+    "target_lab": [
+      77.8190553188324,
+      -16.985769271850586,
+      27.841960906982422
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 234.69412302970886,
+    "achieved_lab": [
+      77.26498695749086,
+      -15.906386359333613,
+      27.625200735840426
+    ],
+    "delta_e": 0.7399538972259811,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 168.376919383687
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 12.26407626344919
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 14.45665036985973
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 153.78369888957687
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.7399538972259811,
+    "refined": true
+  },
+  {
+    "row_idx": 441,
+    "target_lab": [
+      74.99819993972778,
+      -10.649459838867188,
+      7.794492721557617
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 261.44079852104187,
+    "achieved_lab": [
+      74.83128753812414,
+      -9.936374106110424,
+      8.012504311751666
+    ],
+    "delta_e": 0.6936068407783121,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 100.50290833580475
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 8.953656430844507
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 7.570321516715067
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 161.72267036569286
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.6936068407783121,
+    "refined": true
+  },
+  {
+    "row_idx": 442,
+    "target_lab": [
+      83.71132016181946,
+      -3.461089611053467,
+      9.923556327819824
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 268.2834849357605,
+    "achieved_lab": [
+      84.0991397476759,
+      -4.164351902176399,
+      10.034088956947574
+    ],
+    "delta_e": 0.860020901501341,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 149.6457060552228
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 5.054644803466695
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 7.009981515721185
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.860020901501341,
+    "refined": true
+  },
+  {
+    "row_idx": 443,
+    "target_lab": [
+      47.594016790390015,
+      3.2819645404815674,
+      19.674104690551758
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 300.5595350265503,
+    "achieved_lab": [
+      47.284280437146094,
+      2.7605514258721153,
+      18.23628779084867
+    ],
+    "delta_e": 0.9382777725481215,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 47.64827475207185
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 11.69699191214674
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 8.912972977632672
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 200.0
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.9382777725481215,
+    "refined": true
+  },
+  {
+    "row_idx": 444,
+    "target_lab": [
+      42.56904125213623,
+      -0.9719446897506714,
+      18.490474700927734
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 308.5637023448944,
+    "achieved_lab": [
+      42.88434247966161,
+      -1.0800942008111214,
+      17.040400708186077
+    ],
+    "delta_e": 0.8748930715131318,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 47.006099189591076
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 6.619602430627171
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 32.77928168681165
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.8748930715131318,
+    "refined": true
+  },
+  {
+    "row_idx": 445,
+    "target_lab": [
+      67.37214922904968,
+      -12.666900634765625,
+      13.16971492767334
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 308.00602650642395,
+    "achieved_lab": [
+      67.27679234597016,
+      -12.805265357023199,
+      12.975462527162197
+    ],
+    "delta_e": 0.2002202591142883,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 163.68060163228233
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 13.109795774193008
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 7.2278700871177834
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 22.111144417919665
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.2002202591142883,
+    "refined": true
+  },
+  {
+    "row_idx": 446,
+    "target_lab": [
+      37.52491772174835,
+      11.830442428588867,
+      35.046592712402344
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 307.6852796077728,
+    "achieved_lab": [
+      38.56031080386486,
+      8.33871215803486,
+      32.75489579116944
+    ],
+    "delta_e": 2.5948251400444424,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 58.769986094569056
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 5.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 8.423349251829826
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 97.8224654673416
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 2.5948251400444424,
+    "refined": true
+  },
+  {
+    "row_idx": 447,
+    "target_lab": [
+      74.17995929718018,
+      -17.094928741455078,
+      28.10977554321289
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 209.05490159988403,
+    "achieved_lab": [
+      74.0860185269749,
+      -16.886472993698277,
+      28.01672433035376
+    ],
+    "delta_e": 0.13457047356711974,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 171.64606834404552
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 149.0011382165289
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.13457047356711974,
+    "refined": true
+  },
+  {
+    "row_idx": 448,
+    "target_lab": [
+      80.93683123588562,
+      -17.133502960205078,
+      5.577859401702881
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 286.3151047229767,
+    "achieved_lab": [
+      80.83627516323847,
+      -17.297816461108894,
+      5.373056215501593
+    ],
+    "delta_e": 0.20644664950712321,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 159.7878708838526
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 6.978788808188496
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 140.21396897894607
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.20644664950712321,
+    "refined": true
+  },
+  {
+    "row_idx": 449,
+    "target_lab": [
+      54.567503929138184,
+      -22.93187141418457,
+      33.75872039794922
+    ],
+    "n_pool": 4,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "Al2O3",
+      "Ge",
+      "Al",
+      "Zn"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 294.65830183029175,
+    "achieved_lab": [
+      56.911086640077215,
+      -20.00527924763007,
+      27.490692727029142
+    ],
+    "delta_e": 3.432486191689555,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 56.921020290465684
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 15.0
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 12.222249390903375
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 143.80351524686102
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 3.432486191689555,
+    "refined": true
+  }
+]

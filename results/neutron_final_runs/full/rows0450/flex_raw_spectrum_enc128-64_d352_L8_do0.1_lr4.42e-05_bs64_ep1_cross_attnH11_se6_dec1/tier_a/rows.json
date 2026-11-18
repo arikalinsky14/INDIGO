@@ -1,0 +1,6452 @@
+[
+  {
+    "row_idx": 450,
+    "target_lab": [
+      54.098182916641235,
+      -1.9094983339309692,
+      5.416172981262207
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 291.36924147605896,
+    "achieved_lab": [
+      54.09920792405481,
+      -1.0081317679583868,
+      5.580315952531256
+    ],
+    "delta_e": 1.2456439121001723,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "SiO2",
+        "thickness_nm": 90.24844216386424
+      },
+      {
+        "material": "TiO2",
+        "thickness_nm": 133.19714195396807
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 144.09094842943475
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 123.99914007110286
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.2456439121001723,
+    "refined": true
+  },
+  {
+    "row_idx": 451,
+    "target_lab": [
+      54.72714900970459,
+      0.32423147559165955,
+      12.209844589233398
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 295.0525326728821,
+    "achieved_lab": [
+      54.1527700305255,
+      0.3426035289645357,
+      11.764804818576845
+    ],
+    "delta_e": 0.6209855185637645,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 24.447281291199225
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 17.578715304632624
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 195.9999752368518
+      },
+      {
+        "material": "ZnS",
+        "thickness_nm": 62.00004390299086
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.6209855185637645,
+    "refined": true
+  },
+  {
+    "row_idx": 452,
+    "target_lab": [
+      80.35118579864502,
+      -1.7830168008804321,
+      4.999444007873535
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 153.03553581237793,
+    "achieved_lab": [
+      80.18133327711173,
+      -1.7150355341258305,
+      4.934568240540882
+    ],
+    "delta_e": 0.15417515009381957,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "ZnSe",
+        "thickness_nm": 9.396399451651641
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 165.99998517249938
+      },
+      {
+        "material": "TiO2",
+        "thickness_nm": 69.9999934498308
+      },
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 197.99999366142725
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.15417515009381957,
+    "refined": true
+  },
+  {
+    "row_idx": 453,
+    "target_lab": [
+      49.90474283695221,
+      15.393830299377441,
+      -6.4713029861450195
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 272.4041132926941,
+    "achieved_lab": [
+      49.82756330359774,
+      15.627083327150126,
+      -6.293654137588134
+    ],
+    "delta_e": 0.23177423187399943,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 156.44089613261374
+      },
+      {
+        "material": "ZnO",
+        "thickness_nm": 42.18529591068582
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 165.99056364255836
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 192.04035681264997
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.23177423187399943,
+    "refined": true
+  },
+  {
+    "row_idx": 454,
+    "target_lab": [
+      76.97594165802002,
+      0.006194335874170065,
+      0.002833582228049636
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 114.03766894340515,
+    "achieved_lab": [
+      76.97111175340461,
+      0.03056737370255025,
+      0.00659384967718335
+    ],
+    "delta_e": 0.0368683390101467,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 59.396217518112124
+      },
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 77.42866346604119
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 7.412533273125657
+      },
+      {
+        "material": "MgF2",
+        "thickness_nm": 87.75148411743467
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.0368683390101467,
+    "refined": true
+  },
+  {
+    "row_idx": 455,
+    "target_lab": [
+      57.91094899177551,
+      13.91589069366455,
+      11.359502792358398
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 331.8929898738861,
+    "achieved_lab": [
+      58.334988222105665,
+      14.24562232526383,
+      11.40501164170904
+    ],
+    "delta_e": 0.4585644245918169,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "TiO2",
+        "thickness_nm": 54.06600342825456
+      },
+      {
+        "material": "ZnO",
+        "thickness_nm": 124.0323452324867
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 104.047267735941
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 146.10010631850827
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.4585644245918169,
+    "refined": true
+  },
+  {
+    "row_idx": 456,
+    "target_lab": [
+      72.83013463020325,
+      -1.4658921957015991,
+      -6.26806116104126
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 165.99488520622253,
+    "achieved_lab": [
+      73.63861210230186,
+      -1.4860278505965385,
+      -6.035983818459667
+    ],
+    "delta_e": 0.6304563263061331,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "MgF2",
+        "thickness_nm": 139.8049382236149
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 39.48952254943624
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 33.73373415598266
+      },
+      {
+        "material": "TiO2",
+        "thickness_nm": 35.00250984903077
+      },
+      {
+        "material": "Cu",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.6304563263061331,
+    "refined": true
+  },
+  {
+    "row_idx": 457,
+    "target_lab": [
+      76.2211799621582,
+      -3.437506675720215,
+      -1.1908091306686401
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 266.40450716018677,
+    "achieved_lab": [
+      75.80773938957917,
+      -3.2884913629077084,
+      -1.1889430317707728
+    ],
+    "delta_e": 0.35001434325273145,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "MgF2",
+        "thickness_nm": 2.0
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 62.10061054087789
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 64.88446738973985
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 167.13050310330297
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.35001434325273145,
+    "refined": true
+  },
+  {
+    "row_idx": 458,
+    "target_lab": [
+      80.35118579864502,
+      -1.7830168008804321,
+      4.999444007873535
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 134.230539560318,
+    "achieved_lab": [
+      80.18142463351222,
+      -1.7093590763213595,
+      4.937906693074323
+    ],
+    "delta_e": 0.15773882519752633,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "ZnSe",
+        "thickness_nm": 9.397483340594405
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 104.00170312604581
+      },
+      {
+        "material": "ZnS",
+        "thickness_nm": 122.00069835217587
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 194.00000000000003
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.15773882519752633,
+    "refined": true
+  },
+  {
+    "row_idx": 459,
+    "target_lab": [
+      32.62524604797363,
+      -8.207756996154785,
+      10.500009536743164
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 304.68878841400146,
+    "achieved_lab": [
+      33.38871892677739,
+      -6.86682450275225,
+      11.419730968571507
+    ],
+    "delta_e": 1.7139998322033458,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 190.25764742389265
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 60.83581205471162
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 13.266282184963172
+      },
+      {
+        "material": "ZnO",
+        "thickness_nm": 22.69661290653384
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.7139998322033458,
+    "refined": true
+  },
+  {
+    "row_idx": 460,
+    "target_lab": [
+      52.24679708480835,
+      7.730190277099609,
+      2.8647408485412598
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 250.8615517616272,
+    "achieved_lab": [
+      52.4218161312543,
+      7.606496874722424,
+      2.565871973388112
+    ],
+    "delta_e": 0.3155842455090906,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 60.7230359238111
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 65.51602522746307
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 59.873820423440485
+      },
+      {
+        "material": "TiO2",
+        "thickness_nm": 88.02700479349991
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.3155842455090906,
+    "refined": true
+  },
+  {
+    "row_idx": 461,
+    "target_lab": [
+      76.97594165802002,
+      0.006194335874170065,
+      0.002833582228049636
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 188.50681519508362,
+    "achieved_lab": [
+      77.07243812755445,
+      -0.01430345448122372,
+      0.009841032167634545
+    ],
+    "delta_e": 0.07579744869374572,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 52.770696580571524
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 159.71602027356005
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 67.82570033087727
+      },
+      {
+        "material": "Cu",
+        "thickness_nm": 176.00000080794783
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.07579744869374572,
+    "refined": true
+  },
+  {
+    "row_idx": 462,
+    "target_lab": [
+      75.50769448280334,
+      -6.804099082946777,
+      -2.320645332336426
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 187.3779227733612,
+    "achieved_lab": [
+      75.31442367278616,
+      -7.156941897709823,
+      -2.380382405646997
+    ],
+    "delta_e": 0.38591242011747356,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 129.32693754236192
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 13.602650789727868
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 189.87096671339285
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 17.941726136690498
+      },
+      {
+        "material": "Cu",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.38591242011747356,
+    "refined": true
+  },
+  {
+    "row_idx": 463,
+    "target_lab": [
+      71.83330059051514,
+      -6.864519119262695,
+      -2.337517738342285
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 172.794020652771,
+    "achieved_lab": [
+      72.82709917205878,
+      -6.12632534341645,
+      -2.2798913345029925
+    ],
+    "delta_e": 1.0734866566515602,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ge",
+        "thickness_nm": 22.451003657622703
+      },
+      {
+        "material": "W",
+        "thickness_nm": 19.383985523295678
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 10.803963848696261
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 128.38672900558527
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.0734866566515602,
+    "refined": true
+  },
+  {
+    "row_idx": 464,
+    "target_lab": [
+      67.3714816570282,
+      20.005264282226562,
+      19.518503189086914
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 247.3126015663147,
+    "achieved_lab": [
+      67.34739511915296,
+      20.418334480756695,
+      19.596214227751908
+    ],
+    "delta_e": 0.24835803368887016,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "SiO2",
+        "thickness_nm": 192.69344603015628
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 39.38830768932008
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 33.32536536992413
+      },
+      {
+        "material": "ZnS",
+        "thickness_nm": 45.801035055110184
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.24835803368887016,
+    "refined": true
+  },
+  {
+    "row_idx": 465,
+    "target_lab": [
+      59.11277532577515,
+      1.5434004068374634,
+      24.15408706665039
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 109.63178420066833,
+    "achieved_lab": [
+      59.53958636840346,
+      1.677996668930426,
+      23.5625689385885
+    ],
+    "delta_e": 0.4992594298658826,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 123.08889692655801
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 14.092864507487871
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 161.9999261993031
+      },
+      {
+        "material": "ZnO",
+        "thickness_nm": 200.0
+      },
+      {
+        "material": "W",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.4992594298658826,
+    "refined": true
+  },
+  {
+    "row_idx": 466,
+    "target_lab": [
+      76.97594165802002,
+      0.006194335874170065,
+      0.002833582228049636
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 206.57648706436157,
+    "achieved_lab": [
+      76.77851518622226,
+      -0.03799011990224255,
+      0.023611910731902164
+    ],
+    "delta_e": 0.15737348118727582,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 63.434833075129326
+      },
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 120.97888242991075
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 62.02618523505763
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 199.0972086667902
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.15737348118727582,
+    "refined": true
+  },
+  {
+    "row_idx": 467,
+    "target_lab": [
+      70.44225335121155,
+      18.525592803955078,
+      7.197976112365723
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 249.42877054214478,
+    "achieved_lab": [
+      70.42469661981684,
+      18.58770010072952,
+      7.144925955739545
+    ],
+    "delta_e": 0.06231209192317407,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "TiO2",
+        "thickness_nm": 197.05917436129423
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 160.4095186879508
+      },
+      {
+        "material": "W",
+        "thickness_nm": 19.080982993420644
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 159.8574292391881
+      },
+      {
+        "material": "W",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.06231209192317407,
+    "refined": true
+  },
+  {
+    "row_idx": 468,
+    "target_lab": [
+      76.97594165802002,
+      0.006194335874170065,
+      0.002833582228049636
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 80.54576444625854,
+    "achieved_lab": [
+      76.89470371153924,
+      0.039573097357803455,
+      -0.006291830045901392
+    ],
+    "delta_e": 0.07717647507108724,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 65.40407783788369
+      },
+      {
+        "material": "ZnS",
+        "thickness_nm": 121.82675254599597
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 109.99947904957914
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 90.00000126088031
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.07717647507108724,
+    "refined": true
+  },
+  {
+    "row_idx": 469,
+    "target_lab": [
+      76.97594165802002,
+      0.006194335874170065,
+      0.002833582228049636
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 117.89893984794617,
+    "achieved_lab": [
+      76.99086046312435,
+      -0.023484079197555463,
+      0.026178128954756907
+    ],
+    "delta_e": 0.051351829460810065,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 60.32158824293247
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 131.2413371396163
+      },
+      {
+        "material": "Cu",
+        "thickness_nm": 145.993574445772
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 16.00659683647352
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.051351829460810065,
+    "refined": true
+  },
+  {
+    "row_idx": 470,
+    "target_lab": [
+      76.97594165802002,
+      0.006194335874170065,
+      0.002833582228049636
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 159.19891595840454,
+    "achieved_lab": [
+      76.95292884488869,
+      -0.042266307044236395,
+      0.0212829384473201
+    ],
+    "delta_e": 0.07669448435544984,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 47.72325485108671
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 2.898307234062041
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 145.9439567866596
+      },
+      {
+        "material": "W",
+        "thickness_nm": 154.0000000151592
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.07669448435544984,
+    "refined": true
+  },
+  {
+    "row_idx": 471,
+    "target_lab": [
+      79.59868311882019,
+      -5.273509979248047,
+      3.816176652908325
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 162.87454223632812,
+    "achieved_lab": [
+      79.81343349716573,
+      -5.391913742899879,
+      3.6271892979234055
+    ],
+    "delta_e": 0.2634412996492597,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "MgF2",
+        "thickness_nm": 184.50693726382994
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 31.986606289871798
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 134.27518341645435
+      },
+      {
+        "material": "ZnO",
+        "thickness_nm": 20.57500984869078
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.2634412996492597,
+    "refined": true
+  },
+  {
+    "row_idx": 472,
+    "target_lab": [
+      62.008148431777954,
+      -2.6864333152770996,
+      22.47900390625
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 269.92992401123047,
+    "achieved_lab": [
+      61.98699061188576,
+      -2.5504883550184765,
+      22.249091063348647
+    ],
+    "delta_e": 0.16454237944195094,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "SiO2",
+        "thickness_nm": 45.2559672033851
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 43.5472015463422
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 18.55245010771455
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 169.35781910834388
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.16454237944195094,
+    "refined": true
+  },
+  {
+    "row_idx": 473,
+    "target_lab": [
+      64.43448662757874,
+      6.803294658660889,
+      42.12534713745117
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 190.40138244628906,
+    "achieved_lab": [
+      64.40440789422065,
+      6.996820909457968,
+      41.99370473066526
+    ],
+    "delta_e": 0.16121304497056763,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 123.83900304289565
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 27.337115733296976
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 150.27036792540792
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 109.99998522947632
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.16121304497056763,
+    "refined": true
+  },
+  {
+    "row_idx": 474,
+    "target_lab": [
+      79.59868311882019,
+      -5.273509979248047,
+      3.816176652908325
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 266.297691822052,
+    "achieved_lab": [
+      79.44847809690359,
+      -5.0600458550240095,
+      3.8811383710347425
+    ],
+    "delta_e": 0.2725588364423122,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 43.25393748179221
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 83.77088711044658
+      },
+      {
+        "material": "TiO2",
+        "thickness_nm": 81.99306640510568
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 136.0002447801741
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.2725588364423122,
+    "refined": true
+  },
+  {
+    "row_idx": 475,
+    "target_lab": [
+      80.35118579864502,
+      -1.7830168008804321,
+      4.999444007873535
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 222.89360547065735,
+    "achieved_lab": [
+      80.40077325194594,
+      -1.698061570768572,
+      4.964185425096734
+    ],
+    "delta_e": 0.11919647714196266,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ni",
+        "thickness_nm": 38.733312436642706
+      },
+      {
+        "material": "MgF2",
+        "thickness_nm": 118.14074165383435
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 111.48326086461758
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 22.513291792435783
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.11919647714196266,
+    "refined": true
+  },
+  {
+    "row_idx": 476,
+    "target_lab": [
+      80.35118579864502,
+      -1.7830168008804321,
+      4.999444007873535
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 144.89758467674255,
+    "achieved_lab": [
+      80.89529979838652,
+      -1.7004002615758629,
+      4.884647493402339
+    ],
+    "delta_e": 0.39846653308501934,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 40.67999425464006
+      },
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 86.79653303382248
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 65.94570951692472
+      },
+      {
+        "material": "TiO2",
+        "thickness_nm": 136.0214529664584
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.39846653308501934,
+    "refined": true
+  },
+  {
+    "row_idx": 477,
+    "target_lab": [
+      80.35118579864502,
+      -1.7830168008804321,
+      4.999444007873535
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 197.522558927536,
+    "achieved_lab": [
+      80.18064222356136,
+      -1.715257253998348,
+      4.936068665357873
+    ],
+    "delta_e": 0.15403322222081123,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "ZnSe",
+        "thickness_nm": 9.397323591594905
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 176.0000013983406
+      },
+      {
+        "material": "W",
+        "thickness_nm": 5.999999156136153
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 168.00000020707898
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.15403322222081123,
+    "refined": true
+  },
+  {
+    "row_idx": 478,
+    "target_lab": [
+      55.75519800186157,
+      -14.7755765914917,
+      19.066898345947266
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 327.31742691993713,
+    "achieved_lab": [
+      56.21939209449711,
+      -15.264697517124725,
+      17.78050213638631
+    ],
+    "delta_e": 0.9998230870761027,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "ZnSe",
+        "thickness_nm": 111.65955428112379
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 13.885746571791115
+      },
+      {
+        "material": "MgF2",
+        "thickness_nm": 154.71457228709392
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 52.311581399666665
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.9998230870761027,
+    "refined": true
+  },
+  {
+    "row_idx": 479,
+    "target_lab": [
+      74.99819993972778,
+      -10.649459838867188,
+      7.794492721557617
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 310.8282947540283,
+    "achieved_lab": [
+      76.02260146345553,
+      -10.741847419796835,
+      7.887362573854451
+    ],
+    "delta_e": 0.7496568448608121,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "MgF2",
+        "thickness_nm": 180.56204387497746
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 116.59624151126535
+      },
+      {
+        "material": "ZnS",
+        "thickness_nm": 189.99732121130063
+      },
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 34.50080184898711
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.7496568448608121,
+    "refined": true
+  },
+  {
+    "row_idx": 480,
+    "target_lab": [
+      73.31204414367676,
+      0.005950236227363348,
+      0.002721919445320964
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 147.25928020477295,
+    "achieved_lab": [
+      73.36448660882976,
+      -0.3652962864464926,
+      0.22314122376221324
+    ],
+    "delta_e": 0.5925523419868759,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 14.776693168373045
+      },
+      {
+        "material": "Cu",
+        "thickness_nm": 43.62086424387766
+      },
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 10.598796121680282
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 184.22668638463608
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.5925523419868759,
+    "refined": true
+  },
+  {
+    "row_idx": 481,
+    "target_lab": [
+      80.35118579864502,
+      -1.7830168008804321,
+      4.999444007873535
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 168.7945795059204,
+    "achieved_lab": [
+      80.24362340440523,
+      -1.6686614598766525,
+      4.858044274980555
+    ],
+    "delta_e": 0.19643952439157417,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "ZnSe",
+        "thickness_nm": 9.336288449222996
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 72.01171889139458
+      },
+      {
+        "material": "Cu",
+        "thickness_nm": 126.0000005449841
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 81.9999999684316
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.19643952439157417,
+    "refined": true
+  },
+  {
+    "row_idx": 482,
+    "target_lab": [
+      59.23285484313965,
+      19.281557083129883,
+      7.646003246307373
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 251.3581464290619,
+    "achieved_lab": [
+      59.52315490927701,
+      19.408983915416066,
+      8.295232102397199
+    ],
+    "delta_e": 0.5118222041101811,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 35.13674053809206
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 195.1879005951048
+      },
+      {
+        "material": "ZnO",
+        "thickness_nm": 158.11248026023304
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 83.36698989251582
+      },
+      {
+        "material": "W",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.5118222041101811,
+    "refined": true
+  },
+  {
+    "row_idx": 483,
+    "target_lab": [
+      59.30198431015015,
+      2.844268321990967,
+      18.816238403320312
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 150.41148161888123,
+    "achieved_lab": [
+      59.1778478117032,
+      2.8157456701968786,
+      19.167852092379544
+    ],
+    "delta_e": 0.22974607310768605,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 22.754529898554335
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 28.792594281840724
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 165.9999999384088
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 148.0000000000295
+      },
+      {
+        "material": "W",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.22974607310768605,
+    "refined": true
+  },
+  {
+    "row_idx": 484,
+    "target_lab": [
+      44.583138823509216,
+      -9.656455993652344,
+      3.1111083030700684
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 326.7572548389435,
+    "achieved_lab": [
+      45.109553378901104,
+      -8.722018301428157,
+      2.6801542617444607
+    ],
+    "delta_e": 1.023480679033231,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 171.96665015727885
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 125.30092404247426
+      },
+      {
+        "material": "MgF2",
+        "thickness_nm": 12.26008085944232
+      },
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 15.949210553542597
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.023480679033231,
+    "refined": true
+  },
+  {
+    "row_idx": 485,
+    "target_lab": [
+      71.83330059051514,
+      -6.864519119262695,
+      -2.337517738342285
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 201.70422172546387,
+    "achieved_lab": [
+      71.93822666293111,
+      -6.641293933435821,
+      -2.0458946055646354
+    ],
+    "delta_e": 0.33356036128885796,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 60.41979518304989
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 16.290527931771248
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 61.92359469717398
+      },
+      {
+        "material": "Cu",
+        "thickness_nm": 24.038675311453687
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.33356036128885796,
+    "refined": true
+  },
+  {
+    "row_idx": 486,
+    "target_lab": [
+      76.97594165802002,
+      0.006194335874170065,
+      0.002833582228049636
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 192.9311981201172,
+    "achieved_lab": [
+      76.90734253190008,
+      0.012423930369487302,
+      -0.018663172812383166
+    ],
+    "delta_e": 0.05435323442906266,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 45.65525445901014
+      },
+      {
+        "material": "Cu",
+        "thickness_nm": 16.685367582358417
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 54.09619798691409
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 2.0
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.05435323442906266,
+    "refined": true
+  },
+  {
+    "row_idx": 487,
+    "target_lab": [
+      44.87332999706268,
+      -7.392055511474609,
+      -2.472022771835327
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 260.53376865386963,
+    "achieved_lab": [
+      44.83626384612113,
+      -8.178186478951243,
+      -2.642547512647031
+    ],
+    "delta_e": 0.7735902644873451,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "HfO2",
+        "thickness_nm": 44.13760415318496
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 8.228256820802168
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 7.700681702064798
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 63.68404408325676
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.7735902644873451,
+    "refined": true
+  },
+  {
+    "row_idx": 488,
+    "target_lab": [
+      54.51256036758423,
+      -1.1906710863113403,
+      17.64825439453125
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 283.05231189727783,
+    "achieved_lab": [
+      54.532480721684166,
+      -1.1207545271202934,
+      17.75365361601495
+    ],
+    "delta_e": 0.10498557183012062,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "SiO2",
+        "thickness_nm": 50.169371837058165
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 66.36736689873594
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 33.16103737156219
+      },
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 158.3202981242437
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.10498557183012062,
+    "refined": true
+  },
+  {
+    "row_idx": 489,
+    "target_lab": [
+      57.690972089767456,
+      12.56540298461914,
+      16.774229049682617
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 234.48813128471375,
+    "achieved_lab": [
+      58.95725144963809,
+      10.662028812177926,
+      15.089063381879363
+    ],
+    "delta_e": 1.9340458790460546,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "MgF2",
+        "thickness_nm": 76.68463118703639
+      },
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 70.7043863990934
+      },
+      {
+        "material": "ZnS",
+        "thickness_nm": 171.58143104066076
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 54.66124902769645
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.9340458790460546,
+    "refined": true
+  },
+  {
+    "row_idx": 490,
+    "target_lab": [
+      76.2211799621582,
+      -3.437506675720215,
+      -1.1908091306686401
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 202.28301906585693,
+    "achieved_lab": [
+      76.30451335677081,
+      -3.550598924287829,
+      -1.1954350999154428
+    ],
+    "delta_e": 0.14999286278426244,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "MgF2",
+        "thickness_nm": 113.34941151858749
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 52.231784268703365
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 136.8265338189543
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 128.01196928318672
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.14999286278426244,
+    "refined": true
+  },
+  {
+    "row_idx": 491,
+    "target_lab": [
+      72.83013463020325,
+      -1.4658921957015991,
+      -6.26806116104126
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 61.99440050125122,
+    "achieved_lab": [
+      72.44180302259171,
+      -1.9461967709206163,
+      -6.761634879607947
+    ],
+    "delta_e": 0.7545595792096321,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 95.88753414449891
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 114.00978095936817
+      },
+      {
+        "material": "MgF2",
+        "thickness_nm": 16.000030306819667
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 118.00002039360494
+      },
+      {
+        "material": "W",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.7545595792096321,
+    "refined": true
+  },
+  {
+    "row_idx": 492,
+    "target_lab": [
+      80.35118579864502,
+      -1.7830168008804321,
+      4.999444007873535
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 186.89342141151428,
+    "achieved_lab": [
+      80.68575330295808,
+      -1.2152080773778495,
+      5.016942455942819
+    ],
+    "delta_e": 0.8062570349774727,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 27.10919509470431
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 94.32705233272614
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 145.9912054154324
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 162.00000004798164
+      },
+      {
+        "material": "W",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.8062570349774727,
+    "refined": true
+  },
+  {
+    "row_idx": 493,
+    "target_lab": [
+      53.24702858924866,
+      11.66862964630127,
+      4.436248302459717
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 215.24312281608582,
+    "achieved_lab": [
+      53.87818387698272,
+      11.679742307085517,
+      6.038861511813298
+    ],
+    "delta_e": 1.377044773806926,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "TiO2",
+        "thickness_nm": 40.57590101166055
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 29.4439151754774
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 49.389541855610354
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 125.99993126520114
+      },
+      {
+        "material": "W",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.377044773806926,
+    "refined": true
+  },
+  {
+    "row_idx": 494,
+    "target_lab": [
+      76.2211799621582,
+      -3.437506675720215,
+      -1.1908091306686401
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 225.57264280319214,
+    "achieved_lab": [
+      76.13466022867175,
+      -3.3310654770756787,
+      -0.9960097754916797
+    ],
+    "delta_e": 0.22522194330445675,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ge",
+        "thickness_nm": 61.28544969943043
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 71.43147048485076
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 87.99876219675596
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 40.000178448665174
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.22522194330445675,
+    "refined": true
+  },
+  {
+    "row_idx": 495,
+    "target_lab": [
+      76.97594165802002,
+      0.006194335874170065,
+      0.002833582228049636
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 91.85707712173462,
+    "achieved_lab": [
+      76.83213106273169,
+      -0.009470799994415469,
+      0.002454630103199129
+    ],
+    "delta_e": 0.10551134726477016,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 62.62663301642296
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 179.75606013326976
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 96.00284208556538
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 63.99999326450474
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.10551134726477016,
+    "refined": true
+  },
+  {
+    "row_idx": 496,
+    "target_lab": [
+      80.35118579864502,
+      -1.7830168008804321,
+      4.999444007873535
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 172.87390542030334,
+    "achieved_lab": [
+      80.22665327632778,
+      -1.9209028051729304,
+      5.265736597394
+    ],
+    "delta_e": 0.2815283413940399,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ni",
+        "thickness_nm": 36.40964071355901
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 53.97943163280472
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 147.94088095267705
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 199.99999999996888
+      },
+      {
+        "material": "W",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.2815283413940399,
+    "refined": true
+  },
+  {
+    "row_idx": 497,
+    "target_lab": [
+      80.11385798454285,
+      -3.4852774143218994,
+      10.01607608795166
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 239.56241250038147,
+    "achieved_lab": [
+      80.10741161376434,
+      -3.474343115134837,
+      10.019678834844159
+    ],
+    "delta_e": 0.014598465149604847,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "MgF2",
+        "thickness_nm": 185.08609074692916
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 7.292521793104603
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 67.2077251265544
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 116.23408915892387
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.014598465149604847,
+    "refined": true
+  },
+  {
+    "row_idx": 498,
+    "target_lab": [
+      57.75501728057861,
+      -1.4882266521453857,
+      -6.550663948059082
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 257.8054175376892,
+    "achieved_lab": [
+      57.96005241180225,
+      -1.0634273409420025,
+      -6.675165827411722
+    ],
+    "delta_e": 0.6019300194805761,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "SiO2",
+        "thickness_nm": 58.308929809631906
+      },
+      {
+        "material": "ZnS",
+        "thickness_nm": 32.750086705639156
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 167.99889379949917
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 150.00054957005085
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.6019300194805761,
+    "refined": true
+  },
+  {
+    "row_idx": 499,
+    "target_lab": [
+      77.24745273590088,
+      1.8996000289916992,
+      -5.014743804931641
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 119.23539161682129,
+    "achieved_lab": [
+      76.20595151507763,
+      2.151281797542759,
+      -5.383510346426901
+    ],
+    "delta_e": 0.8572462625493296,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 36.47120455078218
+      },
+      {
+        "material": "TiO2",
+        "thickness_nm": 101.76265001530317
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 102.91285581108095
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 2.4157025990267478
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.8572462625493296,
+    "refined": true
+  },
+  {
+    "row_idx": 500,
+    "target_lab": [
+      76.72099471092224,
+      -1.7983331680297852,
+      5.047929286956787
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 166.38418412208557,
+    "achieved_lab": [
+      76.41878838388622,
+      -1.5388730520807248,
+      5.417530292038286
+    ],
+    "delta_e": 0.5333587992975909,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "ZnS",
+        "thickness_nm": 9.002753986846054
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 11.583002682370235
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 56.94435011293356
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 107.36935100800285
+      },
+      {
+        "material": "W",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.5333587992975909,
+    "refined": true
+  },
+  {
+    "row_idx": 501,
+    "target_lab": [
+      61.49473190307617,
+      12.318559646606445,
+      16.511249542236328
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 299.84686946868896,
+    "achieved_lab": [
+      61.25637937106538,
+      11.823908719404807,
+      16.757224443491413
+    ],
+    "delta_e": 0.5667770099469682,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "MgF2",
+        "thickness_nm": 44.249564100965685
+      },
+      {
+        "material": "ZnS",
+        "thickness_nm": 121.03534651460203
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 111.76604900792083
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 178.15239002707483
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.5667770099469682,
+    "refined": true
+  },
+  {
+    "row_idx": 502,
+    "target_lab": [
+      50.54311752319336,
+      -22.484386444091797,
+      17.33591079711914
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 301.1660521030426,
+    "achieved_lab": [
+      50.61889506917596,
+      -24.443640064713723,
+      19.36867249432591
+    ],
+    "delta_e": 1.2307994758617882,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "ZnO",
+        "thickness_nm": 114.11734005555036
+      },
+      {
+        "material": "MgF2",
+        "thickness_nm": 152.43816563206687
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 45.44349550434082
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 96.86616708498872
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.2307994758617882,
+    "refined": true
+  },
+  {
+    "row_idx": 503,
+    "target_lab": [
+      54.96585965156555,
+      1.9813497066497803,
+      6.773947715759277
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 204.02231860160828,
+    "achieved_lab": [
+      55.018817702880725,
+      1.7749957482491308,
+      7.71082927366491
+    ],
+    "delta_e": 0.815145902347071,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "SiO2",
+        "thickness_nm": 50.24815547815528
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 26.34798427239094
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 54.22267523201858
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 40.09249033985716
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.815145902347071,
+    "refined": true
+  },
+  {
+    "row_idx": 504,
+    "target_lab": [
+      76.97594165802002,
+      0.006194335874170065,
+      0.002833582228049636
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 80.47059988975525,
+    "achieved_lab": [
+      76.50743098735371,
+      0.1983928403132551,
+      0.04569760544186341
+    ],
+    "delta_e": 0.44325036088192205,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 46.649011302489136
+      },
+      {
+        "material": "Cu",
+        "thickness_nm": 36.00702419113126
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 40.110165671591126
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 66.00012529423418
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.44325036088192205,
+    "refined": true
+  },
+  {
+    "row_idx": 505,
+    "target_lab": [
+      49.91323947906494,
+      -3.7127797603607178,
+      11.01707935333252
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 309.95054841041565,
+    "achieved_lab": [
+      50.184172487590786,
+      -3.6229447602297293,
+      11.187792903631255
+    ],
+    "delta_e": 0.32200596796937003,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Al2O3",
+        "thickness_nm": 181.83252411636894
+      },
+      {
+        "material": "TiO2",
+        "thickness_nm": 179.55362472605358
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 39.878346229038755
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 96.4059471065816
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.32200596796937003,
+    "refined": true
+  },
+  {
+    "row_idx": 506,
+    "target_lab": [
+      58.15363526344299,
+      15.385015487670898,
+      5.958167552947998
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 273.8974747657776,
+    "achieved_lab": [
+      58.77586785062033,
+      14.844609094088025,
+      5.124386509101964
+    ],
+    "delta_e": 0.8648558744293973,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 41.444074170283734
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 9.281890610021856
+      },
+      {
+        "material": "W",
+        "thickness_nm": 169.99999998018856
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 184.00000000491943
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.8648558744293973,
+    "refined": true
+  },
+  {
+    "row_idx": 507,
+    "target_lab": [
+      54.06127572059631,
+      14.16630744934082,
+      11.571990966796875
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 269.8916618824005,
+    "achieved_lab": [
+      54.59333377928512,
+      12.705265676689281,
+      10.835819293523663
+    ],
+    "delta_e": 1.2200017154776124,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 162.96787665226034
+      },
+      {
+        "material": "ZnS",
+        "thickness_nm": 187.74623370473276
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 137.94590658391348
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 195.91508773610676
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.2200017154776124,
+    "refined": true
+  },
+  {
+    "row_idx": 508,
+    "target_lab": [
+      76.97594165802002,
+      0.006194335874170065,
+      0.002833582228049636
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 171.09560632705688,
+    "achieved_lab": [
+      76.88958421539795,
+      0.015958411633487657,
+      -0.05160503325756238
+    ],
+    "delta_e": 0.08356427605838114,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 62.39862141807659
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 199.4441002321062
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 169.9999999989015
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 67.99999999999959
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.08356427605838114,
+    "refined": true
+  },
+  {
+    "row_idx": 509,
+    "target_lab": [
+      72.55072593688965,
+      -3.470656394958496,
+      -1.2013325691223145
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 160.0950644016266,
+    "achieved_lab": [
+      73.1752128954765,
+      -3.4946280667915164,
+      -0.5995541107756797
+    ],
+    "delta_e": 0.7292854088914825,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ge",
+        "thickness_nm": 17.097692809312672
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 147.99993738367536
+      },
+      {
+        "material": "MgF2",
+        "thickness_nm": 34.00000773809195
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 36.00001579086546
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.7292854088914825,
+    "refined": true
+  },
+  {
+    "row_idx": 510,
+    "target_lab": [
+      50.43126344680786,
+      0.004425850231200457,
+      0.0020245930645614862
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 301.07058572769165,
+    "achieved_lab": [
+      51.76165986843435,
+      0.31500640013854,
+      -0.3161984500850368
+    ],
+    "delta_e": 1.4375069327970296,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "MgF2",
+        "thickness_nm": 88.78456470475025
+      },
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 169.66753953168046
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 198.0004756987116
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 155.9999598381041
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.4375069327970296,
+    "refined": true
+  },
+  {
+    "row_idx": 511,
+    "target_lab": [
+      72.83013463020325,
+      -1.4658921957015991,
+      -6.26806116104126
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 199.51797723770142,
+    "achieved_lab": [
+      72.89742587388598,
+      -1.4525233827602513,
+      -6.531529643107681
+    ],
+    "delta_e": 0.21321978035282976,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "MgF2",
+        "thickness_nm": 144.04549542083367
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 38.10755942989451
+      },
+      {
+        "material": "W",
+        "thickness_nm": 23.98981361142195
+      },
+      {
+        "material": "ZnO",
+        "thickness_nm": 115.94205671914739
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.21321978035282976,
+    "refined": true
+  },
+  {
+    "row_idx": 512,
+    "target_lab": [
+      65.98107814788818,
+      -1.3139026165008545,
+      16.98369598388672
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 188.5835988521576,
+    "achieved_lab": [
+      65.84131066070599,
+      -1.3164441730076915,
+      17.439634527693393
+    ],
+    "delta_e": 0.2818062855604179,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "ZnO",
+        "thickness_nm": 22.987243830613906
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 59.60348908959921
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 50.989414993690986
+      },
+      {
+        "material": "ZnS",
+        "thickness_nm": 81.31675457086936
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.2818062855604179,
+    "refined": true
+  },
+  {
+    "row_idx": 513,
+    "target_lab": [
+      76.97594165802002,
+      0.006194335874170065,
+      0.002833582228049636
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 227.84213709831238,
+    "achieved_lab": [
+      76.97512285698191,
+      0.007721920173231478,
+      0.003828211459167008
+    ],
+    "delta_e": 0.0025643799546858307,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 46.58910195600935
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 24.996260123278464
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 16.452027572279363
+      },
+      {
+        "material": "ZnO",
+        "thickness_nm": 140.28975060637987
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.0025643799546858307,
+    "refined": true
+  },
+  {
+    "row_idx": 514,
+    "target_lab": [
+      62.914544343948364,
+      1.4101706743240356,
+      23.852096557617188
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 131.16732597351074,
+    "achieved_lab": [
+      62.95596921453175,
+      1.5418183480521153,
+      23.31920823822604
+    ],
+    "delta_e": 0.3008240086640947,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 27.7502604797116
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 139.9287057220023
+      },
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 9.99586199400472
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 168.00000017617697
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.3008240086640947,
+    "refined": true
+  },
+  {
+    "row_idx": 515,
+    "target_lab": [
+      76.97594165802002,
+      0.006194335874170065,
+      0.002833582228049636
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 249.6295735836029,
+    "achieved_lab": [
+      76.90518791560054,
+      -0.04675663529490892,
+      0.04436071798472607
+    ],
+    "delta_e": 0.1027989631019428,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 60.20479422626457
+      },
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 62.13631685800741
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 153.46392703419167
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 145.3291140830459
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.1027989631019428,
+    "refined": true
+  },
+  {
+    "row_idx": 516,
+    "target_lab": [
+      76.2211799621582,
+      -3.437506675720215,
+      -1.1908091306686401
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 206.42487859725952,
+    "achieved_lab": [
+      76.18160191690019,
+      -3.2979245212527153,
+      -0.9854507427744963
+    ],
+    "delta_e": 0.2501024975014407,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ge",
+        "thickness_nm": 61.855068773196905
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 99.0205755927526
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 3.423859554114118
+      },
+      {
+        "material": "W",
+        "thickness_nm": 51.98173614253782
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.2501024975014407,
+    "refined": true
+  },
+  {
+    "row_idx": 517,
+    "target_lab": [
+      80.35118579864502,
+      -1.7830168008804321,
+      4.999444007873535
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 197.7849259376526,
+    "achieved_lab": [
+      80.49089255113704,
+      -1.4785140476802905,
+      5.273888390870773
+    ],
+    "delta_e": 0.49928909162141294,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ni",
+        "thickness_nm": 30.408513962797358
+      },
+      {
+        "material": "ZnO",
+        "thickness_nm": 23.49848387417367
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 191.6809636574221
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 173.51863309116925
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.49928909162141294,
+    "refined": true
+  },
+  {
+    "row_idx": 518,
+    "target_lab": [
+      76.97594165802002,
+      0.006194335874170065,
+      0.002833582228049636
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 82.37962770462036,
+    "achieved_lab": [
+      76.92898599700716,
+      0.04207762807439952,
+      -0.016091357555270136
+    ],
+    "delta_e": 0.06611718180307315,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 60.39020963390019
+      },
+      {
+        "material": "HfO2",
+        "thickness_nm": 78.60746702033748
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 78.68094389037765
+      },
+      {
+        "material": "Cu",
+        "thickness_nm": 155.99988871266908
+      },
+      {
+        "material": "Ni",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.06611718180307315,
+    "refined": true
+  },
+  {
+    "row_idx": 519,
+    "target_lab": [
+      51.1482834815979,
+      30.190135955810547,
+      25.46925163269043
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 278.62992572784424,
+    "achieved_lab": [
+      51.14128217463458,
+      30.0930765186031,
+      25.515389223614093
+    ],
+    "delta_e": 0.07131091561687335,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "SiO2",
+        "thickness_nm": 94.69400255751579
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 173.2406804164442
+      },
+      {
+        "material": "SiO2",
+        "thickness_nm": 149.15863566003134
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 68.05077661728029
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.07131091561687335,
+    "refined": true
+  },
+  {
+    "row_idx": 520,
+    "target_lab": [
+      73.58673214912415,
+      1.9207278490066528,
+      -5.064728736877441
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 136.65072774887085,
+    "achieved_lab": [
+      74.00149850252362,
+      1.802123184252824,
+      -5.371180724771829
+    ],
+    "delta_e": 0.4477100740856564,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "MgF2",
+        "thickness_nm": 75.43710952786053
+      },
+      {
+        "material": "Cr",
+        "thickness_nm": 44.05233124633275
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 59.875816744483195
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 58.08962807032499
+      },
+      {
+        "material": "Au",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.4477100740856564,
+    "refined": true
+  },
+  {
+    "row_idx": 521,
+    "target_lab": [
+      73.31204414367676,
+      0.005950236227363348,
+      0.002721919445320964
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 118.81859302520752,
+    "achieved_lab": [
+      73.83353230370857,
+      0.6165862893960927,
+      -1.02630718179888
+    ],
+    "delta_e": 1.3909283544177689,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 32.212118989024134
+      },
+      {
+        "material": "MgF2",
+        "thickness_nm": 31.34997733401503
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 85.98790352070648
+      },
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 174.11693426581084
+      },
+      {
+        "material": "Al",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.3909283544177689,
+    "refined": true
+  },
+  {
+    "row_idx": 522,
+    "target_lab": [
+      77.77096033096313,
+      3.5123021602630615,
+      1.2583913803100586
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 278.31473898887634,
+    "achieved_lab": [
+      77.67832126560377,
+      3.541361148931166,
+      1.2694424913291202
+    ],
+    "delta_e": 0.07495006114915918,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "Ti",
+        "thickness_nm": 45.739583361531956
+      },
+      {
+        "material": "TiO2",
+        "thickness_nm": 120.16029157003555
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 19.1297178375243
+      },
+      {
+        "material": "Al2O3",
+        "thickness_nm": 136.68563551686057
+      },
+      {
+        "material": "Cu",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.07495006114915918,
+    "refined": true
+  },
+  {
+    "row_idx": 523,
+    "target_lab": [
+      59.41475033760071,
+      -16.160030364990234,
+      24.100305557250977
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 325.8412549495697,
+    "achieved_lab": [
+      59.25668541044669,
+      -16.224629625848863,
+      24.06875064749443
+    ],
+    "delta_e": 0.14864926752414667,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "MgF2",
+        "thickness_nm": 121.71459125394144
+      },
+      {
+        "material": "Fe2O3",
+        "thickness_nm": 38.77042500294567
+      },
+      {
+        "material": "Cu",
+        "thickness_nm": 3.157339484519947
+      },
+      {
+        "material": "Ta2O5",
+        "thickness_nm": 93.19956227816616
+      },
+      {
+        "material": "Ge",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 0.14864926752414667,
+    "refined": true
+  },
+  {
+    "row_idx": 524,
+    "target_lab": [
+      63.86979818344116,
+      5.527978897094727,
+      25.295146942138672
+    ],
+    "n_pool": 20,
+    "ground_truth_n_layers": 1,
+    "pool_names": [
+      "TiO2",
+      "SiO2",
+      "MgF2",
+      "HfO2",
+      "Al2O3",
+      "ZnO",
+      "ZnS",
+      "ZnSe",
+      "Ta2O5",
+      "Fe2O3",
+      "Ag",
+      "Al",
+      "Ni",
+      "Ge",
+      "Ti",
+      "Zn",
+      "Cr",
+      "Cu",
+      "Au",
+      "W"
+    ],
+    "pool_sources": [
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron",
+      "neutron"
+    ],
+    "wall_time_s": 212.9577512741089,
+    "achieved_lab": [
+      63.71990529281014,
+      4.151190661710991,
+      25.210302168942377
+    ],
+    "delta_e": 1.2475582094545699,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "TiO2",
+        "thickness_nm": 17.02928484367534
+      },
+      {
+        "material": "Ti",
+        "thickness_nm": 13.972021567979565
+      },
+      {
+        "material": "Ag",
+        "thickness_nm": 185.9999919370102
+      },
+      {
+        "material": "ZnSe",
+        "thickness_nm": 143.99998644738287
+      },
+      {
+        "material": "Zn",
+        "thickness_nm": 100.0
+      }
+    ],
+    "objective": 1.2475582094545699,
+    "refined": true
+  }
+]
