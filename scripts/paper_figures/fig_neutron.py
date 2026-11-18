@@ -50,7 +50,7 @@ LABELS = {
     "y": r"Image-mean $\Delta E_{00}$ (their physics)",
     "b_y": r"$\Delta E_{00}$ (their physics)",
     "b_x": "Chrome design (their Table 1)",
-    "free_x": "materials\nfree (no Cr)",
+    "free_line": "INDIGO, materials free (no Cr)",
     "fail": "failed",
     "Flower (style-transferred)": "Flower\n(style-transferred)",
 }
@@ -118,8 +118,9 @@ def write_caption(reported, pics, cr, free_cr, free_row, order, missing, notes):
         " The dashed line marks $\\Delta E_{00} = 2$. \\textbf{b}, the chrome target. Designs "
         "I--V are their Table 1 material combinations, in their order (ranked best to worst by "
         "NEUTRON), so their series rises by construction; INDIGO is given the same materials. "
-        "The last position is INDIGO choosing freely from the pool with chromium excluded "
-        f"({'/'.join(chem(m) for m in free_row['materials'])}, $\\Delta E_{{00}} = {free_cr:.2f}$); NEUTRON reports no "
+        "The orange dotted line is INDIGO choosing freely from the pool with chromium excluded "
+        f"({'/'.join(chem(m) for m in free_row['materials'])}, $\\Delta E_{{00}} = {free_cr:.2f}$); it is one "
+        "result for the same target, drawn across every design for comparison. NEUTRON reports no "
         f"free-material chrome design (their best is {best_rep:.1f}).}}\n")
     (S.REPO / "results/paper/neutron_caption.tex").write_text(txt)
 
@@ -186,14 +187,12 @@ def main():
             mew=0.4, zorder=3)
     bx.plot(xb + 0.12, [cr[k]["indigo"] for k in ks], "o", ms=4.5, color=ARM_COL["fixed"],
             mec=S.INK, mew=0.4, zorder=3)
-    xf = len(ks) + 0.4                        # sixth position: no NEUTRON counterpart
-    bx.plot(xf, free_cr, "o", ms=4.5, color=ARM_COL["any"], mec=S.INK, mew=0.4, zorder=3)
-    bx.axvline(len(ks) - 0.3, color=S.LIGHT, lw=0.6, zorder=0)
-    bx.set_xticks(list(xb) + [xf])
-    bx.set_xticklabels(ks + [LABELS["free_x"]])
-    for lab in bx.get_xticklabels()[-1:]:
-        lab.set_fontsize(S.SMALL_PT - 1)
-    bx.set_xlim(-0.6, xf + 0.6)
+    # Materials free: one result for the chrome target, so a line across every design.
+    bx.axhline(free_cr, color=ARM_COL["any"], lw=1.1, ls=(0, (1, 1.5)), zorder=2)
+    bx.text(len(ks) - 0.45, free_cr + 0.04, LABELS["free_line"], ha="right", va="bottom",
+            fontsize=S.SMALL_PT - 1, color=S.INK)
+    bx.set_xticks(xb); bx.set_xticklabels(ks)
+    bx.set_xlim(-0.6, len(ks) - 0.4)
     bx.set_ylim(0, 2.1)
     bx.axhline(2, color=S.GREY, lw=0.6, ls=(0, (3, 2)))
     bx.set_ylabel(LABELS["b_y"]); bx.set_xlabel(LABELS["b_x"])
