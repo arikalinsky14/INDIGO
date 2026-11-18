@@ -60,6 +60,8 @@ def main():
         sys.exit("rows_better disagrees with headline.json")
 
     x, y = place(dx["de"]), place(dy["de"])
+    any_fail = bool(np.any(~np.isfinite(dx["de"])) or np.any(~np.isfinite(dy["de"])))
+    top = TOP if any_fail else 80.0          # no failed rows: no "failed" band
     bk = dy["bucket"]
 
     fig, ax = plt.subplots(figsize=(S.SINGLE, S.SINGLE * 0.98))
@@ -68,15 +70,17 @@ def main():
         m = bk == b
         ax.scatter(x[m], y[m], s=4, lw=0, alpha=0.6, color=BUCKET_COL[b], rasterized=True,
                    label=f"{R.BUCKET_LABEL[b]} (n = {m.sum()})", zorder=3)
-    ax.plot([FLOOR / 1.4, FAIL / 1.5], [FLOOR / 1.4, FAIL / 1.5], color=S.INK, lw=0.6, zorder=2)
+    diag_hi = FAIL / 1.5 if any_fail else top
+    ax.plot([FLOOR / 1.4, diag_hi], [FLOOR / 1.4, diag_hi], color=S.INK, lw=0.6, zorder=2)
     for v in (1,):
         ax.axvline(v, color=S.GREY, lw=0.6, ls=(0, (3, 2)), zorder=1)
         ax.axhline(v, color=S.GREY, lw=0.6, ls=(0, (3, 2)), zorder=1)
-    ax.axvspan(FAIL / 1.5, TOP, color="#F2F2F2", lw=0, zorder=0)
-    ax.axhspan(FAIL / 1.5, TOP, color="#F2F2F2", lw=0, zorder=0)
+    if any_fail:
+        ax.axvspan(FAIL / 1.5, TOP, color="#F2F2F2", lw=0, zorder=0)
+        ax.axhspan(FAIL / 1.5, TOP, color="#F2F2F2", lw=0, zorder=0)
     ax.set_xscale("log"); ax.set_yscale("log")
-    ax.set_xlim(FLOOR / 1.4, TOP); ax.set_ylim(FLOOR / 1.4, TOP)
-    ticks = [1e-3, 1e-2, 1e-1, 1, 10, FAIL]
+    ax.set_xlim(FLOOR / 1.4, top); ax.set_ylim(FLOOR / 1.4, top)
+    ticks = [1e-3, 1e-2, 1e-1, 1, 10] + ([FAIL] if any_fail else [])
     fmt = FuncFormatter(lambda v, _: LABELS["floor"] if v <= FLOOR * 1.0001
                         else LABELS["fail"] if v >= FAIL * 0.999 else f"{v:g}")
     for axis in (ax.xaxis, ax.yaxis):
@@ -90,8 +94,9 @@ def main():
     xd, yd = dx["de"], dy["de"]
     q = {(0, 0): ((xd < 1) & (yd < 1)).sum(), (1, 0): ((xd >= 1) & (yd < 1)).sum(),
          (0, 1): ((xd < 1) & (yd >= 1)).sum(), (1, 1): ((xd >= 1) & (yd >= 1)).sum()}
-    pos = {(0, 0): (1.6e-3, 0.62, "left", "top"), (1, 0): (120, 0.62, "right", "top"),
-           (0, 1): (1.6e-3, 1.6, "left", "bottom"), (1, 1): (120, 1.6, "right", "bottom")}
+    xr = 120 if any_fail else top / 1.3
+    pos = {(0, 0): (1.6e-3, 0.62, "left", "top"), (1, 0): (xr, 0.62, "right", "top"),
+           (0, 1): (1.6e-3, 1.6, "left", "bottom"), (1, 1): (xr, 1.6, "right", "bottom")}
     for kq, n in q.items():
         px, py, ha, va = pos[kq]
         ax.text(px, py, LABELS["quad"].format(n=n), ha=ha, va=va, fontsize=S.SMALL_PT,
