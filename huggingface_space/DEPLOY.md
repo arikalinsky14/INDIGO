@@ -64,7 +64,7 @@ git add .gitattributes
 # plain binary files (their PNGs, PDFs, .docx) in a git push (Nov 2026).
 # (Adjust the source path to your INDIGO checkout.)
 rsync -a --delete \
-    --exclude='.git' --exclude='__pycache__' \
+    --exclude='.git' --exclude='.gitattributes' --exclude='README.md' --exclude='__pycache__' \
     --exclude='.venv' --exclude='venv' \
     --exclude='data/datasets' --exclude='data/train' --exclude='data/test' \
     --exclude='slurms' --exclude='outputs' --exclude='job-outputs' \
@@ -90,8 +90,14 @@ Windows PowerShell equivalent of the rsync line:
 ```powershell
 robocopy C:\path\to\INDIGO . /MIR `
     /XD .git __pycache__ .venv venv data\datasets data\train data\test results analyses deposit `
-        slurms outputs job-outputs create_dataset\data_prompts
+        slurms outputs job-outputs create_dataset\data_prompts `
+    /XF .gitattributes README.md
 ```
+
+`/MIR` deletes anything in the Space that is not in INDIGO, so `/XF` keeps the
+Space's own `.gitattributes` (its LFS rules: without them `model.pt` is pushed
+as a plain binary and rejected) and its `README.md` (the Space's front matter).
+`/XD` keeps the Space's `data` checkpoint folder only if `data` is listed.
 
 Then commit + push:
 
