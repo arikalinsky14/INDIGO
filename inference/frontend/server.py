@@ -829,6 +829,11 @@ def _find_default_checkpoint(repo_root: Path) -> Optional[Path]:
         p = Path(env).expanduser().resolve()
         if (p / "model.pt").is_file():
             return p
+        # A named checkpoint that is not there is an error, not a hint: falling
+        # through used to load whatever older run was lying around (Nov 23, the
+        # Space started on a pre-vocabulary-change model and crashed).
+        raise SystemExit(f"[server] INDIGO_CHECKPOINT={env} has no model.pt "
+                         f"(resolved to {p}); not falling back to another checkpoint")
 
     root = repo_root / "data" / "checkpoints"
     if not root.is_dir():
