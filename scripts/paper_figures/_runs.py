@@ -22,7 +22,7 @@ HEADLINE = S.REPO / "results/paper/headline.json"
 
 # headline.json run key -> display name and color
 RUNS = {
-    "random": ("Random proposals, N = 250", S.GREY),
+    "random": ("Baseline, N = 250", S.GREY),
     "INDIGO_N50": ("INDIGO, N = 50", S.OI["sky"]),
     "INDIGO": ("INDIGO, N = 250", S.OI["blue"]),
 }
