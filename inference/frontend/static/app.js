@@ -661,20 +661,72 @@ function readKnobs() {
   };
 }
 
-const PRESETS = {
-  fast:     { knobN:100, knobK:1, knobRefineN:1, knobRefine:15, knobT:1.0, knobTol:0,  knobLambda:1.0, knobMc:0 },
-  balanced: { knobN:150, knobK:3, knobRefineN:1, knobRefine:25, knobT:1.0, knobTol:0,  knobLambda:1.0, knobMc:0 },
-  best:     { knobN:500, knobK:5, knobRefineN:3, knobRefine:80, knobT:1.0, knobTol:5,  knobLambda:1.0, knobMc:16 },
+// Presets come from the server (inference/src/presets.py, GET /api/presets):
+// the same dict gamut_eval.py runs, so a preset here is the search the paper
+// names. The UI keeps no copy of its own.
+const KNOB_IDS = {
+  ensemble_N: 'knobN', top_k: 'knobK', refine_top_n: 'knobRefineN',
+  refine_max_iters: 'knobRefine', temperature: 'knobT', tolerance_pct: 'knobTol',
+  weight_lambda: 'knobLambda', mc_samples: 'knobMc',
 };
-function bindPresets() {
-  $$('.preset-btn').forEach((b) => {
-    b.addEventListener('click', () => {
-      const preset = PRESETS[b.dataset.preset]; if (!preset) return;
-      for (const [id, v] of Object.entries(preset)) {
-        const el = $(`#${id}`); if (el) el.value = v;
-      }
-    });
-  });
+let PRESET_LIST = [];
+
+function presetSummary(k) {
+  const refined = k.refine_top_n > 0 ? k.refine_top_n : k.top_k;
+  let s = `N ${k.ensemble_N} · top-${k.top_k} · ${refined} refined × ${k.refine_max_iters} steps`;
+  if (k.tolerance_pct > 0) s += ` · tolerance ${k.tolerance_pct}% · MC ${k.mc_samples}`;
+  return s;
+}
+
+function knobsMatch(k, p) {
+  return Object.keys(KNOB_IDS).every((f) => Number(k[f]) === Number(p.knobs[f]));
+}
+
+function showPresetState() {
+  // Editing any knob by hand leaves the preset: say so, so nobody mistakes a
+  // hand-tuned search for the paper's.
+  const k = readKnobs();
+  const match = PRESET_LIST.find((p) => knobsMatch(k, p));
+  $$('.preset-btn').forEach((b) =>
+    b.classList.toggle('preset-active', !!match && b.dataset.preset === match.name));
+  $('#presetKnobs').textContent = presetSummary(k) + (match ? '' : ' (custom: not a preset)');
+  $('#presetNote').textContent = match ? (match.note || '')
+    : 'Hand-edited settings; not comparable to paper numbers.';
+}
+
+function applyPreset(p) {
+  for (const [field, id] of Object.entries(KNOB_IDS)) {
+    const el = $(`#${id}`); if (el) el.value = p.knobs[field];
+  }
+  showPresetState();
+}
+
+async function bindPresets() {
+  const box = $('#presetChips');
+  try {
+    const r = await fetch('/api/presets');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    PRESET_LIST = data.presets;
+    box.innerHTML = '';
+    for (const p of PRESET_LIST) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip preset-btn';
+      b.dataset.preset = p.name;
+      b.textContent = p.label;
+      b.title = presetSummary(p.knobs) + ' — ' + (p.note || '');
+      b.addEventListener('click', () => applyPreset(p));
+      box.appendChild(b);
+    }
+    const def = PRESET_LIST.find((p) => p.name === data.default) || PRESET_LIST[0];
+    if (def) applyPreset(def);
+  } catch (e) {
+    $('#presetKnobs').textContent = 'presets unavailable: ' + e.message;
+  }
+  for (const id of Object.values(KNOB_IDS)) {
+    const el = $(`#${id}`); if (el) el.addEventListener('input', showPresetState);
+  }
 }
 
 function bindHowItWorks() {
@@ -857,7 +909,10 @@ function deltaELabel(de) {
   return 'far off';
 }
 const fmt = (x, d=2) => Number(x).toFixed(d);
-const PALETTE = ['#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16','#a855f7','#f97316'];
+// Layer colours: the Okabe-Ito palette of scripts/paper_figures/_style.py
+// (OI), black last; the CSS custom properties in styles.css carry the same
+// hexes under the same names.
+const PALETTE = ['#0072B2','#E69F00','#009E73','#D55E00','#CC79A7','#56B4E9','#F0E442','#000000'];
 
 // Most-recent result + which candidate is currently shown in the main view.
 // idx 0 = chosen, idx 1..N = alternatives. Click on an alt card swaps the
@@ -1079,8 +1134,14 @@ function buildAltGrid() {
       const pill = document.createElement('span'); pill.className = 'alt-pill';
       pill.textContent = 'chosen'; card.appendChild(pill);
     }
-    const sw = document.createElement('div'); sw.className = 'alt-swatch';
-    sw.style.backgroundColor = labToSrgb(cand.achieved_lab[0], cand.achieved_lab[1], cand.achieved_lab[2]);
+    // Figure 6's convention: target (left) | result (right), no gap.
+    const tgt = _currentResult.spec_echo.target_lab_raw;
+    const sw = document.createElement('div'); sw.className = 'alt-swatch split-swatch';
+    const left = document.createElement('div'); left.className = 'split-half';
+    left.style.backgroundColor = labToSrgb(tgt[0], tgt[1], tgt[2]);
+    const right = document.createElement('div'); right.className = 'split-half split-right';
+    right.style.backgroundColor = labToSrgb(cand.achieved_lab[0], cand.achieved_lab[1], cand.achieved_lab[2]);
+    sw.appendChild(left); sw.appendChild(right);
     const meta = document.createElement('div'); meta.className = 'alt-meta';
     meta.innerHTML = `<span class="alt-de">ΔE ${fmt(cand.delta_e, 2)}</span> · ${cand.slot_indices.length}L`;
     card.appendChild(sw); card.appendChild(meta);
@@ -1091,17 +1152,25 @@ function buildAltGrid() {
 
 function drawReflectance(refl, alts) {
   const svg = $('#reflChart');
-  const W=600, H=200, padL=32, padR=8, padT=12, padB=20;
+  const W=600, H=200, padL=44, padR=8, padT=12, padB=34;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const N = refl.length, lamMin = 300, lamMax = 900;
   const altsArr = alts.flatMap((a) => a.reflectance || []);
   const yMax = Math.max(1.0, Math.max(...refl) * 1.1, ...altsArr) || 1.0;
   const yScale = (v) => padT + innerH - (v / yMax) * innerH;
-  const xScale = (i) => padL + (i / (N - 1)) * innerW;
+  // Index i is src/material_features.CANONICAL_LAMBDA_NM[i]: 900 nm down to
+  // 300 nm, uniform in frequency. Place each point at its own wavelength
+  // (before Nov 23 the index was drawn as if 300 -> 900 nm and linear in
+  // wavelength, which mirrored every spectrum).
+  const lamOf = (i) => 1 / (1 / lamMax + (i / (N - 1)) * (1 / lamMin - 1 / lamMax));
+  const xScale = (i) => padL + ((lamOf(i) - lamMin) / (lamMax - lamMin)) * innerW;
   const pathFor = (arr) => { let d=''; for (let i=0;i<arr.length;i++) d += (i===0?'M':'L') + xScale(i).toFixed(1) + ' ' + yScale(arr[i]).toFixed(1) + ' '; return d.trim(); };
 
   let s = '';
-  s += `<defs><linearGradient id="mainGradient" x1="0" x2="1" y1="0" y2="0"><stop offset="0%"  stop-color="#7c5cff"/><stop offset="100%" stop-color="#f0abfc"/></linearGradient></defs>`;
+  // Paper convention: INDIGO's spectrum in OI blue, the other candidates in
+  // GREY (styles.css .main-line / .alt-line); axes as hairlines, no gradient.
+  s += `<line class="axis" x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + innerH}"/>`;
+  s += `<line class="axis" x1="${padL}" y1="${padT + innerH}" x2="${W - padR}" y2="${padT + innerH}"/>`;
   const visX0 = padL + ((380 - lamMin)/(lamMax - lamMin)) * innerW;
   const visX1 = padL + ((780 - lamMin)/(lamMax - lamMin)) * innerW;
   s += `<rect class="vis-band" x="${visX0}" y="${padT}" width="${visX1 - visX0}" height="${innerH}"/>`;
@@ -1113,8 +1182,10 @@ function drawReflectance(refl, alts) {
   });
   [400,500,600,700,800].forEach((nm) => {
     const x = padL + ((nm - lamMin)/(lamMax - lamMin)) * innerW;
-    s += `<text class="axis-label" x="${x}" y="${H - 6}" text-anchor="middle">${nm}</text>`;
+    s += `<text class="axis-label" x="${x}" y="${padT + innerH + 13}" text-anchor="middle">${nm}</text>`;
   });
+  s += `<text class="axis-title" x="${padL + innerW / 2}" y="${H - 3}" text-anchor="middle">Wavelength (nm)</text>`;
+  s += `<text class="axis-title" transform="translate(11 ${padT + innerH / 2}) rotate(-90)" text-anchor="middle">Reflectance</text>`;
   alts.slice(0, 4).forEach((a) => {
     if (Array.isArray(a.reflectance) && a.reflectance.length === N)
       s += `<path class="alt-line" d="${pathFor(a.reflectance)}"/>`;
@@ -1132,6 +1203,8 @@ function drawLayerBars(names, thicks) {
     const w = (thicks[i]/total) * 100;
     const bar = document.createElement('div'); bar.className = 'layer-bar';
     bar.style.flex = `0 0 ${w}%`; bar.style.backgroundColor = assign(names[i]);
+    // INK text on the light Okabe-Ito colours (orange, sky, yellow), white on the rest.
+    if (['#E69F00', '#56B4E9', '#F0E442'].includes(assign(names[i]))) bar.style.color = '#1A1A1A';
     bar.title = `${names[i]}  ·  ${thicks[i].toFixed(1)} nm`;
     if (w > 8) bar.innerHTML = `<span class="lbl">${names[i].split('-')[0]}<br>${thicks[i].toFixed(0)} nm</span>`;
     bars.appendChild(bar);

@@ -155,51 +155,12 @@ BATTERIES: Dict[str, List[Tuple[float, float, float]]] = {
 
 
 # ----------------------------------------------------------------------------
-# Presets — mirror the frontend's fast / balanced / best knob recipes so the
-# eval numbers match what a user would see clicking the same preset in the UI.
+# Presets: the same dict the demo server and UI read, so a preset name means
+# the same search everywhere. `strong` is the paper's setting.
 # ----------------------------------------------------------------------------
 
-PRESETS: Dict[str, Dict[str, Any]] = {
-    # The scaling study's light pipeline (slurms/eval_pipeline.sh): best of
-    # 16 samples, the top one polished with 5 DoG steps. Small on purpose,
-    # so model differences are not hidden by the search.
-    "light":    dict(ensemble_N=16, top_k=1, refine_top_n=1,
-                     refine_max_iters=5, tolerance_pct=0.0,
-                     weight_lambda=1.0, mc_samples=0, temperature=1.0),
-    # Between light and fast: 50 samples, the top one polished with 20 DoG
-    # steps. The production model's gamut number (Oct 28).
-    "mid":      dict(ensemble_N=50, top_k=1, refine_top_n=1,
-                     refine_max_iters=20, tolerance_pct=0.0,
-                     weight_lambda=1.0, mc_samples=0, temperature=1.0),
-    # The light and mid recipe pushed further: 250 samples, the top one
-    # polished with 40 DoG steps. Still top-1 and no MC, so the three differ
-    # only in search effort (Oct 28).
-    "high":     dict(ensemble_N=250, top_k=1, refine_top_n=1,
-                     refine_max_iters=40, tolerance_pct=0.0,
-                     weight_lambda=1.0, mc_samples=0, temperature=1.0),
-    # The paper's strong setting (test_eval ENSEMBLE_N=250 TOP_K=10
-    # REFINE_ITERS=100): every one of the top 10 polished with 100 DoG steps
-    # (refine_top_n=0 means all of top_k). Top-1 selection, no MC (Nov 17).
-    "strong":   dict(ensemble_N=250, top_k=10, refine_top_n=0,
-                     refine_max_iters=100, tolerance_pct=0.0,
-                     weight_lambda=1.0, mc_samples=0, temperature=1.0),
-    "fast":     dict(ensemble_N=100, top_k=1, refine_top_n=1,
-                     refine_max_iters=15, tolerance_pct=0.0,
-                     weight_lambda=1.0, mc_samples=0, temperature=1.0),
-    "balanced": dict(ensemble_N=150, top_k=3, refine_top_n=1,
-                     refine_max_iters=25, tolerance_pct=0.0,
-                     weight_lambda=1.0, mc_samples=0, temperature=1.0),
-    "best":     dict(ensemble_N=500, top_k=5, refine_top_n=3,
-                     refine_max_iters=80, tolerance_pct=5.0,
-                     weight_lambda=1.0, mc_samples=16, temperature=1.0),
-    # Push the model to its limits for the definitive gamut number. Wall
-    # cost per target on L40s: ensemble sim ~60 s, refine 3×120 iters
-    # ~90 s, MC 32×5 draws ~20 s → ~2-3 min per target. Full 28-target
-    # sweep at OPTIMIZER=both ≈ 2-3 hours.
-    "max":      dict(ensemble_N=1000, top_k=5, refine_top_n=3,
-                     refine_max_iters=120, tolerance_pct=5.0,
-                     weight_lambda=1.0, mc_samples=32, temperature=0.9),
-}
+# Defined once, in inference/src/presets.py (also read by the demo server and UI).
+from inference.src.presets import PRESETS  # noqa: E402
 
 
 # ----------------------------------------------------------------------------

@@ -147,12 +147,12 @@ fingerprint, seed, library versions, timestamp). Returned to the UI.
 
 ## Hyperparameter quick reference
 
-| Knob | Default | Affects | Typical range | Speed impact |
+| Knob | Default (the Paper preset) | Affects | Typical range | Speed impact |
 |---|---|---|---|---|
-| **Ensemble N** | 150 | diversity, best-of accuracy | 50 – 2000 | linear; dominant when refinement is small |
-| **Top-k** | 3 | how many alternatives are returned | 1 – 10 | small |
-| **Refine top-N** | 1 | which of top_k get refined | 0 – top_k | **multiplicative** with refine_iters |
-| **Refine iters** | 25 | Adam steps per refined candidate | 0 – 200 | dominant when refine_top_n ≥ 1 |
+| **Ensemble N** | 250 | diversity, best-of accuracy | 50 – 2000 | linear; dominant when refinement is small |
+| **Top-k** | 10 | candidates kept for refinement (and shown as alternatives) | 1 – 10 | small |
+| **Refine top-N** | 0 (= all top-k) | which of top_k get refined | 0 – top_k | **multiplicative** with refine_iters |
+| **Refine iters** | 100 | DoG steps per refined candidate | 0 – 200 | dominant when refine_top_n ≥ 1 |
 | **Temperature** | 1.0 | sampling sharpness | 0.5 – 1.5 | negligible |
 | **Tolerance %** | 0 | manufacturing precision | 0 – 10 | enables robustness scoring (slower) |
 | **Weight λ** | 1.0 | ΔE vs R_l2 trade-off (in J) | 0 – 2 | negligible |
@@ -160,13 +160,22 @@ fingerprint, seed, library versions, timestamp). Returned to the UI.
 | **Seed** | 42 | deterministic reproduction | any int | none |
 | **OpenAI API key** | — | LLM parse identity | sk-… | none |
 
-## Speed presets (CPU laptop)
+## Presets
 
-| Preset | Knobs | Approx wall | When to use |
-|---|---|---|---|
-| **fast** | N=100, k=1, refine_top_n=1, refine_iters=15, tol=0, mc=0 | 5–10 s | Live demos, click-and-show |
-| **balanced** (default) | N=150, k=3, refine_top_n=1, refine_iters=25, tol=0, mc=0 | 15–25 s | Most exploratory use |
-| **best** | N=500, k=5, refine_top_n=3, refine_iters=80, tol=5, mc=16 | 2–5 min | Quoting a final structure for fabrication |
+Defined once, in `inference/src/presets.py`; the UI loads them from
+`GET /api/presets` and `gamut_eval.py --preset` reads the same dict, so a
+preset name means one search everywhere. A request may also send
+`"preset": "<name>"` (an unknown name is a 400).
+
+| UI label | name | Knobs | Objective | When to use |
+|---|---|---|---|---|
+| **Paper** (default) | `strong` | N=250, k=10, all 10 refined × 100 steps, tol=0, mc=0 | ΔE₀₀ | Reproducing or comparing with the paper; minutes on CPU |
+| **Fast** | `fast` | N=100, k=1, 1 refined × 15, tol=0, mc=0 | ΔE₀₀ | A quick look; expect a higher ΔE₀₀ than the paper |
+| **Balanced** | `balanced` | N=150, k=3, 1 refined × 25, tol=0, mc=0 | ΔE₀₀ | In between |
+| **Robust** | `best` | N=500, k=5, 3 refined × 80, tol=5, mc=16 | ΔE₀₀ + λ·R | Trading colour accuracy for thickness tolerance; not comparable to paper numbers |
+
+`scripts/check_ui_matches_solve.py` checks that the Paper preset through the
+server reproduces a direct `solve()` call on the same checkpoint and seed.
 
 ## If a single solve is taking forever
 

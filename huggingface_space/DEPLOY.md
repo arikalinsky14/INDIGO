@@ -1,5 +1,13 @@
 # Deploying INDIGO to Hugging Face Spaces (free tier)
 
+> **Source of truth.** This folder holds only the Space's landing page
+> (`README.md`) and this guide; it contains no app code. The app is
+> `inference/frontend/` (server, `static/` UI, presets from
+> `inference/src/presets.py`), run by the repository's root `Dockerfile`.
+> Deploying copies the repository into the Space (step 3), so the Space runs
+> exactly the code in this repository at the commit you deploy; record that
+> commit when you cite the Space.
+
 End-to-end recipe for getting a public `https://huggingface.co/spaces/<you>/indigo` URL up. Free tier: 2 vCPU, 16 GB RAM, no GPU, sleeps after 48 h of inactivity (wakes on first request, ~30 s cold start).
 
 ## 0. One-time account setup
@@ -29,7 +37,7 @@ If you want users to be able to use the natural-language **Prompt** tab without 
 
 You pay for those parse calls (~$0.001 each). If you'd rather have users bring their own key, skip this step — the UI has a key-paste field in Advanced settings.
 
-To **disable** LLM-authored custom constraints (recommended for any public-facing Space): add a second secret with name `INDIGO_ALLOW_CUSTOM_CONSTRAINTS` and value `0`. This blocks the second-call code-generation path; the 8 standard constraints still work.
+To **disable** LLM-authored custom constraints (recommended for any public-facing Space): add a second secret with name `INDIGO_ALLOW_CUSTOM_CONSTRAINTS` and value `0`. This blocks the second-call code-generation path; the 8 built-in constraint kinds still work. (`inference/src/constraints.py` defines nine classes; the ninth, `LayerFromSet`, is used only by the NEUTRON benchmark and is deliberately not accepted by the demo or the prompt parser.)
 
 ## 3. Push the code from your machine
 
@@ -61,12 +69,13 @@ rsync -a --delete \
     --exclude='create_dataset/data_prompts' \
     ~/INDIGO/ ./
 
-# Bring in just the ONE checkpoint you want to ship.
-# (HF Spaces free LFS quota is 50 GB per repo — a single PyTorch
-# checkpoint is well under that.)
-mkdir -p data/checkpoints
-cp -r ~/INDIGO/data/checkpoints/flex_raw_spectrum_..._cross_attn.../latest/ \
-      data/checkpoints/flex_raw_spectrum_..._cross_attn.../latest/
+# Bring in the production checkpoint, the one every paper number uses
+# (sha256 4fd024434fcc0c02...; see results/production/current/PRODUCTION.json).
+# The server loads data/checkpoints/production/current by default. Copy the
+# files (cp -L), not the symlink: LFS cannot follow it.
+mkdir -p data/checkpoints/production/current
+cp -L ~/INDIGO/data/checkpoints/production/current/{model.pt,config.json,meta.json,PRODUCTION.json} \
+      data/checkpoints/production/current/
 
 # Swap the README — HF reads YAML frontmatter from this file to know
 # which SDK / port to use, and renders it on the Space landing page.
@@ -125,9 +134,9 @@ If you only changed code (not deps), the rebuild is fast — Docker reuses the d
 
 For a long checkpoint update, you can rsync just the checkpoint file and skip the code copy:
 ```bash
-cp ~/INDIGO/data/checkpoints/<tag>/latest/model.pt \
-   ./data/checkpoints/<tag>/latest/model.pt
-git add data/checkpoints/<tag>/latest/model.pt
+cp -L ~/INDIGO/data/checkpoints/production/current/{model.pt,config.json,PRODUCTION.json} \
+   ./data/checkpoints/production/current/
+git add data/checkpoints/production/current
 git commit -m "Refresh checkpoint"
 git push
 ```

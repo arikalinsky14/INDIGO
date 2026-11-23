@@ -218,18 +218,24 @@ def _startup(checkpoint: Path, pool_dir: Optional[Path],
 
 from pydantic import BaseModel, Field
 
+from inference.src.presets import PRESETS as _PRESETS, knobs_for as _knobs_for, ui_presets as _ui_presets
+
+_PAPER = _PRESETS["strong"]
+
 
 class KnobsIn(BaseModel):
-    ensemble_N: int = 500
-    temperature: float = 1.0
-    tolerance_pct: float = 5.0
-    weight_lambda: float = 1.0
-    top_k: int = 5
-    refine_top_n: int = 0          # 0 = refine all top_k; >0 caps it
-    refine_max_iters: int = 100
+    # Defaults are the paper's setting (inference/src/presets.py "strong"), so
+    # an API call that omits knobs runs the search the paper reports.
+    ensemble_N: int = _PAPER["ensemble_N"]
+    temperature: float = _PAPER["temperature"]
+    tolerance_pct: float = _PAPER["tolerance_pct"]
+    weight_lambda: float = _PAPER["weight_lambda"]
+    top_k: int = _PAPER["top_k"]
+    refine_top_n: int = _PAPER["refine_top_n"]     # 0 = refine all top_k
+    refine_max_iters: int = _PAPER["refine_max_iters"]
     refine_step_size: float = 1.0
     refine_optimizer: str = "dog"          # 'dog' (default) or 'adam'
-    mc_samples: int = 32
+    mc_samples: int = _PAPER["mc_samples"]
     seed: int = 42
 
 
@@ -250,6 +256,10 @@ class SolveIn(BaseModel):
     )
     constraints: Optional[List[Dict[str, Any]]] = None
     knobs: Optional[KnobsIn] = None
+    # A preset name from inference/src/presets.py. When given, its knobs
+    # replace those in `knobs` (the seed in `knobs` is kept); an unknown name
+    # is a 400, so a typo cannot silently run some other search.
+    preset: Optional[str] = None
 
     # Dynamic pool inputs (all optional; empty = use default capped JLL).
     # `pool_subset` is canonical names already known to the server (subset
@@ -297,6 +307,33 @@ def _make_app():
     # ------------------------------------------------------------------
     # API routes
     # ------------------------------------------------------------------
+
+    def _knobs_from_body(body: "SolveIn") -> "InferenceKnobs":
+        knobs_in = body.knobs or KnobsIn()
+        fields = knobs_in.model_dump()
+        if body.preset is not None:
+            try:
+                fields.update(_knobs_for(body.preset))
+            except KeyError as exc:
+                raise HTTPException(400, str(exc.args[0]))
+        return InferenceKnobs(
+            ensemble_N=int(fields["ensemble_N"]),
+            temperature=float(fields["temperature"]),
+            tolerance_pct=float(fields["tolerance_pct"]),
+            weight_lambda=float(fields["weight_lambda"]),
+            top_k=int(fields["top_k"]),
+            refine_top_n=int(fields["refine_top_n"]),
+            refine_max_iters=int(fields["refine_max_iters"]),
+            refine_step_size=float(fields["refine_step_size"]),
+            refine_optimizer=str(fields["refine_optimizer"] or "dog"),
+            mc_samples=int(fields["mc_samples"]),
+            seed=int(fields["seed"]),
+        )
+
+    @app.get("/api/presets")
+    def presets() -> Dict[str, Any]:
+        """The demo's presets and their knobs, from inference/src/presets.py."""
+        return _ui_presets()
 
     @app.get("/api/status")
     def status() -> Dict[str, Any]:
@@ -450,20 +487,7 @@ def _make_app():
         if _MODEL is None:
             raise HTTPException(503, "model not loaded")
 
-        knobs_in = body.knobs or KnobsIn()
-        knobs = InferenceKnobs(
-            ensemble_N=int(knobs_in.ensemble_N),
-            temperature=float(knobs_in.temperature),
-            tolerance_pct=float(knobs_in.tolerance_pct),
-            weight_lambda=float(knobs_in.weight_lambda),
-            top_k=int(knobs_in.top_k),
-            refine_top_n=int(knobs_in.refine_top_n),
-            refine_max_iters=int(knobs_in.refine_max_iters),
-            refine_step_size=float(knobs_in.refine_step_size),
-            refine_optimizer=str(knobs_in.refine_optimizer or "dog"),
-            mc_samples=int(knobs_in.mc_samples),
-            seed=int(knobs_in.seed),
-        )
+        knobs = _knobs_from_body(body)
 
         # Effective pool: pool_subset (named subset of installed JLL) +
         # custom_materials (uploaded n,k). If both empty, fall back to the
@@ -559,20 +583,7 @@ def _make_app():
         # ---- Same body validation as /api/solve. Failures here become a
         # synchronous HTTPException so the client gets a normal 4xx, not an
         # SSE error frame, before any streaming starts.
-        knobs_in = body.knobs or KnobsIn()
-        knobs = InferenceKnobs(
-            ensemble_N=int(knobs_in.ensemble_N),
-            temperature=float(knobs_in.temperature),
-            tolerance_pct=float(knobs_in.tolerance_pct),
-            weight_lambda=float(knobs_in.weight_lambda),
-            top_k=int(knobs_in.top_k),
-            refine_top_n=int(knobs_in.refine_top_n),
-            refine_max_iters=int(knobs_in.refine_max_iters),
-            refine_step_size=float(knobs_in.refine_step_size),
-            refine_optimizer=str(knobs_in.refine_optimizer or "dog"),
-            mc_samples=int(knobs_in.mc_samples),
-            seed=int(knobs_in.seed),
-        )
+        knobs = _knobs_from_body(body)
         try:
             effective_pool = _effective_pool(
                 subset_names=body.pool_subset or [],
@@ -804,8 +815,11 @@ def _find_default_checkpoint(repo_root: Path) -> Optional[Path]:
 
     Search order, first hit wins:
       1) $INDIGO_CHECKPOINT env var
-      2) data/checkpoints/<tag>/latest  — most recently modified
-      3) data/checkpoints/<tag>          — most recently modified leaf
+      2) data/checkpoints/production/current — the paper's model
+         (scripts/promote_production.py); added Nov 23, before which the
+         search below could pick any older run's `latest`
+      3) data/checkpoints/<tag>/latest  — most recently modified
+      4) data/checkpoints/<tag>          — most recently modified leaf
 
     Returns None if nothing valid is found; the caller renders a friendly
     error instead of crashing inside the loader.
@@ -819,6 +833,9 @@ def _find_default_checkpoint(repo_root: Path) -> Optional[Path]:
     root = repo_root / "data" / "checkpoints"
     if not root.is_dir():
         return None
+    prod = root / "production" / "current"
+    if (prod / "model.pt").is_file():
+        return prod
 
     # Prefer */latest symlinks/dirs (the canonical convention from training).
     latests = []

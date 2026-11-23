@@ -20,10 +20,10 @@ This Space hosts the same FastAPI server + static frontend that runs locally —
 - Free-text prompts: *"a deep crimson with no silver, between 3 and 5 layers"*
 - Structured input: CIE Lab + a JSON constraint array
 - Material picker: any subset of the JLL library (≤ 32) or upload a CSV of n/k spectra
-- Speed presets: **fast** (~5–10 s), **balanced** (~15–25 s), **best** (~2–5 min)
+- Search presets: **Paper** (the default; 250 candidates, top 10 refined for 100 steps, the setting behind every number in the paper), **Fast** and **Balanced** (smaller searches), and **Robust** (a different objective that trades colour accuracy for thickness tolerance)
 
 ## How it works
-See the **"how it works ⓘ"** button in the UI for the 7-stage pipeline reference. Short version:
+See the **"how it works"** button in the UI for the 7-stage pipeline reference. Short version:
 
 ```
 parse prompt → encode pool → sample N candidates → simulate ΔE
