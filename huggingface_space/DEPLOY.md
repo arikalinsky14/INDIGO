@@ -59,13 +59,16 @@ git lfs track "data/checkpoints/**/*.bin"
 git lfs track "data/checkpoints/**/*.safetensors"
 git add .gitattributes
 
-# Pull in the INDIGO source. Easiest: copy the files in.
+# Pull in the INDIGO source. Easiest: copy the files in. results/ and
+# analyses/ stay out: the demo does not read them, and Hugging Face rejects
+# plain binary files (their PNGs, PDFs, .docx) in a git push (Nov 2026).
 # (Adjust the source path to your INDIGO checkout.)
 rsync -a --delete \
     --exclude='.git' --exclude='__pycache__' \
     --exclude='.venv' --exclude='venv' \
     --exclude='data/datasets' --exclude='data/train' --exclude='data/test' \
     --exclude='slurms' --exclude='outputs' --exclude='job-outputs' \
+    --exclude='results' --exclude='analyses' --exclude='deposit' \
     --exclude='create_dataset/data_prompts' \
     ~/INDIGO/ ./
 
@@ -86,7 +89,7 @@ Windows PowerShell equivalent of the rsync line:
 
 ```powershell
 robocopy C:\path\to\INDIGO . /MIR `
-    /XD .git __pycache__ .venv venv data\datasets data\train data\test `
+    /XD .git __pycache__ .venv venv data\datasets data\train data\test results analyses deposit `
         slurms outputs job-outputs create_dataset\data_prompts
 ```
 
