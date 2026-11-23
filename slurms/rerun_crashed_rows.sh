@@ -25,7 +25,10 @@
 # stop on any other duplicate. A job whose folder already holds a rows.json
 # is skipped, so running this twice submits nothing new.
 #
-# After all seven finish: bash scripts/sync_results.sh
+# After all seven finish, fold them into their chunks (Nov 23; a run must not
+# hold a row twice, and sync_results.sh refuses to commit one that does):
+#   scripts/merge_reruns.py outputs/paper/strong_model outputs/paper/strong_random outputs/neutron_final/full
+#   (from an srun shell on smp, as for the sync), then bash scripts/sync_results.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

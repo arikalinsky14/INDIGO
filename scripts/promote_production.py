@@ -131,6 +131,17 @@ def git_commit() -> Optional[str]:
         return None
 
 
+def n_params_of(cfg: dict) -> int:
+    """Trainable parameters, from src/scaling/flops.py (torch-free; equals the
+    lr_tuning.py run record's n_params, 11,314,405 for production)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from src.scaling.flops import ArchSpec, n_params
+    return int(n_params(ArchSpec(d_model=cfg["d_model"], n_heads=cfg["n_heads"],
+                                 head_mode=cfg.get("head_mode", "cross_attn"),
+                                 slot_encoder_layers=cfg["slot_encoder_layers"],
+                                 decoder_layers=cfg["decoder_layers"])))
+
+
 def promote(wdir: Path, dest: Path, reason: str, dry_run: bool) -> None:
     meta = read_meta(wdir)
     if is_diverged(meta):
@@ -173,6 +184,7 @@ def promote(wdir: Path, dest: Path, reason: str, dry_run: bool) -> None:
             "chosen_by": reason,
             "lr": meta["lr"],
             "batch_size": cfg["batch_size"],
+            "n_params": n_params_of(cfg),
             **{k: cfg[k] for k in ("d_model", "slot_encoder_layers", "decoder_layers",
                                     "n_heads")},
             "seed": meta.get("seed"),

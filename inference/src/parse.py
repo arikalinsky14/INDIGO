@@ -90,7 +90,8 @@ class ParseError(RuntimeError):
 def _response_json_schema() -> Dict[str, Any]:
     """Strict JSON-Schema describing the LLM response.
 
-    Mirrors the 8 Constraint subclasses in constraints.py. Fields the user
+    Mirrors the 8 user-facing Constraint subclasses in constraints.py
+    (LayerFromSet, the ninth, is benchmark-only and deliberately absent). Fields the user
     didn't talk about (e.g. unconstrained position) are nullable so the
     schema fits all 8 kinds in one anyOf without per-kind branching.
     """

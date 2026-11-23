@@ -34,9 +34,44 @@
       "synthetic_perturb_large",
       "synthetic_lorentz"
     ],
-    "wall_time_s": 0.20206332206726074,
-    "error": "generate failed: ValueError: token_id 3201 out of range [0, 3201)",
-    "dropped_per_constraint": {}
+    "wall_time_s": 190.77212047576904,
+    "achieved_lab": [
+      86.45716084615583,
+      -14.33533694202177,
+      28.728667366172367
+    ],
+    "delta_e": 4.886912535007447,
+    "n_layers": 5,
+    "layers": [
+      {
+        "material": "perturb_small(cSi)",
+        "thickness_nm": 49.71154794465327
+      },
+      {
+        "material": "perturb_large(Mn)",
+        "thickness_nm": 34.13489942971279
+      },
+      {
+        "material": "perturb_large(SiO2)",
+        "thickness_nm": 16.64427742992257
+      },
+      {
+        "material": "perturb_small(cSi)",
+        "thickness_nm": 183.8274989908568
+      },
+      {
+        "material": "perturb_large(SiO2)",
+        "thickness_nm": 69.86320390986579
+      }
+    ],
+    "objective": 4.886912535007447,
+    "refined": true,
+    "rerun_of_sampler_crash": {
+      "rerun_folder": "_merged_reruns/strong_random/rerun_tiera_row300",
+      "replaced_error": "generate failed: ValueError: token_id 3201 out of range [0, 3201)",
+      "rerun_model_tag": "flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr0.0003104_bs256_ep1_cross_attnH11_se6_dec1",
+      "rerun_model_sha256": "4fd024434fcc0c02"
+    }
   },
   {
     "row_idx": 301,

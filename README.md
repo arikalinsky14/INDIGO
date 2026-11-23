@@ -10,7 +10,7 @@ Thin-film coatings get their color from light interference in stacked layers onl
 - **A cross-attention transformer writes the layer stack one layer at a time**, choosing a material from the pool and a thickness at each step.
 - **Trained on 40 million physics-simulated examples**, about 80% of them built from synthetic materials so the model learns from n,k features rather than memorizing names.
 - **Search at inference.** The model proposes candidate stacks, a physics simulator scores them, and layer thicknesses are refined with DoG (Dr. Hinder's parameter-free optimizer). A web interface accepts plain-language requests.
-- **Eight constraint types** (allowed materials, thickness ranges, layer count, symmetry and others) are enforced during generation where possible and checked on every returned design.
+- **Eight user-facing constraint types** (allowed materials, thickness ranges, layer count, symmetry and others) are enforced during generation where possible and checked on every returned design.
 
 ### Results
 

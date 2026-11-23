@@ -527,6 +527,8 @@ def rescore(repo: Path, run_dir: Path, out: Path, index: Optional[Path] = None) 
     for rp in sorted(glob.glob(str(run_dir / "**" / "rows.json"), recursive=True)):
         for r in json.load(open(rp)):
             i, old = r["row_idx"], by_idx.get(r["row_idx"])
+            if r.get("rerun_of_sampler_crash"):        # merged in place (merge_reruns.py)
+                replaced.append(i)
             if old is None:
                 by_idx[i] = (rp, r)
             elif _bug(old[1]) and not r.get("error"):

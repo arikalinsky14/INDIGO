@@ -92,6 +92,19 @@ if (( TOTAL_MB > MAX_TOTAL_MB )); then
     exit 1
 fi
 
+# No run may hold a row index twice (Nov 23: sampler-crash reruns sat beside
+# the crashed rows). Checked on the copies about to be committed; fold reruns
+# in with: python3 scripts/merge_reruns.py outputs/paper/<run> ... (then re-sync).
+RUN_ROOTS=()
+for d in results/paper_runs results/neutron_runs results/neutron_final_runs; do
+    [[ -d "$d" ]] && RUN_ROOTS+=("$d")
+done
+if (( ${#RUN_ROOTS[@]} )) && ! python3 scripts/merge_reruns.py --check "${RUN_ROOTS[@]}"; then
+    echo "[ERROR] duplicated rows; nothing committed. Run scripts/merge_reruns.py on the" >&2
+    echo "        outputs/ run folders named above, then sync again." >&2
+    exit 1
+fi
+
 shopt -s nullglob
 ANALYSES=(analyses/*/results)
 shopt -u nullglob

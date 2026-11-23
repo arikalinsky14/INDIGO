@@ -18,8 +18,11 @@ and sets -inf on disallowed logits before sampling.
 
 Naming
 ------
-All eight constraint kinds are concrete subclasses of `Constraint`
-(re-exported from schema.py). Each carries its own parameter fields and a
+Nine constraint kinds are concrete subclasses of `Constraint`; eight are
+user-facing (demo, prompt parser, run_inference JSON). The ninth, LayerFromSet
+("layer i is one of these materials"), serves the NEUTRON benchmark only and is
+deliberately not exposed in the demo. All nine are re-exported from
+schema.py. Each carries its own parameter fields and a
 short `kind` tag for serialisation.
 
 Defaults that diverge from the plan, per the review

@@ -8263,7 +8263,7 @@
       ],
       "dE_ours": 0.8920233925380239,
       "wall_time_s": 266.954226732254,
-      "file": "results/neutron_final_runs/full/rerun_row0173/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr0.0003104_bs256_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
+      "file": "results/neutron_final_runs/full/rows0150/flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr4.42e-05_bs64_ep1_cross_attnH11_se6_dec1/tier_a/rows.json",
       "materials": [
         "Ta2O5",
         "ZnSe",

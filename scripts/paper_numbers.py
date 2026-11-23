@@ -116,6 +116,8 @@ def load_run(folder: Path):
                     sha.add(summ["model_sha256"])
             for r in json.load(open(rp)):
                 i = int(r["row_idx"])
+                if r.get("rerun_of_sampler_crash"):     # merged in place (merge_reruns.py)
+                    replaced.append((tier, i))
                 old = rows[tier].get(i)
                 if old is not None and old.get("delta_e") != r.get("delta_e"):
                     # A row rerun after the sampler's token-3201 crash (fixed

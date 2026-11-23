@@ -15,3 +15,6 @@ outputs/
 _profile_*.py
 _scratch_*.py
 cache/
+
+# scripts/make_deposit.sh output (uploaded to Zenodo, not to git)
+deposit/

@@ -8224,9 +8224,40 @@
       "synthetic_interp",
       "synthetic_perturb_small"
     ],
-    "wall_time_s": 0.043906450271606445,
-    "error": "generate failed: ValueError: token_id 3201 out of range [0, 3201)",
-    "dropped_per_constraint": {}
+    "wall_time_s": 137.2733986377716,
+    "achieved_lab": [
+      90.57458459391302,
+      2.2805920259074686,
+      23.356034609313813
+    ],
+    "delta_e": 0.0016347317624287373,
+    "n_layers": 4,
+    "layers": [
+      {
+        "material": "perturb_small(Cu)",
+        "thickness_nm": 130.1480572851771
+      },
+      {
+        "material": "lorentz_metal_n2",
+        "thickness_nm": 60.03253037586628
+      },
+      {
+        "material": "perturb_small(Cu)",
+        "thickness_nm": 2.0262501027900983
+      },
+      {
+        "material": "GaP",
+        "thickness_nm": 114.02697890937084
+      }
+    ],
+    "objective": 0.0016347317624287373,
+    "refined": true,
+    "rerun_of_sampler_crash": {
+      "rerun_folder": "_merged_reruns/strong_random/rerun_tiera_row496",
+      "replaced_error": "generate failed: ValueError: token_id 3201 out of range [0, 3201)",
+      "rerun_model_tag": "flex_raw_spectrum_enc128-64_d352_L8_do0.1_lr0.0003104_bs256_ep1_cross_attnH11_se6_dec1",
+      "rerun_model_sha256": "4fd024434fcc0c02"
+    }
   },
   {
     "row_idx": 497,

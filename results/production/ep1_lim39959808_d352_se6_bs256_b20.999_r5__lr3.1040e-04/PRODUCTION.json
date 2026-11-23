@@ -3,6 +3,7 @@
   "chosen_by": "highest learning rate that did not diverge: 3.1040e-04 (lowest diverged 6.2080e-04)",
   "lr": 0.0003104000000000001,
   "batch_size": 256,
+  "n_params": 11314405,
   "d_model": 352,
   "slot_encoder_layers": 6,
   "decoder_layers": 1,

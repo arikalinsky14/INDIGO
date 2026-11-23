@@ -448,7 +448,10 @@ def test_train_with_lr_saves_loadable_weights(shards, tmp_path):
     meta = _json.load(open(wdir / "meta.json"))
     assert meta["lr"] == 2e-3 and meta["seed"] == 42
     model, loaded_cfg, _ = load_inference_model(wdir, torch.device("cpu"))
-    assert loaded_cfg.to_dict() == cfg.to_dict()
+    # The trial's own rate and batch size, not ModelConfig's defaults (Nov 18:
+    # those defaults are how the production config.json came to say 4.42e-5/64).
+    import dataclasses as _dc
+    assert loaded_cfg.to_dict() == _dc.replace(cfg, learning_rate=2e-3, batch_size=32).to_dict()
     saved = torch.load(wdir / "model.pt", weights_only=True)
     for k, v in model.state_dict().items():
         if k in saved:
