@@ -39,11 +39,11 @@ LABELS = {
     "chromatic_corners": "Chromatic\ncorners",
     "key_model": "INDIGO",
     "key_target": "target",
-    "key_random": "random",
+    "key_random": "baseline",
     "lab": "({:.0f}, {:.0f}, {:.0f})",
     "gamut": "† target outside sRGB; its strip is clipped for display",
     "lab_head": "Target L*a*b*",
-    "de_head": r"Under each tile: $\Delta E_{00}$ of INDIGO (bold) / random",
+    "de_head": r"Under each tile: $\Delta E_{00}$ of INDIGO (bold) / baseline",
     "key_head": "Each tile:",
 }
 

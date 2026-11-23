@@ -37,7 +37,7 @@ SUBSTRATE = "#BDBDBD"
 
 LABELS = {
     "model": "INDIGO",
-    "base": "Random",
+    "base": "Baseline",
     "row_title": "{b}",
     "de": "{v:.2f}",
     "fail": "failed",

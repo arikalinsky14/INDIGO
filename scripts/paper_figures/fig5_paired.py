@@ -33,7 +33,7 @@ X_RUN, Y_RUN = "random", "INDIGO"
 BUCKET_COL = {"C<8": S.OI["green"], "8<=C<30": S.OI["orange"], "C>=30": S.OI["purple"]}
 
 LABELS = {
-    "x": r"$\Delta E_{00}$, random proposals",
+    "x": r"$\Delta E_{00}$, baseline",
     "y": r"$\Delta E_{00}$, INDIGO",
     "fail": "failed",
     "floor": "≤0.001",
